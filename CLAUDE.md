@@ -12,8 +12,10 @@ top=cpu_top; front=fetch,decode,bht,ras;
 core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory; exec=adder32,mul,alu,branch
 ### 参考: 
 /Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator
+这是我用C++仿照verilog编写的CPU，已经通过了正确性测试，在编写时可以参考
 ## 模块名 = 文件名; testbench 模块名 = 文件名 (tb_<模块>)
 ## testbench 契约: 波形输出 sim/<域>/tb_<模块>.vcd; 失败打印 N TESTS FAILED 后调 $stop;
+## 单元测试先进行小规模+极端情况测试，通过后再考虑大规模测试确保正确性。
 ## 成功打印 ALL TESTS PASSED 后调 $finish; 一律经 make run/wave 运行 (内部 vvp -N, 失败退出码 1)
 ## 代码风格 (Verilog-2005, 仿真+综合一致)
 - 缩进 4 空格; 运算符两边加空格 (仿 C++ 风格), 如 (ISSUE_WIDTH + 1) * PW - 1 : 0

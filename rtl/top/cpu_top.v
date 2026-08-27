@@ -1,13 +1,8 @@
-// 顶层: RV32IM 乱序多发射 Tomasulo CPU 总流水线 (胶水全部在此, 无新增模块)
+// 顶层: RV32IM 乱序多发射 Tomasulo CPU 总流水线
 // 三阶段结构 (与 C++ 参考 tick() 同构): 读端口 → 组合 assign → posedge 锁存
-// 组合块: B1 操作数获取(CDB 旁路) B2 发射(全批 or 不批) B3 执行槽分发
-//         B4 误预测检测(最老优先) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
-// 关键时序约束:
-//  - misp 周期抑制 issue (错路批会落在 walker 捕获的 walk_ptr 之外 → RAT/preg 泄漏)
-//  - flushing 期间: issue 抑制 + fetch stall + commit 冻结
-//  - rob 内部写优先级 set_last > set_head > set_ready > push (push 清该条目 ready)
-//  - walker 回滚与 rat flush 同 posedge; free_list push 端口 walker|commit 复用 (flushing 判互斥)
-//  - 终止标记 TERM_RAW 提交 → halt 锁存; ROB 排空后经槽 0 读口采样 ret_val
+// 组合块: B2 发射(全批 or 不批) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
+//         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → rtl/exec/execute_slot.v
+//         误预测汇出链(最老优先)与 fetch 重定向/rob 截断/ras 恢复在此
 module cpu_top #(
     parameter ISSUE_WIDTH  = 1,
     parameter ROB_SIZE     = 32,
@@ -50,8 +45,8 @@ module cpu_top #(
     wire                           sw_valid;
     wire [31 : 0]                    sw_addr, sw_data;
     wire [1 : 0]                     sw_width;
-    wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  omacc;
-    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0]   macc;
+    wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  old_map_chain;
+    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0]   mem_cnt_chain;
     reg                            halt_q_r, ret_latched_r;
     reg  [7 : 0]                     ret_val_r;
     wire                           ret_sample;
@@ -59,6 +54,13 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 1) * PRF_SIZE - 1 : 0] rt_clear_c;   // one-hot 掩码累加链 (rename clear)
     wire [(ISSUE_WIDTH + 1) * PRF_SIZE - 1 : 0] flclr_c;      // one-hot 掩码累加链 (walker flush clear)
     wire [(ISSUE_WIDTH + 1) * LSQ_SIZE - 1 : 0] inv_c;        // one-hot 掩码累加链 (commit invalidate)
+    // execute_slot 输出 (每槽) + misp 汇出链 (最老优先前缀 OR)
+    wire [ISSUE_WIDTH - 1 : 0]        misp_det_w;
+    wire [ISSUE_WIDTH * 32 - 1 : 0]   misp_red_w;
+    wire [ISSUE_WIDTH * RW - 1 : 0]   misp_fs_pay_w;
+    wire [ISSUE_WIDTH * RA - 1 : 0]   misp_ras_pay_w;
+    wire [ISSUE_WIDTH - 1 : 0]        br_inc_w;
+    wire [ISSUE_WIDTH : 0]            misp_any_c;   // misp_det 前缀 OR (段值在 slt 内)
 
     // ==================== 1. 实例化区 ====================
 
@@ -74,6 +76,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH * BW - 1 : 0] upd_idx_w;
     wire [ISSUE_WIDTH - 1 : 0]    upd_taken_w;
     fetch #(.ISSUE_WIDTH(ISSUE_WIDTH), .BHT_SIZE(BHT_SIZE), .RAS_SIZE(RAS_SIZE)) u_fetch (
+        .clk(clk), .rst_n(rst_n),
         .f2i_valid(f2i_valid), .f2i_raw(f2i_raw), .f2i_pc(f2i_pc),
         .f2i_pred_taken(f2i_pred_taken), .f2i_pred_target(f2i_pred_target),
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr_w),
@@ -109,12 +112,14 @@ module cpu_top #(
     wire [ISSUE_WIDTH - 1 : 0]    fl_push_valid;
     wire [ISSUE_WIDTH * PW - 1 : 0] fl_push_preg;
     rat #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_rat (
+        .clk(clk), .rst_n(rst_n),
         .map_out1(map_out1), .map_out2(map_out2), .map_arch(map_arch),
         .read_rs1(d_rs1), .read_rs2(d_rs2),
         .rename_valid(rename_valid), .rename_rd(d_rd), .rename_new(alloc_val),
         .flush_valid(walk_flush_valid), .flush_rd(walk_flush_rd), .flush_old(walk_flush_old)
     );
     free_list #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_fl (
+        .clk(clk), .rst_n(rst_n),
         .alloc_val(alloc_val), .count_out(fl_count),
         .pop_req(rename_valid), .push_valid(fl_push_valid), .push_preg(fl_push_preg)
     );
@@ -140,6 +145,7 @@ module cpu_top #(
     wire set_last_valid;
     wire [RW - 1 : 0] set_last_val;
     rob #(.ISSUE_WIDTH(ISSUE_WIDTH), .ROB_SIZE(ROB_SIZE), .PRF_SIZE(PRF_SIZE), .LSQ_SIZE(LSQ_SIZE)) u_rob (
+        .clk(clk), .rst_n(rst_n),
         .head(rob_head_w), .last(rob_last_w), .empty(rob_empty), .full(rob_full),
         .free_count(rob_free_w),
         .ready(rob_ready_w), .opcode(rob_opcode_w), .rd(rob_rd_w),
@@ -178,6 +184,7 @@ module cpu_top #(
     wire [RS_SIZE - 1 : 0]        rs_flush_mask;
     rs #(.ISSUE_WIDTH(ISSUE_WIDTH), .RS_SIZE(RS_SIZE), .PRF_SIZE(PRF_SIZE),
          .ROB_SIZE(ROB_SIZE), .LSQ_SIZE(LSQ_SIZE), .BHT_SIZE(BHT_SIZE), .RAS_SIZE(RAS_SIZE)) u_rs (
+        .clk(clk), .rst_n(rst_n),
         .sel_valid(sel_valid), .sel_idx(sel_idx), .free_count(rs_free_w),
         .entry_valid(rs_entry_valid), .entry_opcode(rs_entry_opcode), .entry_func3(rs_entry_func3),
         .entry_func7(rs_entry_func7), .entry_prs1(rs_entry_prs1), .entry_prs2(rs_entry_prs2),
@@ -204,6 +211,7 @@ module cpu_top #(
     wire [PRF_SIZE - 1 : 0] rt_clear_req, rt_flush_clear_req;
     wire [PRF_SIZE - 1 : 0] rt_set_req_w;
     ready_table #(.PRF_SIZE(PRF_SIZE)) u_rt (
+        .clk(clk), .rst_n(rst_n),
         .ready(rt_ready_w), .set_req(rt_set_req_w),
         .clear_req(rt_clear_req), .flush_clear_req(rt_flush_clear_req)
     );
@@ -213,11 +221,13 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 1) * PW - 1 : 0] cdb_prf_preg;
     wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] cdb_prf_data;
     prf #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_prf (
+        .clk(clk), .rst_n(rst_n),
         .data_out1(prf_d1), .data_out2(prf_d2),
         .rd1_preg(rd1_preg), .rd2_preg(rd2_preg),
         .wr_valid(cdb_prf_valid), .wr_preg(cdb_prf_preg), .wr_data(cdb_prf_data)
     );
-    wire [ISSUE_WIDTH - 1 : 0]    cdb_exec_valid, cdb_exec_rob_wr;
+    wire [ISSUE_WIDTH - 1 : 0]    cdb_exec_valid;
+    wire [ISSUE_WIDTH - 1 : 0]    cdb_exec_rob_wr = {ISSUE_WIDTH{1'b1}};   // 恒 1: 执行完成即置 ROB ready
     wire [ISSUE_WIDTH * PW - 1 : 0] cdb_exec_prd;
     wire [ISSUE_WIDTH * 32 - 1 : 0] cdb_exec_result;
     wire [ISSUE_WIDTH * RW - 1 : 0] cdb_exec_rob_tag;
@@ -262,6 +272,7 @@ module cpu_top #(
     wire [LW - 1 : 0] mem_done_idx;
     wire [31 : 0] mem_done_data;
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
+        .clk(clk), .rst_n(rst_n),
         .head(lsq_head_w), .last(lsq_last_w), .full(lsq_full), .free_count(lsq_free_w),
         .valid(lsq_valid_w), .is_load(lsq_is_load_w), .addr_ready(lsq_addr_ready_w),
         .data_ready(lsq_data_ready_w), .addr(lsq_addr_w), .data(lsq_data_w),
@@ -283,6 +294,7 @@ module cpu_top #(
     );
     memory #(.ISSUE_WIDTH(ISSUE_WIDTH), .MEM_SIZE(MEM_SIZE), .MEM_LATENCY(MEM_LATENCY),
              .MEM_INFLIGHT(MEM_INFLIGHT), .LSQ_SIZE(LSQ_SIZE), .INIT_FILE(INIT_FILE)) u_mem (
+        .clk(clk), .rst_n(rst_n),
         .inst_data(inst_data), .imem_addr(imem_addr_w),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
@@ -307,7 +319,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH - 1 : 0]    walked_valid;
     wire [ISSUE_WIDTH * PW - 1 : 0] wlk_push_preg;
     generate
-        for (jj = 0; jj < ISSUE_WIDTH; jj = jj + 1) begin : wlk
+        for (jj = 0; jj < ISSUE_WIDTH; jj = jj + 1) begin : walk
             assign walk_idx_w[jj * RW +: RW] = walk_ptr_r - jj;            // 回绕
             assign walked_valid[jj]        = flushing_r && (rem_w > jj);
             // 回滚 rename 状态: rat.flush(恢复 old_pnum) + free_list push(new_pnum) + ready_table 清零
@@ -353,14 +365,13 @@ module cpu_top #(
     wire issue_en = have_batch && !misp_valid && !flushing_r && resources_ok;
 
     // ---- 误预测汇出 (B4) ----
-    wire [ISSUE_WIDTH - 1 : 0] misp_w, misp_sel_w;
     wire [ISSUE_WIDTH * 32 - 1 : 0] redirect_c;
     wire [ISSUE_WIDTH * RW - 1 : 0] misp_fs_c;
     wire [ISSUE_WIDTH * RA - 1 : 0] misp_ras_c;
-    assign misp_valid = |misp_w;
-    assign redirect_pc_w = redirect_c[ISSUE_WIDTH * 32 +: 32];
-    assign misp_fs_w     = misp_fs_c[ISSUE_WIDTH * RW +: RW];
-    assign misp_ras_w    = misp_ras_c[ISSUE_WIDTH * RA +: RA];
+    assign misp_valid = |misp_det_w;
+    assign redirect_pc_w = redirect_c[(ISSUE_WIDTH - 1) * 32 +: 32];
+    assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
+    assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
 
     // ---- 每槽胶水 ----
     generate
@@ -368,7 +379,7 @@ module cpu_top #(
             // ===== B2 发射: 每槽 push/rename 信号 =====
             wire ren_v = issue_en && d_writes_rd[s];
             wire memop = d_is_load[s] || d_is_store[s];
-            wire [2 : 0] lsq_off = macc[s * 3 +: 3];   // 本槽前 memop 数 (lsq_tag 前缀)
+            wire [2 : 0] lsq_off = mem_cnt_chain[s * 3 +: 3];   // 本槽前 memop 数 (lsq_tag 前缀)
             assign rename_valid[s] = ren_v;
             wire [PW - 1 : 0] wnew = alloc_val[s * PW +: PW];
             // 新映射未就绪 (clear 优先于 set; one-hot 掩码链)
@@ -382,7 +393,7 @@ module cpu_top #(
             assign rob_push_opcode[s * 7 +: 7]    = d_opcode[s * 7 +: 7];
             assign rob_push_rd[s * 5 +: 5]        = d_rd[s * 5 +: 5];
             assign rob_push_new[s * PW +: PW]     = ren_v ? alloc_val[s * PW +: PW] : {PW{1'b0}};
-            assign rob_push_old[s * PW +: PW]     = ren_v ? omacc[s * PW +: PW] : {PW{1'b0}};
+            assign rob_push_old[s * PW +: PW]     = ren_v ? old_map_chain[s * PW +: PW] : {PW{1'b0}};
             assign rob_push_lsq[s * LW +: LW]     = memop ? (lsq_last_w + 1 + lsq_off) : {LW{1'b0}};
             assign rob_push_raw[s * 32 +: 32]     = f2i_raw[s * 32 +: 32];
             assign rs_push_opcode[s * 7 +: 7]     = d_opcode[s * 7 +: 7];
@@ -394,12 +405,12 @@ module cpu_top #(
             assign rs_push_pc[s * 32 +: 32]       = f2i_pc[s * 32 +: 32];
             assign rs_push_imm[s * 32 +: 32]      = d_imm[s * 32 +: 32];
             assign rs_push_lsq_tag[s * LW +: LW]  = memop ? (lsq_last_w + 1 + lsq_off) : {LW{1'b0}};
-            assign rs_push_rob_tag[s * RW +: RW]  = rob_last_w + 1 + s;
+            assign rs_push_rob_tag[s * RW +: RW]  = rob_last_w + s;   // = ROB 写入 index (last_r + psum)
             assign rs_push_pred_taken[s]        = f2i_pred_taken[s];
             assign rs_push_pred_target[s * 32 +: 32] = f2i_pred_target[s * 32 +: 32];
             assign rs_push_ras_snap[s * RA +: RA]    = f2i_ras_snap[s * RA +: RA];
             assign lsq_push_valid[s]        = issue_en && memop;
-            assign lsq_push_rob_tag[s * RW +: RW]   = rob_last_w + 1 + s;
+            assign lsq_push_rob_tag[s * RW +: RW]   = rob_last_w + s;   // = ROB 写入 index
             assign lsq_push_prs2_or_prd[s * PW +: PW] = d_is_load[s] ? alloc_val[s * PW +: PW] : map_out2[s * PW +: PW];
             assign lsq_push_width[s * 2 +: 2]        = d_mem_width[s * 2 +: 2];
             assign lsq_push_is_unsigned[s]         = d_mem_unsigned[s];
@@ -408,154 +419,77 @@ module cpu_top #(
             assign wr_acc[(s + 1) * 3 +: 3]  = wr_acc[s * 3 +: 3] + (f2i_valid[s] && d_writes_rd[s]);
             assign mem_acc[(s + 1) * 3 +: 3] = mem_acc[s * 3 +: 3] + (f2i_valid[s] && memop);
             assign sel_acc[(s + 1) * 3 +: 3] = sel_acc[s * 3 +: 3] + sel_valid[s];
-            // old_map 链段值 (批内同 rd 前递; 存于 omacc; 末槽只读不求值, 防位段越界)
+            // old_map 链段值 (批内同 rd 前递; 存于 old_map_chain; 末槽只读不求值, 防位段越界)
             if (s < ISSUE_WIDTH - 1) begin : omc
-                assign omacc[(s + 1) * PW +: PW] = (d_writes_rd[s] && (d_rd[s * 5 +: 5] == d_rd[(s + 1) * 5 +: 5]))
- ? alloc_val[s * PW +: PW] : omacc[s * PW +: PW];
+                assign old_map_chain[(s + 1) * PW +: PW] = (d_writes_rd[s] && (d_rd[s * 5 +: 5] == d_rd[(s + 1) * 5 +: 5]))
+ ? alloc_val[s * PW +: PW] : old_map_chain[s * PW +: PW];
             end
 
-            // ===== B3 执行槽字段: 按 sel_idx 取 RS 条目 =====
-            wire [6 : 0] slot_opcode = rs_entry_opcode[sel_idx[s * SRW +: SRW] * 7 +: 7];
-            wire [2 : 0] slot_func3  = rs_entry_func3[sel_idx[s * SRW +: SRW] * 3 +: 3];
-            wire [6 : 0] slot_func7  = rs_entry_func7[sel_idx[s * SRW +: SRW] * 7 +: 7];
-            wire [PW - 1 : 0] slot_prs1  = rs_entry_prs1[sel_idx[s * SRW +: SRW] * PW +: PW];
-            wire [PW - 1 : 0] slot_prs2  = rs_entry_prs2[sel_idx[s * SRW +: SRW] * PW +: PW];
-            wire [PW - 1 : 0] slot_prd   = rs_entry_prd[sel_idx[s * SRW +: SRW] * PW +: PW];
-            wire [31 : 0] slot_pc     = rs_entry_pc[sel_idx[s * SRW +: SRW] * 32 +: 32];
-            wire [31 : 0] slot_imm    = rs_entry_imm[sel_idx[s * SRW +: SRW] * 32 +: 32];
-            wire [LW - 1 : 0] slot_lsq_tag = rs_entry_lsq_tag[sel_idx[s * SRW +: SRW] * LW +: LW];
-            wire [RW - 1 : 0] slot_rob_tag = rs_entry_rob_tag[sel_idx[s * SRW +: SRW] * RW +: RW];
-            wire slot_pred_taken  = rs_entry_pred_taken[sel_idx[s * SRW +: SRW]];
-            wire [31 : 0] slot_pred_target = rs_entry_pred_target[sel_idx[s * SRW +: SRW] * 32 +: 32];
-            wire [RA - 1 : 0] slot_ras_snap  = rs_entry_ras_snap[sel_idx[s * SRW +: SRW] * RA +: RA];
-
-            wire slot_is_r     = (slot_opcode == 7'h33);
-            wire slot_is_i     = (slot_opcode == 7'h13);
-            wire slot_is_lui   = (slot_opcode == 7'h37);
-            wire slot_is_auipc = (slot_opcode == 7'h17);
-            wire slot_is_load  = (slot_opcode == 7'h03);
-            wire slot_is_store = (slot_opcode == 7'h23);
-            wire slot_is_branch = (slot_opcode == 7'h63);
-            wire slot_is_jal   = (slot_opcode == 7'h6F);
-            wire slot_is_jalr  = (slot_opcode == 7'h67);
-            wire slot_is_mul   = slot_is_r && (slot_func7 == 7'h01);
-            wire slot_is_ctrl  = slot_is_branch || slot_is_jal || slot_is_jalr;
-            wire slot_is_mem   = slot_is_load || slot_is_store;
-
-            // ===== B1 操作数获取 (CDB 旁路 + ready_table→PRF 索引读) =====
-            // 旁路链: 遍历槽 j∈[0..W] (槽 W = load 完成), 至多一个匹配
-            wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] byp1_acc, byp2_acc, byp1_c, byp2_c;
-            wire [ISSUE_WIDTH : 0] m1, m2;
-            wire m1_any = |m1, m2_any = |m2;
-            for (j = 0; j <= ISSUE_WIDTH; j = j + 1) begin : byp
-                    wire res1 = cdb_slot_valid_w[j] && (cdb_tag_w[j * PW +: PW] == slot_prs1);
-                    wire res2 = cdb_slot_valid_w[j] && (cdb_tag_w[j * PW +: PW] == slot_prs2);
-                    wire [31 : 0] resv = (j < ISSUE_WIDTH) ? cdb_exec_result[j * 32 +: 32] : load_cdb_result;
-                    assign m1[j] = res1;
-                    assign m2[j] = res2;
-                    assign byp1_acc[j * 32 +: 32] = res1 ? resv : 32'd0;
-                    assign byp2_acc[j * 32 +: 32] = res2 ? resv : 32'd0;
-                    if (j == 0) begin : b0
-                        assign byp1_c[0 * 32 +: 32] = byp1_acc[0 * 32 +: 32];
-                        assign byp2_c[0 * 32 +: 32] = byp2_acc[0 * 32 +: 32];
-                    end else begin : bn
-                        assign byp1_c[j * 32 +: 32] = byp1_c[(j - 1) * 32 +: 32] | byp1_acc[j * 32 +: 32];
-                        assign byp2_c[j * 32 +: 32] = byp2_c[(j - 1) * 32 +: 32] | byp2_acc[j * 32 +: 32];
-                    end
-                end
-            wire [31 : 0] byp1 = byp1_c[ISSUE_WIDTH * 32 +: 32];
-            wire [31 : 0] byp2 = byp2_c[ISSUE_WIDTH * 32 +: 32];
-            // 注: prs==0 短路 0; 旁路优先; 否则 ready_table 命中读 PRF (索引读)
-            wire [31 : 0] op1 = (slot_prs1 == 0) ? 32'd0 : (m1_any ? byp1 : (rt_ready_w[slot_prs1] ? prf_d1[s * 32 +: 32] : 32'd0));
-            wire [31 : 0] op2 = (slot_prs2 == 0) ? 32'd0 : (m2_any ? byp2 : (rt_ready_w[slot_prs2] ? prf_d2[s * 32 +: 32] : 32'd0));
-            // prf 读地址: 槽 0 复用为 ret_val 采样口 (rob 空时 sel_valid[0]==0)
+            // ===== execute_slot 实例 (B3 字段取 / B1 旁路 / alu+branch / CDB 广播 / 访存 / B4 检测) =====
+            wire [PW - 1 : 0] slot_rd1;
+            execute_slot #(.ISSUE_WIDTH(ISSUE_WIDTH), .RS_SIZE(RS_SIZE), .PRF_SIZE(PRF_SIZE),
+                           .LSQ_SIZE(LSQ_SIZE), .ROB_SIZE(ROB_SIZE), .RAS_SIZE(RAS_SIZE),
+                           .BHT_SIZE(BHT_SIZE)) u_slot (
+                .sel_valid(sel_valid[s]), .sel_idx(sel_idx[s * SRW +: SRW]),
+                .rs_entry_opcode(rs_entry_opcode), .rs_entry_func3(rs_entry_func3), .rs_entry_func7(rs_entry_func7),
+                .rs_entry_prs1(rs_entry_prs1), .rs_entry_prs2(rs_entry_prs2), .rs_entry_prd(rs_entry_prd),
+                .rs_entry_pc(rs_entry_pc), .rs_entry_imm(rs_entry_imm),
+                .rs_entry_lsq_tag(rs_entry_lsq_tag), .rs_entry_rob_tag(rs_entry_rob_tag),
+                .rs_entry_pred_taken(rs_entry_pred_taken), .rs_entry_pred_target(rs_entry_pred_target),
+                .rs_entry_ras_snap(rs_entry_ras_snap),
+                .rt_ready(rt_ready_w), .prf_d1(prf_d1[s * 32 +: 32]), .prf_d2(prf_d2[s * 32 +: 32]),
+                .cdb_slot_valid(cdb_slot_valid_w), .cdb_tag(cdb_tag_w),
+                .cdb_exec_result(cdb_exec_result), .load_cdb_result(load_cdb_result),
+                .rd1_preg(slot_rd1), .rd2_preg(rd2_preg[s * PW +: PW]),
+                .exec_valid(cdb_exec_valid[s]), .exec_prd(cdb_exec_prd[s * PW +: PW]),
+                .exec_result(cdb_exec_result[s * 32 +: 32]), .exec_rob_tag(cdb_exec_rob_tag[s * RW +: RW]),
+                .set_addr_req(set_addr_req[s]), .set_addr_idx(set_addr_idx[s * LW +: LW]),
+                .set_addr_val(set_addr_val[s * 32 +: 32]),
+                .set_data_req(set_data_req[s]), .set_data_idx(set_data_idx[s * LW +: LW]),
+                .set_data_val(set_data_val[s * 32 +: 32]),
+                .misp_det(misp_det_w[s]), .misp_red(misp_red_w[s * 32 +: 32]),
+                .misp_fs(misp_fs_pay_w[s * RW +: RW]), .misp_ras(misp_ras_pay_w[s * RA +: RA]),
+                .br_inc(br_inc_w[s]),
+                .upd_req(upd_req_w[s]), .upd_idx(upd_idx_w[s * BW +: BW]), .upd_taken(upd_taken_w[s])
+            );
+            // 槽 0 读口复用为 ret_val 采样 (rob 空时 sel_valid[0]==0)
             if (s == 0) begin : rd1mux
-                assign rd1_preg[0 * PW +: PW] = sel_valid[0] ? slot_prs1 : (ret_sample ? map_arch[10 * PW +: PW] : {PW{1'b0}});
+                assign rd1_preg[0 * PW +: PW] = sel_valid[0] ? slot_rd1 : (ret_sample ? map_arch[10 * PW +: PW] : {PW{1'b0}});
             end else begin : rd1plain
-                assign rd1_preg[s * PW +: PW] = slot_prs1;
+                assign rd1_preg[s * PW +: PW] = slot_rd1;
             end
-            assign rd2_preg[s * PW +: PW] = slot_prs2;
-
-            // ===== B3 执行: alu + branch =====
-            wire [31 : 0] alu_a = slot_is_lui ? 32'd0 : (slot_is_auipc ? slot_pc : op1);
-            wire [31 : 0] alu_b = (slot_is_lui || slot_is_auipc || slot_is_i || slot_is_mem) ? slot_imm : op2;
-            // alu op 编码: 0=add 1=sub 2=sll 3=slt 4=sltu 5=xor 6=srl 7=sra 8=or 9=and 10..13=mul*
-            wire [4 : 0] alu_op = slot_is_r ? (slot_is_mul
- ? (slot_func3 == 3'd0 ? 5'd10 : slot_func3 == 3'd1 ? 5'd11
- : slot_func3 == 3'd2 ? 5'd12 : 5'd13)
- : (slot_func3 == 3'd0 ? (slot_func7[5] ? 5'd1 : 5'd0)
- : slot_func3 == 3'd1 ? 5'd2 : slot_func3 == 3'd2 ? 5'd3
- : slot_func3 == 3'd3 ? 5'd4 : slot_func3 == 3'd4 ? 5'd5
- : slot_func3 == 3'd5 ? (slot_func7[5] ? 5'd7 : 5'd6)
- : slot_func3 == 3'd6 ? 5'd8 : 5'd9))
- : slot_is_i ? (slot_func3 == 3'd0 ? 5'd0 : slot_func3 == 3'd1 ? 5'd2
- : slot_func3 == 3'd2 ? 5'd3 : slot_func3 == 3'd3 ? 5'd4
- : slot_func3 == 3'd4 ? 5'd5 : slot_func3 == 3'd5 ? (slot_func7[5] ? 5'd7 : 5'd6)
- : slot_func3 == 3'd6 ? 5'd8 : 5'd9)
- : 5'd0;   // lui/auipc/load/store/NOP → add
-            wire [31 : 0] alu_result;
-            alu u_alu (.a(alu_a), .b(alu_b), .op(alu_op), .result(alu_result));
-            wire [1 : 0]  br_mode = slot_is_jal ? 2'd1 : (slot_is_jalr ? 2'd2 : 2'd0);
-            wire br_taken;
-            wire [31 : 0] br_link, br_target;
-            branch u_br (.rs1(op1), .rs2(op2), .pc(slot_pc), .imm(slot_imm),
-                         .mode(br_mode), .br_op(slot_func3), .taken(br_taken),
-                         .target(br_target), .link(br_link));
-
-            // ===== 执行广播 (CDB 生产者; load 槽排除: 其 prd 是"地址", 见约束 13) =====
-            assign cdb_exec_valid[s]    = sel_valid[s] && !slot_is_load;
-            assign cdb_exec_prd[s * PW +: PW]    = slot_prd;
-            assign cdb_exec_result[s * 32 +: 32] = slot_is_ctrl ? br_link : alu_result;
-            assign cdb_exec_rob_tag[s * RW +: RW] = slot_rob_tag;
-            assign cdb_exec_rob_wr[s]    = 1'b1;
-            assign cdb_slot_valid_w[s]   = cdb_exec_valid[s];
-            assign cdb_tag_w[s * PW +: PW] = slot_prd;
-
-            // ===== 访存: 地址 = alu 结果, store 数据 = rs2 =====
-            assign set_addr_req[s]   = sel_valid[s] && slot_is_mem;
-            assign set_addr_idx[s * LW +: LW] = slot_lsq_tag;
-            assign set_addr_val[s * 32 +: 32] = alu_result;
-            assign set_data_req[s]   = sel_valid[s] && slot_is_store;
-            assign set_data_idx[s * LW +: LW] = slot_lsq_tag;
-            assign set_data_val[s * 32 +: 32] = op2;
-
-            // ===== B4 误预测检测 (最老 = 低槽优先) =====
-            wire smisp = sel_valid[s] && ((slot_is_branch && (br_taken != slot_pred_taken))
-                                        || (slot_is_jalr && (br_target != slot_pred_target)));
-            assign misp_w[s] = smisp;
-            if (s == 0) begin : msel0
-                assign misp_sel_w[0] = smisp;
-            end else begin : mseln
-                assign misp_sel_w[s] = smisp && !(|misp_w[s - 1 : 0]);
+            // CDB 标签/有效别名 (与 exec_valid 同源; load 槽由模块内排除)
+            assign cdb_slot_valid_w[s] = cdb_exec_valid[s];
+            assign cdb_tag_w[s * PW +: PW] = cdb_exec_prd[s * PW +: PW];
+            // misp 汇出链 (最老优先: 前缀 OR, 低槽赢; 门控折叠为 misp_sel ? x : 0)
+            if (s == 0) begin : m0
+                assign misp_any_c[0] = misp_det_w[0];
+                assign redirect_c[0 * 32 +: 32] = misp_det_w[0] ? misp_red_w[0 * 32 +: 32] : 32'd0;
+                assign misp_fs_c[0 * RW +: RW]  = misp_det_w[0] ? misp_fs_pay_w[0 * RW +: RW] : {RW{1'b0}};
+                assign misp_ras_c[0 * RA +: RA] = misp_det_w[0] ? misp_ras_pay_w[0 * RA +: RA] : {RA{1'b0}};
+            end else begin : mn
+                assign misp_any_c[s] = misp_any_c[s - 1] | misp_det_w[s];
+                assign redirect_c[s * 32 +: 32] = redirect_c[(s - 1) * 32 +: 32]
+                    | ((misp_det_w[s] && !misp_any_c[s - 1]) ? misp_red_w[s * 32 +: 32] : 32'd0);
+                assign misp_fs_c[s * RW +: RW]  = misp_fs_c[(s - 1) * RW +: RW]
+                    | ((misp_det_w[s] && !misp_any_c[s - 1]) ? misp_fs_pay_w[s * RW +: RW] : {RW{1'b0}});
+                assign misp_ras_c[s * RA +: RA] = misp_ras_c[(s - 1) * RA +: RA]
+                    | ((misp_det_w[s] && !misp_any_c[s - 1]) ? misp_ras_pay_w[s * RA +: RA] : {RA{1'b0}});
             end
-            // bht 更新 (仅条件分支, 实际方向)
-            assign upd_req_w[s]   = sel_valid[s] && slot_is_branch;
-            assign upd_idx_w[s * BW +: BW] = (slot_pc >> 2) % BHT_SIZE;
-            assign upd_taken_w[s] = br_taken;
-            // 计数链: 分支数
-            assign br_acc[(s + 1) * 3 +: 3] = br_acc[s * 3 +: 3] + (sel_valid[s] && slot_is_branch);
-            // 误预测汇出 (OR-reduce 链; misp_sel 单热)
-            if (s == 0) begin : mr0
-                assign redirect_c[0 * 32 +: 32] = smisp ? br_target : 32'd0;
-                assign misp_fs_c[0 * RW +: RW]  = smisp ? slot_rob_tag : {RW{1'b0}};
-                assign misp_ras_c[0 * RA +: RA] = smisp ? slot_ras_snap : {RA{1'b0}};
-            end else begin : mrn
-                assign redirect_c[s * 32 +: 32] = redirect_c[(s - 1) * 32 +: 32] | (misp_sel_w[s] ? br_target : 32'd0);
-                assign misp_fs_c[s * RW +: RW]  = misp_fs_c[(s - 1) * RW +: RW] | (misp_sel_w[s] ? slot_rob_tag : {RW{1'b0}});
-                assign misp_ras_c[s * RA +: RA] = misp_ras_c[(s - 1) * RA +: RA] | (misp_sel_w[s] ? slot_ras_snap : {RA{1'b0}});
-            end
+            // 分支计数链段
+            assign br_acc[(s + 1) * 3 +: 3] = br_acc[s * 3 +: 3] + br_inc_w[s];
         end
     endgenerate
-    assign rt_clear_req = rt_clear_c[ISSUE_WIDTH * PRF_SIZE +: PRF_SIZE];
+    assign rt_clear_req = rt_clear_c[(ISSUE_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];   // 末槽 chunk
     // load 完成槽 (CDB 槽 W): 有效 + 旁路标签
     assign cdb_slot_valid_w[ISSUE_WIDTH]   = load_cdb_valid;
     assign cdb_tag_w[ISSUE_WIDTH * PW +: PW] = load_cdb_prd;
-    // old_map 链初值 + macc 链 (声明在顶部; 段值在 slt 内生成)
-    assign omacc[0 * PW +: PW] = map_arch[d_rd[0 * 5 +: 5] * PW +: PW];
-    assign macc[0 * 3 +: 3]    = 3'd0;
+    // old_map 链初值 + mem_cnt_chain 链 (声明在顶部; 段值在 slt 内生成)
+    assign old_map_chain[0 * PW +: PW] = map_arch[d_rd[0 * 5 +: 5] * PW +: PW];
+    assign mem_cnt_chain[0 * 3 +: 3]    = 3'd0;
     generate
         for (mm = 0; mm < ISSUE_WIDTH; mm = mm + 1) begin : isschain
-            assign macc[(mm + 1) * 3 +: 3] = macc[mm * 3 +: 3]
+            assign mem_cnt_chain[(mm + 1) * 3 +: 3] = mem_cnt_chain[mm * 3 +: 3]
  + (f2i_valid[mm] && (d_is_load[mm] || d_is_store[mm]));
         end
     endgenerate
@@ -623,7 +557,7 @@ module cpu_top #(
             assign marker_acc[c] = ce_w[c] && (rob_raw_w[eidx * 32 +: 32] == TERM_RAW);
         end
     endgenerate
-    assign lsq_invalidate = inv_c[ISSUE_WIDTH * LSQ_SIZE +: LSQ_SIZE];
+    assign lsq_invalidate = inv_c[(ISSUE_WIDTH - 1) * LSQ_SIZE +: LSQ_SIZE];   // 末槽 chunk (链只写到 W-1)
     assign set_head_valid = (n_commit > 0);
     assign set_head_val   = rob_head_w + n_commit;
     assign sw_valid = |(ce_w & is_store_w);

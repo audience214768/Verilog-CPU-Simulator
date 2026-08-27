@@ -1,0 +1,28 @@
+# ============================================================
+# 综合脚本: 32 位乘法器 (radix-4 2位 Booth + Wallace 树) → ASAP7 7nm 标准单元
+# 用法: make synth    (输出: synth/out/mul_net.v, mul_stat.txt, mul_synth.log)
+#
+# 工艺库: ASAP7 r1p7 标准单元 (asap7sc7p5t_27), RVT + TT 工艺角
+#   * 库按类别拆分在 5 个 .lib 中, 先由 synth/merge_liberty.py 合并为单文件
+#     (本 yosys 构建无 write_liberty, abc/stat 的 -liberty 只接受单文件)
+#   * 合并库只含组合库 (SIMPLE+INVBUF+AO+OA): abc 的 liberty 解析器对
+#     SEQ 库的 ff 块会崩溃 (Scl_LibertyFindMatch 断言), 时序单元 (DFF)
+#     改由 dfflibmap 单独映射, 见 synth/cpu.ys
+#   * 剔除 TIEHI/TIELO 常数源单元 (无时序段, abc 转换断言 Delay>0)
+# 时序: 暂不约束; 面积导向用 map -a (555 um2, 优于默认 map 的 625)
+# ============================================================
+
+read_liberty -lib synth/out/asap7_comb.lib
+
+read_verilog rtl/exec/mul.v rtl/exec/adder32.v
+hierarchy -top mul
+proc; opt; memory; opt; fsm; opt
+techmap; opt
+
+# 注意: ASAP7 单元名 (如 AND2x2_ASAP7_75t_R) 使 ABC 无法识别 buffer/inverter,
+# 默认 &dch;&nf 超图映射器在本库上段错误, 故改用经典 map; -a 为面积导向
+abc -liberty synth/out/asap7_comb.lib -script "+strash;ifraig;scorr;dc2;dretime;strash;map -a"
+opt; clean
+
+stat -liberty synth/out/asap7_comb.lib
+write_verilog -noattr synth/out/mul_net.v

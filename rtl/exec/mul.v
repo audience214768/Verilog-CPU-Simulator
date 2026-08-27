@@ -33,9 +33,7 @@ module mul (
             assign pp_neg[i] = neg;
             wire [33 : 0] val = mag1 ? {A[32], A[31 : 0], 1'b0}
  : (mag0 ? {A[32], A} : 34'b0);
-            // 行值 pp (34 位): 负值取反, +1 由校正位行提供
             wire [33 : 0] pp = neg ? ~val : val;
-            // 64 位列值: 值位列 2i..2i+33, 符号扩展至列 63; 最高行 (i=16) 截断到 32 位
             if (2 * i + 34 <= 64) begin : ext
                 assign rows_pk[i * 64 +: 64] =
                     {{(64 - (2 * i + 34)){pp[33]}}, pp, {(2 * i){1'b0}}};

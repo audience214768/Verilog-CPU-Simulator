@@ -27,7 +27,7 @@ VVPS := $(patsubst tb/%.v,$(SIM)/%.vvp,$(TBS))
 
 TB ?= exec/tb_adder32
 
-.PHONY: all run wave clean
+.PHONY: all run wave clean synth
 
 all: run
 
@@ -54,4 +54,42 @@ wave: $(VVPS)
 	surfer $(SIM)/$(TB).vcd
 
 clean:
-	rm -rf $(SIM)
+	rm -rf $(SIM) synth/out
+
+# ============================================================
+# 综合 (YoSys + ASAP7 7nm 标准单元库, RVT+TT)
+#   make synth        综合乘法器 mul → synth/out/mul_stat.txt + mul_net.v
+#   make synth-cpu    全核综合       → synth/out/cpu_stat.txt + cpu_net.v
+#   asap7_comb.lib: SIMPLE+INVBUF+AO+OA 四库合并 (abc 映射组合逻辑用;
+#                    时序单元 DFF 由 dfflibmap 按 SEQ 库单独映射,
+#                    见 synth/mul.ys / synth/cpu.ys 注释)
+# ============================================================
+YS      ?= yosys
+SYNTH   := synth/out
+NLDM    ?= /Users/audience/opt/asap7sc7p5t_27/LIB/NLDM
+COMBLIB := $(SYNTH)/asap7_comb.lib
+
+$(COMBLIB): synth/merge_liberty.py \
+		$(NLDM)/asap7sc7p5t_SIMPLE_RVT_TT_nldm_201020.lib \
+		$(NLDM)/asap7sc7p5t_INVBUF_RVT_TT_nldm_201020.lib \
+		$(NLDM)/asap7sc7p5t_AO_RVT_TT_nldm_201020.lib \
+		$(NLDM)/asap7sc7p5t_OA_RVT_TT_nldm_201020.lib
+	@mkdir -p $(SYNTH)
+	python3 synth/merge_liberty.py $@ $^
+
+$(SYNTH)/mul_stat.txt: synth/mul.ys $(COMBLIB) rtl/exec/mul.v rtl/exec/adder32.v
+	@mkdir -p $(SYNTH)
+	$(YS) -ql $(SYNTH)/mul_synth.log synth/mul.ys
+	grep -E "Chip area|Number of cells" $(SYNTH)/mul_synth.log > $@
+	@cat $@
+
+$(SYNTH)/cpu_stat.txt: synth/cpu.ys $(COMBLIB) \
+		$(NLDM)/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib \
+		$(wildcard rtl/top/*.v rtl/front/*.v rtl/core/*.v rtl/exec/*.v)
+	@mkdir -p $(SYNTH)
+	$(YS) -ql $(SYNTH)/cpu_synth.log synth/cpu.ys
+	grep -E "Chip area|Number of cells" $(SYNTH)/cpu_synth.log > $@
+	@cat $@
+
+synth: $(SYNTH)/mul_stat.txt
+synth-cpu: $(SYNTH)/cpu_stat.txt

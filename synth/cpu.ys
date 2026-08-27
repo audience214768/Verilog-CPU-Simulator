@@ -1,0 +1,31 @@
+# ============================================================
+# 综合脚本: 全核乱序 CPU → ASAP7 7nm 标准单元
+# 用法: make synth-cpu    (输出: synth/out/cpu_net.v, cpu_stat.txt, cpu_synth.log)
+#
+# 流程: abc 映射组合逻辑 (四库合并, 见 synth/mul.ys 说明), dfflibmap
+# 单独映射时序单元 (DFF, 来自 SEQ 库; abc 解析器对 SEQ ff 块崩溃故分开)
+# memory: 64KB 主存当 SRAM 宏黑盒排除 (read_verilog -lib 只读接口)
+# 面积口径: "核心面积" = 全部标准单元面积 (含 DFF), memory 宏另计
+# ============================================================
+
+read_liberty -lib synth/out/asap7_comb.lib
+read_liberty -lib /Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib
+
+# memory 黑盒 (SRAM 宏, 综合面积另计); 其余 RTL 全部读入
+read_verilog -lib rtl/core/memory.v
+read_verilog rtl/top/cpu_top.v rtl/front/fetch.v rtl/front/decode.v rtl/front/bht.v rtl/front/ras.v \
+             rtl/core/rat.v rtl/core/free_list.v rtl/core/rob.v rtl/core/rs.v rtl/core/ready_table.v \
+             rtl/core/prf.v rtl/core/lsq.v rtl/core/cdb.v \
+             rtl/exec/adder32.v rtl/exec/mul.v rtl/exec/alu.v rtl/exec/branch.v rtl/exec/execute_slot.v
+hierarchy -top cpu_top
+proc; opt; memory; opt; fsm; opt
+techmap; opt
+
+abc -liberty synth/out/asap7_comb.lib -script "+strash;ifraig;scorr;dc2;dretime;strash;map -a"
+opt; clean
+
+dfflibmap -liberty /Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib
+opt; clean
+
+stat -liberty synth/out/asap7_comb.lib -liberty /Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib
+write_verilog -noattr synth/out/cpu_net.v

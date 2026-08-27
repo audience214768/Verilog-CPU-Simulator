@@ -29,10 +29,70 @@ module cdb #(
 );
     localparam PW = $clog2(PRF_SIZE);
     localparam RW = $clog2(ROB_SIZE);
-    // TODO(Phase B): 全部 assign (逐槽/逐位)
-    assign prf_valid    = {(ISSUE_WIDTH + 1){1'b0}};
-    assign prf_preg     = {(ISSUE_WIDTH + 1) * $clog2(PRF_SIZE){1'b0}};
-    assign prf_data     = {(ISSUE_WIDTH + 1) * 32{1'b0}};
-    assign rt_set_req   = {PRF_SIZE{1'b0}};
-    assign rob_ready_req = {ROB_SIZE{1'b0}};
+
+    // 执行槽 0..W-1: prd==0 不写 PRF/不置 ready; rob_wr 与 prd 无关 (按 tag 置 ROB ready)
+    genvar g;
+    generate
+        for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ex
+            wire prd_nz = (exec_prd[g * PW +: PW] != {PW{1'b0}});
+            assign prf_valid[g]    = exec_valid[g] && prd_nz;
+            assign prf_preg[g * PW +: PW] = exec_prd[g * PW +: PW];
+            assign prf_data[g * 32 +: 32] = exec_result[g * 32 +: 32];
+        end
+    endgenerate
+    // 槽 W: load 完成 (每周期 ≤1)
+    assign prf_valid[ISSUE_WIDTH] = load_valid && (load_prd != {PW{1'b0}});
+    assign prf_preg[ISSUE_WIDTH * PW +: PW] = load_prd;
+    assign prf_data[ISSUE_WIDTH * 32 +: 32] = load_result;
+
+    // rt_set_req / rob_ready_req: 独热译码后逐位归约 (assign 目标必须常量索引)
+    function [PRF_SIZE - 1 : 0] dec_p;
+        input [PW - 1 : 0] p;
+        integer k;
+        begin
+            dec_p = {PRF_SIZE{1'b0}};
+            for (k = 0; k < PRF_SIZE; k = k + 1)
+                if (k == p) dec_p[k] = 1'b1;
+        end
+    endfunction
+    function [ROB_SIZE - 1 : 0] dec_t;
+        input [RW - 1 : 0] t;
+        integer k;
+        begin
+            dec_t = {ROB_SIZE{1'b0}};
+            for (k = 0; k < ROB_SIZE; k = k + 1)
+                if (k == t) dec_t[k] = 1'b1;
+        end
+    endfunction
+    wire [ISSUE_WIDTH * PRF_SIZE - 1 : 0] rt_slot;
+    wire [ISSUE_WIDTH * ROB_SIZE - 1 : 0] rr_slot;
+    generate
+        for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : rtg
+            assign rt_slot[g * PRF_SIZE +: PRF_SIZE]
+                 = (exec_valid[g] && (exec_prd[g * PW +: PW] != {PW{1'b0}}))
+                   ? dec_p(exec_prd[g * PW +: PW]) : {PRF_SIZE{1'b0}};
+            assign rr_slot[g * ROB_SIZE +: ROB_SIZE]
+                 = (exec_valid[g] && exec_rob_wr[g])
+                   ? dec_t(exec_rob_tag[g * RW +: RW]) : {ROB_SIZE{1'b0}};
+        end
+    endgenerate
+    genvar gr, gx;
+    generate
+        for (gr = 0; gr < PRF_SIZE; gr = gr + 1) begin : rtm
+            wire [ISSUE_WIDTH - 1 : 0] b;
+            for (gx = 0; gx < ISSUE_WIDTH; gx = gx + 1) begin : rtb
+                assign b[gx] = rt_slot[gx * PRF_SIZE + gr];
+            end
+            assign rt_set_req[gr] = |b
+                || (load_valid && (load_prd != {PW{1'b0}}) && (load_prd == gr));
+        end
+        for (gr = 0; gr < ROB_SIZE; gr = gr + 1) begin : rrm
+            wire [ISSUE_WIDTH - 1 : 0] b;
+            for (gx = 0; gx < ISSUE_WIDTH; gx = gx + 1) begin : rrb
+                assign b[gx] = rr_slot[gx * ROB_SIZE + gr];
+            end
+            assign rob_ready_req[gr] = |b
+                || (load_valid && load_rob_wr && (load_rob_tag == gr));
+        end
+    endgenerate
 endmodule
