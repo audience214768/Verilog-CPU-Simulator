@@ -5,6 +5,7 @@
 //   main 的返回值 → ret_val (a0 低 8 位) 与参考 C++ 模拟器输出对照
 //   用法: make run TB=top/tb_cpu_prog ARGS="+PROG=gcd"; 缺省跑 naive
 //   可选: +DUMP=N 只 dump 前 N 拍 (缺省 2000, 0 = 不 dump; VCD 太大时用)
+//   性能微负载 loopjal (jal 自循环) / loopld (lw+分支循环): 无终止指令, **只配 +PERF=N 用** (缺 +PERF 会跑到超时)
 //   失败: N TESTS FAILED + $stop; 成功: ALL TESTS PASSED + $finish
 `timescale 1ns/1ps
 module tb_cpu_prog;
@@ -34,6 +35,7 @@ module tb_cpu_prog;
     integer dump_cyc;
     integer trace_n;
     integer cyc;
+    integer perf_n;      // >0: 只跑 N 拍 (性能测量; 不看 ret, 供消融矩阵用)
 
     // ---- 可选逐拍 trace (+TRACE=N, 缺省 0 = 关): 定位卡死时看 rob 头 / rs / lsq / 取指 ----
     integer te;
@@ -108,7 +110,8 @@ module tb_cpu_prog;
             rst_n = 1'b1;
             #1; #8; #1;
             cyc = 0;
-            while (!dut.ret_latched_r && cyc < MAX_CYCLE) begin
+            while (!dut.ret_latched_r && cyc < MAX_CYCLE
+                   && ((perf_n == 0) || (cyc < perf_n))) begin
                 #1; #8; #1;
                 cyc = cyc + 1;
                 if (dump_cyc > 0 && cyc == dump_cyc) $dumpoff;
@@ -116,7 +119,14 @@ module tb_cpu_prog;
                     $display("   ... %0s cyc=%0d commit=%0d pc=%h", nm, cyc,
                              commit_count, dut.u_fetch.pc_r);
             end
-            if (!dut.ret_latched_r) begin
+            if ((perf_n > 0) && !dut.ret_latched_r) begin
+                // 性能模式: 只跑固定拍数, 报 IPC (提交数/拍); 不作对错判定
+                $display("PERF: %0s cycles=%0d commit=%0d ipc=%0d.%03d flush=%0d branch=%0d",
+                         nm, cyc, commit_count,
+                         (commit_count * 1000) / cyc,
+                         ((commit_count * 1000000) / cyc) % 1000,
+                         flush_count, branch_count);
+            end else if (!dut.ret_latched_r) begin
                 $display("FAIL: %0s timeout @%0d (halt=%b pc=%h commit=%0d)",
                          nm, cyc, halt, dut.u_fetch.pc_r, commit_count);
                 errors = errors + 1;
@@ -149,6 +159,7 @@ module tb_cpu_prog;
         if (!$value$plusargs("PROG=%s", prog_name)) prog_name = "naive";
         if (!$value$plusargs("DUMP=%d", dump_cyc))  dump_cyc  = 2000;
         if (!$value$plusargs("TRACE=%d", trace_n))  trace_n   = 0;
+        if (!$value$plusargs("PERF=%d", perf_n))    perf_n    = 0;
         if (dump_cyc == 0) $dumpoff;      // +DUMP=0: 完全不记录 (长程序 VCD 可达数百 MB)
 
         run_prog(prog_name);

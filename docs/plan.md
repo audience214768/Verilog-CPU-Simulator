@@ -359,7 +359,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 **整机程序**（tb_cpu_top）：手写汇编 hex 优先（仅需 addi/add/sub/mul/lw/sw/beq/jal/jalr/li 约 10 种形式）——向量乘（16 元素点乘循环）、向量加（求和）、0-100 累加；结尾 `ori x0,x0,255` 标记；TB 断言 ret_val 与参考 C++ 模拟器输出一致（参考工程可直接跑对照）。**工具链升级**：`riscv64-unknown-elf-gcc -march=rv32im -mabi=ilp32`（multilib 已确认存在）编译 C → objcopy 转 hex → 经 init 口 $readmemh。
 
-**进度**：步 1–8 模块内部已全部实现，全部单元 TB（除按用户要求不跑的 `tb_mul`）与 `tb_cpu_top`（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）退出码 0。整机编译程序验证链路已打通（§5）：`naive` ret=94、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）；过程中抓出 2 个严重取指缺陷（见 §4）。当前阻塞：整机 TB 仿真速度（§3.7 末条），长程序必须先把宽向量网络改窄。
+**进度**：步 1–8 模块内部已全部实现，全部单元 TB（除按用户要求不跑的 `tb_mul`）与 `tb_cpu_top`（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）退出码 0。整机编译程序验证链路已打通（§5）：`naive` ret=94、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）；过程中抓出 2 个严重取指缺陷（见 §4）。当前阻塞：整机 TB 仿真速度（§6 调查中）—— 长程序（pi/queens/superloop 可能 10^5~10^6 拍）必须先解决，否则跑不完 18 个程序与消融矩阵。
 
 ## 实现过程记录（供"架构设计探索"报告取材）
 
@@ -409,7 +409,7 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - 取指气泡：一次预测跳转 = 1 拍（在途顺序批作废）。若把 `imem_addr` 直接由 `exp_pc_r` 驱动可再省 1 拍，代价是 PC 与请求地址解耦、预测链位置改变（收益见 p1_sum 的 100 次分支）
 - 乘法器 TB 耗时极长，按用户要求不频繁跑；面积/综合（Yosys+ASP7）按用户要求后置
 - `tb_cpu_top` 内仍留有调试脚手架（F/R/ISS/CMT/BR/PUSH/POP trace、架构影子寄存器、`/tmp/cpu_top_prog.log`、`dump_stuck`、`DBG` 打印），交付前清理
-- **整机 TB 仿真速度 30~50 ms/拍**（gcd 726 拍 23 s、tb_cpu_top 833 拍 41 s），而"极简 TB + 同一个 cpu_top"只用 ~1 ms/拍 → 不是设计规模问题。已排除：VCD dump 级别与 `$dumpoff`（四组对照均 ~2.1 s/2000 拍）、TB 的 `#1;#8;#1` 循环结构、内存初始化清 26 万字节。对 vvp 进程 `sample` 采样：**99% 时间在 `vvp_fun_concat8::run_run → vvp_send_vec8 → reduce4(vvp_vector8_t) → set_bit`**，即某个**很宽的向量拼接网络**每拍逐位重建。长程序（pi/queens/superloop 可能 10^5~10^6 拍）必须先把该网络改窄，否则要跑几小时~几天。
+- **整机 TB 仿真速度 30~50 ms/拍**（gcd 726 拍 23 s、tb_cpu_top 833 拍 41 s）：详见 **§6 调查**（"宽向量网络"这一原假设已被隔离实验证伪，勿再按它下手）。
 
 ### 4. 取指 PC 被"陈旧指令的预测"劫持 → 整机死锁（gcd 卡死抓出，严重）
 **现象**：`+PROG=gcd` 永不停机（`timeout @2000000 (halt=0 pc=00001004 commit=9)`）。逐拍 trace 显示 ROB 已空（robh=robl=9）、无批可发，而 pc 在 `0x1018 → 0x109c → 0x10a0 → 0x1000` 乱跳、`f2i_valid` 长期为 0 —— 即"取指还在动，但到达的数据永远不等于 `exp_pc_r`"。
@@ -433,6 +433,40 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - **参考模拟器作 oracle**：`RISC-V-Tomasulo-CPU-Simulator/build/code` 从 stdin 读 `.data` 镜像、stdout 打印 `ret`；18 个测试用例期望值已采集，与 TB 内 `exp_ret_f` 表逐条吻合（无 div/rem/mul 指令，GCC 把 `% 253` 强度削减掉了）。
 - **harness**：`tb/top/tb_cpu_prog.v`（`+PROG=<名>` 选程序、`+DUMP=N` 只记前 N 拍、`+TRACE=N` 逐拍 trace rob/rs/lsq/mem）+ `tb/top/prog/*.data`（19 个镜像，`$readmemh` 直载）；Makefile `ARGS=` 透传 vvp。
 - **已通过**：`naive` ret=94（45 拍）、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）。
+
+### 6. 整机仿真速度调查（进行中）
+
+**目标**：整机 TB 30~50 ms/拍（gcd 726 拍 ≈ 23 s；`tb_cpu_top` 833 拍 41 s），而 pi/queens/superloop 可能 10^5~10^6 拍 → 必须降下来才能跑完全部 18 个程序与消融矩阵。
+
+**测量方法（含噪声警告）**：同一个 vvp 二进制重复跑 gcd 200 拍，得到过 7.6 s 与 14.3 s —— **机器负载带来 ~2x 抖动是常态**。故此前所有 ±3% 级的对比（典型："rs.v 重构后 23.2 → 22.6 s"）都落在噪声内，**不可作为结论**。今后一律在同一次运行内交替 A/B 并重复，只认 ≥2x 的差异。
+
+**基线（`+PERF=N` 定拍数、`+DUMP=0`）**：
+
+| 负载 | 每拍成本 | 说明 |
+|---|---|---|
+| 固定开销（`PERF=1`） | 0.38 s 总额 | 清 26 万字节 + `$readmemh` + 复位，与拍数无关 |
+| `loopjal`（jal 自循环，IPC≈1，flush=0） | **1.10 ms/拍** | 正常流水本身不慢 |
+| `loopld`（lw+分支循环，IPC≈1） | **1.10 ms/拍** | 访存路径也不额外慢 |
+| `gcd` 200 拍（commit=113, flush=13） | **38 ms/拍** | 35 倍差距**跟着 flush 走** |
+
+**已排除**：
+1. **VCD 机制** —— 把 `$dumpfile/$dumpvars/$dumpoff` 全删的 TB 副本 14.95 s vs 原 TB `+DUMP=0` 14.31 s（噪声内）→ `$dumpoff` 已足够。
+2. **TB 循环结构 / 内存初始化** —— 固定开销仅 0.38 s；微 TB 用同一 `#1;#8;#1` 节奏仍是 0.05~0.3 ms/拍。
+3. **宽打包阵列总线（原"方向 a"假设）** —— 隔离微 TB（1500 拍满负荷流量，`+STATIC` 冻结输入作对照）：`rob` **0.047**、`lsq` **0.33**、`memory` **0.09** ms/拍；三者合计 ≈0.5 ms/拍，比整机低 60 倍。`+STATIC` 与动态无差别 → 与"数据变化触发 concat 重建"无关。据此做的 rs.v 整阵列→逐槽重构实测零收益，**已回退**（接口改动无收益、无面积收益，徒增 diff）。
+4. **内存阵列规模** —— `MEM_SIZE` 65536 → 0.08 s、262144 → 0.16 s（1500 拍，0.1 ms/拍），与整机差 300 倍。
+5. **单模块固有开销** —— `rob/lsq/memory` 三个"大数组"模块本身都不慢。
+
+**已排除的调查手段**（工具限制，勿重试）：
+- `iverilog -tvvm` 导出 vvp 汇编、按 `-pfileline` 定位 `concat8` 现场：oss-cad-suite 14.0-devel 与 homebrew 13.0 **两个安装都缺 vvm backend**（`Code generator failure: -2`）。
+- `iverilog -P`：**只对 root 模块生效，对其他模块静默忽略**（实测 `-Psub.P=8` 仍得 32，无任何警告）。消融矩阵必须用 `defparam` 或把参数提到 TB（root 层），否则会得到"所有参数都不影响性能"的假结论 —— 本次已踩坑：`rob8/rs8/lsq8/...` 一整列数字全等于 base。
+
+**未排除（按嫌疑排序）**：
+- **A. flush / 重定向路径**（最强嫌疑）：成本与 flush 活动同向（gcd flush=13 → 38 ms/拍；loopjal flush=0 → 1.1 ms/拍）。但"每次 flush 固定成本"的模型尚未定住 —— 由 gcd 50 拍/1 次 flush 反推 ~1.9 s/次，由 200 拍/13 次反推 ~0.55 s/次，两点不自洽，故也可能是"在飞指令数/占用度"或"flush 触发的组合反复求值"。子嫌疑：`rat` 回滚 walker（按 ROB 条目恢复映射）、`free_list` 恢复、`ready_table` 复位、cpu_top 冲刷掩码（32 条目年龄比较）、重定向后重取。
+- **B. 尚未隔离过的模块**：前端簇 `fetch/decode/bht/ras`、改名簇 `rat/free_list/ready_table/prf/cdb`，以及 cpu_top 胶合逻辑（`rob/lsq/memory` 已排除，剩下的 30 ms/拍只可能在这些里面）。
+- **C. 组合振荡 / 长链反复求值**：30 ms/拍 ≈ 10^7~10^8 次 functor 求值，远大于设计本身的 functor 数（~10^4~10^5）；`sample` 采样 99% 落在 `vvp_fun_concat8::run_run → vvp_send_vec8 → reduce4 → set_bit`，也符合"某个网络被反复逐位重建"的特征。iverilog 不报振荡，只会一直迭代到收敛。
+- **D. 占用度**：成本 ∝ 在飞指令数（loopjal 只有 1 条在飞，gcd 有几十条）。
+
+**下一步（能定性的一条）**：写"每次迭代必误预测"的微程序 —— 与 `loopjal` 指令数、循环形状相同，只差 flush 密度。若其 ms/拍 接近 38，则 A 定案；否则转 B 的**存根二分**（逐个模块替换为平凡存根，看哪一个让时间塌掉）。
 
 ## 消融 + 综合（报告素材）
 
