@@ -38,9 +38,10 @@ $(SIM)/%.vvp: tb/%.v $(SRCS)
 
 # 运行全部 (或单个: make run TB=exec/tb_x); vvp -N 使失败 tb 退出码为 1。
 # $(origin TB) 区分用户显式传参 (command line) 与默认值, 否则 make 永远只跑默认单个
+# ARGS 透传给 vvp (如 make run TB=top/tb_cpu_prog ARGS="+PROG=gcd")
 run: $(VVPS)
 	@if test "$(origin TB)" = "command line"; then \
-		$(VP) -N $(SIM)/$(TB).vvp; \
+		$(VP) -N $(SIM)/$(TB).vvp $(ARGS); \
 	else \
 		for t in $(VVPS); do \
 			echo "== $$t"; \

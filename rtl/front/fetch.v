@@ -66,6 +66,11 @@ module fetch #(
     wire arr_ok_w  = (imem_addr_d[0 * 32 +: 32] == exp_pc_r);   // 本拍到达是期望的下一批
     wire cap_w     = arr_ok_w && cap_ok_w && !halt; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
     wire rewind_w  = arr_ok_w && !cap_ok_w && !halt; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
+    // 预测可信条件: 到达数据正是期望批。否则到达的是错路/重复读出的陈旧指令
+    // (重定向后 1 拍、预测跳转后 1 拍、stall 期间的重复读出), 若用它的跳转预测改写 pc,
+    // pc 会被陈旧指令的目标劫持 → imem_addr_d 再也追不上 exp_pc_r → 永久失步死锁。
+    // 非期望批时 pc 只做顺序推进 (它只是"在途请求", 不改变 exp_pc 的推进)
+    wire pred_ok_w = arr_ok_w && !halt;
     wire pc_wr_w   = rst_n && (redirect_valid || rewind_w || (!stall && !halt));
 
     // ---- 预测组合 (基于到达指令 inst_data 与 T 拍 pc_r) ----
@@ -129,10 +134,11 @@ module fetch #(
     end
 
     // ---- PC 推进 (redirect > 满批丢弃回退 > stall/halt 保持 > 预测目标 > 顺序推进) ----
+    // 预测目标只在 pred_ok_w (到达批属于本流) 时采用, 见 pred_ok_w 注释
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
                           : rewind_w ? exp_pc_r
                           : (stall || halt) ? pc_r
-                          : pt_c[ISSUE_WIDTH] ? flow_c[ISSUE_WIDTH * 32 +: 32]
+                          : (pred_ok_w && pt_c[ISSUE_WIDTH]) ? flow_c[ISSUE_WIDTH * 32 +: 32]
                           : (pc_r + 32'd4 * ISSUE_WIDTH);
     always @(posedge clk) begin
         if (!rst_n)       pc_r <= 32'd0;

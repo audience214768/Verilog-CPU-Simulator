@@ -359,7 +359,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 **整机程序**（tb_cpu_top）：手写汇编 hex 优先（仅需 addi/add/sub/mul/lw/sw/beq/jal/jalr/li 约 10 种形式）——向量乘（16 元素点乘循环）、向量加（求和）、0-100 累加；结尾 `ori x0,x0,255` 标记；TB 断言 ret_val 与参考 C++ 模拟器输出一致（参考工程可直接跑对照）。**工具链升级**：`riscv64-unknown-elf-gcc -march=rv32im -mabi=ilp32`（multilib 已确认存在）编译 C → objcopy 转 hex → 经 init 口 $readmemh。
 
-**进度**：步 1–8 模块内部已全部实现，`tb_cpu_top` 三程序（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）全通过；`tb_fetch` 重写后全绿（段1 15 个 directed + 段2 300 拍逐拍模型对照），并在过程中抓出 5 个 def（见下节）。`tb_rs`、`tb_lsq` 已按"窄修期望值"修完（见 3.6），**除 `tb_mul`（按用户要求不跑）与 `tb_cpu_top` 外，全部单元 TB 退出码 0**。
+**进度**：步 1–8 模块内部已全部实现，全部单元 TB（除按用户要求不跑的 `tb_mul`）与 `tb_cpu_top`（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）退出码 0。整机编译程序验证链路已打通（§5）：`naive` ret=94、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）；过程中抓出 2 个严重取指缺陷（见 §4）。当前阻塞：整机 TB 仿真速度（§3.7 末条），长程序必须先把宽向量网络改窄。
 
 ## 实现过程记录（供"架构设计探索"报告取材）
 
@@ -409,6 +409,30 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - 取指气泡：一次预测跳转 = 1 拍（在途顺序批作废）。若把 `imem_addr` 直接由 `exp_pc_r` 驱动可再省 1 拍，代价是 PC 与请求地址解耦、预测链位置改变（收益见 p1_sum 的 100 次分支）
 - 乘法器 TB 耗时极长，按用户要求不频繁跑；面积/综合（Yosys+ASP7）按用户要求后置
 - `tb_cpu_top` 内仍留有调试脚手架（F/R/ISS/CMT/BR/PUSH/POP trace、架构影子寄存器、`/tmp/cpu_top_prog.log`、`dump_stuck`、`DBG` 打印），交付前清理
+- **整机 TB 仿真速度 30~50 ms/拍**（gcd 726 拍 23 s、tb_cpu_top 833 拍 41 s），而"极简 TB + 同一个 cpu_top"只用 ~1 ms/拍 → 不是设计规模问题。已排除：VCD dump 级别与 `$dumpoff`（四组对照均 ~2.1 s/2000 拍）、TB 的 `#1;#8;#1` 循环结构、内存初始化清 26 万字节。对 vvp 进程 `sample` 采样：**99% 时间在 `vvp_fun_concat8::run_run → vvp_send_vec8 → reduce4(vvp_vector8_t) → set_bit`**，即某个**很宽的向量拼接网络**每拍逐位重建。长程序（pi/queens/superloop 可能 10^5~10^6 拍）必须先把该网络改窄，否则要跑几小时~几天。
+
+### 4. 取指 PC 被"陈旧指令的预测"劫持 → 整机死锁（gcd 卡死抓出，严重）
+**现象**：`+PROG=gcd` 永不停机（`timeout @2000000 (halt=0 pc=00001004 commit=9)`）。逐拍 trace 显示 ROB 已空（robh=robl=9）、无批可发，而 pc 在 `0x1018 → 0x109c → 0x10a0 → 0x1000` 乱跳、`f2i_valid` 长期为 0 —— 即"取指还在动，但到达的数据永远不等于 `exp_pc_r`"。
+
+**根因**：`pc_next` **无条件**采用当拍到达数据的跳转预测（`pt_c[W] ? flow_c : pc + 4W`），但到达数据并不总是"本流"指令：
+- 预测跳转（predicted-taken）后 1 拍：到达的是**顺序后继**（已属错路）；
+- 重定向后 1 拍：到达的是**重定向前旧地址**的数据；
+- stall 期间：memory 重复读出同一地址（陈旧）。
+
+这些陈旧指令若恰是分支/jal/jalr(ret)，其预测目标就会改写 pc → pc 被劫持到任意地址 → `imem_addr_d` 再也追不上 `exp_pc_r`（而 exp_pc 只在 `cap_w`/redirect 时改变）→ **永久失步死锁**。naive 与 p1~p3 能通过纯属"错路后继恰好不是跳转指令"的运气。
+
+**修复**：新增 `pred_ok_w = arr_ok_w && !halt`（到达数据正是期望批），只有它成立时预测才可改写 pc；否则 pc 只做顺序推进——它只是"在途请求"，不改变 exp_pc 的推进。`exp_pc` 的推进本就在 `cap_w` 下（隐含 `arr_ok`），无需改动。
+
+**契约更新与教训**：`tb_fetch` 的参考模型里**复刻了同一条未门控路径**，所以此前"逐拍 300 拍全绿"是模型与 DUT 一起错。TB 与被测同源时必须警惕这类**共模错误**：逐拍对照只能证明"实现符合模型"，模型本身的语义要靠独立的边界推演（此处是"到达数据可能不属于本流"）来审。已在模型里加同一门控。
+
+**验证**：`tb_fetch` 全绿；`tb_cpu_top` 三程序周期数逐条不变（417/305、224/178、192/146）→ 修复只影响"陈旧预测劫持"这条路径；gcd 由死锁变为 PASS。
+
+### 5. 编译程序整机验证链路（85 分阶段）
+- **终止约定**：编译测试程序以 `addi a0,x0,255`（0x0FF00513）结尾表示停机。decode 把它视作"写 x0"（不写 a0）→ a0 保留 main 返回值；cpu_top 同时认手写程序的 `ori x0,x0,255`（0x0FF06013）。
+- **访存宽度**：测试程序实际用到 `lbu`(36) 与 `sb`(3) → decode 放开 `lb/lbu/lh/lhu/sb/sh`（f3[1:0] 作宽度、f3[2] 作无符号），取消原先"只支持 lw/sw"的限制。
+- **参考模拟器作 oracle**：`RISC-V-Tomasulo-CPU-Simulator/build/code` 从 stdin 读 `.data` 镜像、stdout 打印 `ret`；18 个测试用例期望值已采集，与 TB 内 `exp_ret_f` 表逐条吻合（无 div/rem/mul 指令，GCC 把 `% 253` 强度削减掉了）。
+- **harness**：`tb/top/tb_cpu_prog.v`（`+PROG=<名>` 选程序、`+DUMP=N` 只记前 N 拍、`+TRACE=N` 逐拍 trace rob/rs/lsq/mem）+ `tb/top/prog/*.data`（19 个镜像，`$readmemh` 直载）；Makefile `ARGS=` 透传 vvp。
+- **已通过**：`naive` ret=94（45 拍）、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）。
 
 ## 消融 + 综合（报告素材）
 

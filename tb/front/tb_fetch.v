@@ -86,6 +86,7 @@ module tb_fetch;
     // 上一拍组合量 (本拍 posedge 生效)
     reg                   m_arr, m_capok, m_rew, m_fok;   // 到达/可接收/满批回退/接收拍(ras ops 门控)
     reg                   m_cap;
+    reg                   m_predok;           // 到达即期望批 → 其跳转预测才可改写 pc
     reg                   m_ptc;
     reg [31 : 0]          m_flow;
     reg [IW - 1 : 0]      m_rops_ok;          // 已门控的 call (push)
@@ -143,6 +144,9 @@ module tb_fetch;
             m_cap  = m_arr && m_capok && !halt;
             m_rew  = m_arr && !m_capok && !halt;
             m_fok  = m_cap && !redirect_valid && !halt;   // DUT 的 fetch_ok: ras ops 仅此拍非 0
+            // 与 DUT 的 pred_ok_w 同步: 非期望批 (重定向后 1 拍 / 预测跳转后 1 拍 / stall 重复读出)
+            // 的陈旧指令不得用其预测改写 pc (否则 pc 被劫持, 与 exp_pc 永久失步)
+            m_predok = m_arr && !halt;
             // B2) 逐槽串行链 (低槽先定): head 链 → 预测/目标 → RAS op → 下一槽 head
             //     RAS op 只在"接收拍 + 首个预测跳转及之前"驱动 (截断后的槽是错误路径, 不动 RAS);
             //     预测/目标每槽都算 (DUT 亦然), 但 PC/exp 只跟随首个预测跳转
@@ -219,7 +223,7 @@ module tb_fetch;
             m_pc = redirect_valid ? redirect_pc
                  : m_rew ? m_exp                    // 满批丢弃 → 回退到待交付批重取
                  : (stall || halt) ? m_pc
-                 : m_ptc ? m_flow : (m_pc + 32'd4 * IW);
+                 : (m_predok && m_ptc) ? m_flow : (m_pc + 32'd4 * IW);
             // A4) ras: restore > 本拍 ops (ops 为上一拍门控后的结果)
             if (ras_restore_valid) begin
                 m_head = ras_restore_head;

@@ -34,7 +34,8 @@ module cpu_top #(
     localparam PCW = $clog2(PRF_SIZE + 1);
     localparam BW  = $clog2(BHT_SIZE);
     localparam RA  = $clog2(RAS_SIZE);
-    localparam TERM_RAW = 32'h0FF06013;   // ori x0, x0, 255
+    localparam TERM_RAW  = 32'h0FF06013;   // ori x0, x0, 255      (手写程序约定)
+    localparam TERM_RAW2 = 32'h0FF00513;   // addi a0, x0, 255     (编译测试程序约定, 见 decode)
 
     // ---- 预声明 (iverilog: 实例端口表达式与 generate 内引用须先声明) ----
     wire [RA - 1 : 0]                  misp_ras_w;
@@ -567,7 +568,8 @@ module cpu_top #(
                 assign sw_data_c[c * 32 +: 32]  = sw_data_c[(c - 1) * 32 +: 32] | sw_d;
                 assign sw_width_c[c * 2 +: 2]   = sw_width_c[(c - 1) * 2 +: 2] | sw_w;
             end
-            assign marker_acc[c] = ce_w[c] && (rob_raw_w[eidx * 32 +: 32] == TERM_RAW);
+            assign marker_acc[c] = ce_w[c] && ((rob_raw_w[eidx * 32 +: 32] == TERM_RAW)
+                                            || (rob_raw_w[eidx * 32 +: 32] == TERM_RAW2));
         end
     endgenerate
     assign lsq_invalidate = inv_c[(ISSUE_WIDTH - 1) * LSQ_SIZE +: LSQ_SIZE];   // 末槽 chunk (链只写到 W-1)
