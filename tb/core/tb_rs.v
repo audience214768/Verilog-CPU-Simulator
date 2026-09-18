@@ -1,5 +1,5 @@
-// tb_rs: 段 1 小规模+极端 (分配装载/就绪判定/CDB 命中/年龄仲裁/同年龄低槽/互斥/
-//        自清/flush>clear>push/空槽分散分配/满 RS/年龄回绕);
+// tb_rs: 段 1 小规模+极端 (分配装载/就绪判定/load 槽 CDB 命中 vs 执行槽 1 拍唤醒/
+//        年龄仲裁/同年龄低槽/互斥/自清/flush>clear>push/空槽分散分配/满 RS/年龄回绕);
 //        段 2 随机模型对照 (300 拍, 选择结果/free_count/全字段逐拍断言)
 `timescale 1ns/1ps
 module tb_rs;
@@ -173,7 +173,7 @@ module tb_rs;
 
     // 检查: 模型扫描 (当前状态+当前输入) vs DUT 组合 + 全字段
     task check_all;
-        integer li, lk, le, lj, bad, qe;
+        integer li, lk, le, bad, qe;
         reg [RW - 1 : 0] age;
         reg [RS - 1 : 0] picked;
         reg              st_v;
@@ -191,11 +191,13 @@ module tb_rs;
                     if (m_valid[le] && !flush_mask[le] && !picked[le]) begin
                         rdy1 = (m_prs1[le] == 0);
                         rdy2 = (m_prs2[le] == 0);
-                        for (lj = 0; lj <= IW; lj = lj + 1) begin
-                            if (cdb_slot_valid[lj]) begin
-                                if (cdb_tag[lj * PW +: PW] == m_prs1[le]) rdy1 = 1'b1;
-                                if (cdb_tag[lj * PW +: PW] == m_prs2[le]) rdy2 = 1'b1;
-                            end
+                        // 就绪 = prs==0 || load 槽 (IW) 广播命中 || rt_ready
+                        // 执行槽 (0..IW-1) 广播本拍不参与就绪: DUT 只用 rt_ready 唤醒执行依赖
+                        // (同一拍广播会让 ready→sel→cdb→ready 成组合环, 见 rs.v 头注释);
+                        // 执行结果在写回拍置 rt_ready, 依赖方下一拍才可选 → "1 拍唤醒" 契约
+                        if (cdb_slot_valid[IW]) begin
+                            if (cdb_tag[IW * PW +: PW] == m_prs1[le]) rdy1 = 1'b1;
+                            if (cdb_tag[IW * PW +: PW] == m_prs2[le]) rdy2 = 1'b1;
                         end
                         if (!rdy1 && rt_ready[m_prs1[le]]) rdy1 = 1'b1;
                         if (!rdy2 && rt_ready[m_prs2[le]]) rdy2 = 1'b1;
@@ -364,24 +366,46 @@ module tb_rs;
             $display("PASS: R6b rt_ready makes ready");
         end
 
-        // R7 CDB 命中: rt_ready[5]=0, cdb_tag[0]=5 → 选; 清 cdb → 不选
+        // R7 load 槽 CDB 命中: rt_ready[5]=0, cdb_tag[IW]=5 → 选; 清 cdb → 不选
         clr_all();
         rt_ready[5] = 1'b0;
-        cdb_slot_valid[0] = 1'b1; cdb_tag[0 * PW +: PW] = 6'd5;
+        cdb_slot_valid[IW] = 1'b1; cdb_tag[IW * PW +: PW] = 6'd5;
         tick();
         check_all();
         if (sel_valid !== 4'b0001) begin
-            $display("FAIL: R7a cdb hit"); errors = errors + 1;
+            $display("FAIL: R7a load cdb hit"); errors = errors + 1;
         end else begin
-            $display("PASS: R7a cdb broadcast makes ready");
+            $display("PASS: R7a load cdb broadcast makes ready");
         end
-        cdb_slot_valid[0] = 1'b0;
+        cdb_slot_valid[IW] = 1'b0;
         tick();
         check_all();
         if (sel_valid !== 4'b0000) begin
             $display("FAIL: R7b no cdb"); errors = errors + 1;
         end else begin
             $display("PASS: R7b no cdb -> not ready");
+        end
+
+        // R7c 执行槽广播不参与就绪 (设计契约): 同 tag 打在槽 0 → 本拍仍不选,
+        //     下一拍 rt_ready[5] 被 cpu_top 置位后才选 (此处手工置位模拟)
+        clr_all();
+        rt_ready[5] = 1'b0;
+        cdb_slot_valid[0] = 1'b1; cdb_tag[0 * PW +: PW] = 6'd5;
+        tick();
+        check_all();
+        if (sel_valid !== 4'b0000) begin
+            $display("FAIL: R7c exec cdb must not wake up same cycle"); errors = errors + 1;
+        end else begin
+            $display("PASS: R7c exec-slot cdb does not wake up same cycle");
+        end
+        cdb_slot_valid[0] = 1'b0;
+        rt_ready[5] = 1'b1;
+        tick();
+        check_all();
+        if (sel_valid !== 4'b0001) begin
+            $display("FAIL: R7d wakeup next cycle"); errors = errors + 1;
+        end else begin
+            $display("PASS: R7d exec result wakes up dependent next cycle");
         end
 
         flush_all();

@@ -230,9 +230,11 @@ module tb_lsq;
                        && !m_done[(m_head + k2) & (LSQ - 1)] && sok[k2];
             end
             e_ldv = (|cand) && !ld_busy;
+            // cand 按"距 head 的距离"索引, 而 ld_start_idx 是物理条目号
+            // (= (head + 距离) & (LSQ-1), 与 DUT 的 pidx 一致); head != 0 时两者不同
             e_pidx = 0;
             for (k2 = LSQ - 1; k2 >= 0; k2 = k2 - 1)
-                if (cand[k2]) e_pidx = k2[LW - 1 : 0];
+                if (cand[k2]) e_pidx = (m_head + k2[LW - 1 : 0]) & (LSQ - 1);
             e_la = m_addr[e_pidx * 32 +: 32];
             e_lw = m_wid[e_pidx * 2 +: 2];
             // ---- 期望: load_cdb ----
