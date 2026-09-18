@@ -1,6 +1,8 @@
-// 返回地址栈: 深度 RAS_SIZE, call push / ret pop, 误预测恢复 head
+// 返回地址栈: call push / ret pop, 误预测恢复 head
 // top[i]/head_snap[i] = 处理 ops[0..i-1] 后的栈顶/head (W 路顺序组合链)
 // 空栈 pop 忽略, 满栈 push 丢弃; restore 优先级 > 本拍 ops (posedge 应用)
+// 深度: head 只有 RA=$clog2(RAS_SIZE) 位 (head_snap 要原样喂给恢复通路, 宽度必须能表示),
+//       故满栈判定为 head == RAS_SIZE-1 → 有效深度 RAS_SIZE-1 条
 module ras #(
     parameter ISSUE_WIDTH = 1,
     parameter RAS_SIZE    = 8
@@ -15,6 +17,7 @@ module ras #(
     input  [$clog2(RAS_SIZE) - 1 : 0]             restore_head
 );
     localparam RA = $clog2(RAS_SIZE);
+    localparam [RA : 0] FULL_H = RAS_SIZE - 1;      // 满栈时的 head
 
     reg [31 : 0]   stack [0 : RAS_SIZE - 1];
     reg [RA - 1 : 0] head_r;
@@ -29,7 +32,7 @@ module ras #(
             wire [RA : 0] hprev = h[gi * (RA + 1) +: (RA + 1)];
             wire          is_push = (ops[gi * 2 +: 2] == 2'd1);
             wire          is_pop  = (ops[gi * 2 +: 2] == 2'd2);
-            assign push_ok[gi] = is_push && (hprev != RAS_SIZE[RA : 0]);
+            assign push_ok[gi] = is_push && (hprev != FULL_H);
             wire pop_ok = is_pop && (hprev != {RA + 1{1'b0}});
             assign h[(gi + 1) * (RA + 1) +: (RA + 1)]
                  = push_ok[gi] ? (hprev + 1'b1)
@@ -53,6 +56,10 @@ module ras #(
     always @(posedge clk) begin
         if (!rst_n) begin
             head_r <= {RA{1'b0}};
+            // 栈内容一并复位: head 被 restore 到一个尚未 push 过的位置时 (误预测恢复),
+            // 若栈未初始化会读出 X/垃圾目标 → 复位为 0 (与空栈预测 0 一致)
+            for (i = 0; i < RAS_SIZE; i = i + 1)
+                stack[i] <= 32'd0;
         end else if (restore_valid) begin
             head_r <= restore_head;
         end else begin

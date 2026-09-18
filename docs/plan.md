@@ -88,7 +88,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `upd_idx[W-1:0]` | in | W×BW | cpu_top | `(pc>>2) % BHT_SIZE` |
 | `upd_taken[W-1:0]` | in | W | cpu_top | 实际方向 |
 
-2-bit 饱和计数，复位 `2'b01`（弱不取）；W 写口按槽序依次应用（同索引重复取低槽结果）。
+2-bit 饱和计数，复位 `2'b01`（弱不取）；W 写口按**槽序正序**应用（同索引时**高槽/更年轻者最后写 → 它赢**，与 rat 的"后槽覆盖"约定一致；各槽新值都取自旧值快照，故同批同索引别名时只体现最年轻分支的一次更新，属简化）。
 
 ### front/ras.v
 | name | dir | width | 驱动方 | 说明 |
@@ -101,6 +101,8 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 内部：栈数组 + head 寄存器；W 路顺序链计算 `top[i]`/`head_snap[i]`；空栈 pop 忽略、满栈 push 丢弃。**每批的 RAS 操作在取指时一次性应用**（stall 保持批时不再重复应用）。
 
+**深度与复位（实现后修正）**：head 只有 `RA = $clog2(RAS_SIZE)` 位（`head_snap` 要原样喂给恢复通路，宽度必须可表示），故满栈判定为 `head == RAS_SIZE-1` → **有效深度 RAS_SIZE-1 条**（原 `head != RAS_SIZE` 的判据在 head 截断到 0 后失效，第 9 次 push 会覆盖栈底）。栈数组随复位清零：head 被 restore 到尚未 push 过的位置时会读出未初始化值（仿真 X / 硬件垃圾目标），清零后与"空栈预测 0"一致，仅损失一次预测精度（误预测可恢复）。
+
 ### front/fetch.v（内部实例化 bht + ras）
 | name | dir | width | 驱动方 | 说明 |
 |---|---|---|---|---|
@@ -112,11 +114,23 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `f2i_ras_snap[W*RA-1:0]` | out | RA×W | 同上 | 取指时 ras head（仅 branch/jalr 有意义） |
 | `imem_addr[W*32-1:0]` | out | 32×W | memory | 取指地址（pc 基址 + 4i） |
 | `inst_data[W*32-1:0]` | in | 32×W | memory | 同步读（1 拍延迟） |
-| `stall` | in | 1 | cpu_top | 队列满 / walker / halt → 保持 PC 与输出 |
+| `stall` | in | 1 | cpu_top | 队列满 / walker / halt → 不发起新请求（PC 最多回退到 exp_pc） |
 | `redirect_valid, redirect_pc` | in | 1/32 | cpu_top | 误预测 → 下拍从 redirect_pc 取，清空当前批 |
 | `halt` | in | 1 | cpu_top | 锁存停止取指 |
 
 内部：PC 寄存器 → imem 地址；预测：BHT 查 `(pc>>2)%BHT_SIZE`，jal 恒 taken，ret（rd=0&&rs1=1）→ ras.top+pop，call（rd=1）→ push pc+4；branch/jal 的预测目标需要 B 型/J 型 imm 符号扩展（与 decode 重复 ~6 行，注释注明保持同步——参考同款做法）。fetch 级 = 1 拍（PC 在 T 拍、指令 T+1 拍到达，含流水寄存器）。
+
+**取指握手（实现后定稿，取代"请求标签"方案）**：只用**地址比对**判到达，不用 tag/计数器。
+- `imem_addr_d` = 上一拍锁存的地址 = 本拍 `inst_data` 所属地址（memory 同步读 1 拍，两者天然同址）
+- `exp_pc_r` = 下一条要交付给 decode 的批地址；`arr_ok = (imem_addr_d[0] == exp_pc_r)` 才算"这一批是想要的"
+- 接收条件 `cap_w = arr_ok && cap_ok && !halt`，`cap_ok = 批寄存器空 || 本拍批被发射`（`batch_taken = |f2i_valid && !stall`）
+- PC 只在"写 pc"的拍推进：`pc_wr_w = rst_n && (redirect || rewind || (!stall && !halt))`
+- 好处：stall 保持 PC 造成的重复读出、预测跳转/redirect 拍的在途错路读出，全部被地址比对自动丢弃，无需任何作废信号（省 4 个寄存器与计数对齐逻辑）；反之若到达的正是期望地址（例如 redirect 目标恰在途）也照收不误
+- **稳态时序**：`pc_r = exp_pc_r + 4W`（请求领先 1 批），每拍交付 1 批；一次预测跳转 = 1 拍气泡（在途的顺序批被丢弃）
+- **满批丢弃回退（rewind）**：stall 期间到达的正是 `exp_pc` 批却因批寄存器满被丢弃 → 该批若不管就永久丢失（PC 已越过它）。故丢弃拍把 PC **回退到 `exp_pc_r`** 重取；回退后 memory 每拍重复读出 `exp_pc`，`exp_pc` 不变，stall 一解除即接收（无额外气泡，代价只是 stall 期间不预取）
+- **halt 冻结**：`cap_w` 含 `!halt`，halt 期不接收、`exp_pc` 不动（保持 `pc_r >= exp_pc` 不变量；halt 为终止态，无恢复语义）
+- **RAS 操作只对"取指路径上的前缀"驱动**：`ras_ops_w[g] = fetch_ok && !pt_c[g] ? ... : 0`，`pt_c[g]` = 槽 g 之前已有预测跳转。截断后的槽属错误路径（稍后从跳转目标重新取），若也 push/pop 会污染 RAS（实测会把 head 弹错、并让 ret 读到未写过的栈项）
+- **PC/exp 跟随"首个预测跳转"**（低槽优先，不是最后一个）：同一批内第二个预测跳转在截断之后，不能让它的目标改写 PC
 
 ### front/decode.v — 纯组合无状态
 | name | dir | width | 驱动方 | 说明 |
@@ -344,6 +358,51 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 - 全部 TB 遵循契约：波形 `sim/<域>/tb_<模块>.vcd`；失败 `N TESTS FAILED`→`$stop`；成功 `ALL TESTS PASSED`→`$finish`；一律经 `make run/wave` 运行
 
 **整机程序**（tb_cpu_top）：手写汇编 hex 优先（仅需 addi/add/sub/mul/lw/sw/beq/jal/jalr/li 约 10 种形式）——向量乘（16 元素点乘循环）、向量加（求和）、0-100 累加；结尾 `ori x0,x0,255` 标记；TB 断言 ret_val 与参考 C++ 模拟器输出一致（参考工程可直接跑对照）。**工具链升级**：`riscv64-unknown-elf-gcc -march=rv32im -mabi=ilp32`（multilib 已确认存在）编译 C → objcopy 转 hex → 经 init 口 $readmemh。
+
+**进度**：步 1–8 模块内部已全部实现，`tb_cpu_top` 三程序（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）全通过；`tb_fetch` 重写后全绿（段1 15 个 directed + 段2 300 拍逐拍模型对照），并在过程中抓出 5 个 def（见下节）。`tb_rs`、`tb_lsq` 尚待修（失败源于 TB 期望值与设计契约不一致，按"窄修期望值"处理，不重写）。
+
+## 实现过程记录（供"架构设计探索"报告取材）
+
+记录实现中被验证抓出的**真实缺陷**及其设计层面的取舍，按时间顺序。
+
+### 1. free_list 重复分配活跃物理寄存器（tb_cpu_top 抓出）
+初版 free_list 用 FIFO 回收顺序，flush 回滚 + 提交回收交错时会把**仍被未提交指令引用的 preg** 放回空闲表 → 同一 preg 被两条活跃指令占用 → 值互相覆盖（表现为程序算错、commit 与参考不符）。
+修正：改为 **LIFO 栈**（后释放先复用），并在 flush walk 与提交回收之间保持"栈内 preg 恒 ready"的约定（陷阱 #12）。收益是复用的 preg 更年轻，长依赖链上唤醒更早。
+
+### 2. issue/flush 路径与"错路批"泄漏（tb_cpu_top 抓出）
+`issue_en` 漏了 `!misp_valid`：walker 触发当拍仍发射的错路批落在 flush 窗口尾部之外 → RAT/preg 泄漏（陷阱 #11）。同轮把 fetch 的握手从"自由跑 PC"改为**请求标签制**（tag 计数配对，用于丢弃错路到达）。
+
+### 3. 取指握手重构：标签制 → 地址比对制（tb_fetch 重写驱动）
+标签制能工作但代价高：需要 `tag_r/arr_tag_r/del_tag_r/kill_r` 4 个寄存器与"在途请求数"的对齐逻辑，且 stall/redirect/预测跳转三种情形各有一套作废规则。重构为**单一期望地址指针**：
+- 用 `imem_addr_d`（与 `inst_data` 同址的延迟地址）与 `exp_pc_r` 做一次相等比较即可判定"到达的是不是下一批"；
+- 三种作废情形自动统一（重复读出、错路读出都被地址不等丢弃），省掉全部作废信号；
+- 代价：需要一条"重取"规则兜底（见 3.4）。
+
+重构过程本身也暴露了两个 TB 侧的坑（记录以便复用）：模型必须在 **posedge 时刻**采样组合量（激励在 posedge 前已施加，DUT 正是在此刻用它决策），以及 `$random` 拼接的位宽不定问题。
+
+### 3.1 满批丢弃丢指令（严重，会算错/跑飞）
+稳态下 `pc_r = exp_pc_r + 4W`（领先一批）。后端 stall 时批寄存器满，此时**恰好到达的正是 `exp_pc` 批** → 被丢弃，而 PC 已越过它，该批**永远不会再交付**（TB 中直接复现：pc 跑到 0xa0、exp 卡在 0x20）。
+修法：丢弃拍把 PC 回退到 `exp_pc_r` 重取（`rewind_w`）。回退后 memory 每拍重复读出 `exp_pc`，故 stall 一解除立即接收，**不付额外气泡**，代价仅"stall 期间不预取"。
+**为什么必须修**：`tb_cpu_top` 三个短程序后端从不满，修前修后周期数逐项一致（p1 417/305/2/100），说明整机测试**根本触不到**这条路；而性能档要求 `MEM_LATENCY=20`，长延迟访存必然把 LSQ/ROB 占满 → 正好是触发条件。
+
+### 3.2 截断后的槽污染 RAS（严重）
+批内首个预测跳转之后的槽属**错误路径**（`f2i_valid` 已截断，指令稍后从跳转目标重新取），但它们仍在接收拍驱动了 push/pop → head 被弹错、RAS 内容错位。
+修法：`ras_ops_w[g]` 增加 `!pt_c[g]` 门控，只让"取指路径上的前缀"动 RAS。
+
+### 3.3 PC/exp 跟随"最后一个"预测跳转（严重）
+原流式链是"高槽覆盖"，于是错误路径上的第二个预测跳转会**劫持 PC**（实测 pc_r 变 X 并扩散）。修法：改为"**首个**预测跳转决定 PC/exp"（低槽优先），与 3.2 的门控同源。
+
+### 3.4 RAS 满栈判定失效 + 栈未复位（中等）
+head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 `hprev != RAS_SIZE` 永不成立，第 9 次 push 覆盖栈底。取舍：把"深度"从 `RAS_SIZE` 降为 `RAS_SIZE-1`（head 必须能原样喂给恢复通路，宽度不可少），换来判据与快照都精确。
+栈数组同时随复位清零：head 被 restore 到未写过的位置时原会读出 X（仿真）/垃圾目标（硬件），清零后等价于空栈预测 0，只损失一次预测精度。
+
+### 3.5 BHT 同索引多槽写序（轻微）
+原为倒序应用（同索引时**低槽赢**），与 rat/free_list 的"后槽覆盖"约定相反。改为正序（更年轻者最后写 → 它赢）。残留简化：各槽新值都基于旧值快照，故同批同索引别名时只体现最年轻分支的一次更新（可接受：同批别名要求两分支相距 `4*BHT_SIZE` 字节）。
+
+### 3.6 待办/已知简化
+- 同批 call→ret（相距 4 字节）时 ret 预测读到的是**旧栈顶**（push 在 posedge 才写栈，无前递）→ 预测错一次，可恢复；若值得可加"批内 push 前递"
+- 取指气泡：一次预测跳转 = 1 拍（在途顺序批作废）。若把 `imem_addr` 直接由 `exp_pc_r` 驱动可再省 1 拍，代价是 PC 与请求地址解耦、预测链位置改变（收益见 p1_sum 的 100 次分支）
+- 乘法器 TB 耗时极长，按用户要求不频繁跑；面积/综合（Yosys+ASP7）按用户要求后置
 
 ## 消融 + 综合（报告素材）
 

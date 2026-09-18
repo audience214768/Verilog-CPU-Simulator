@@ -1,5 +1,6 @@
 // 分支历史表: BHT_SIZE 个 2-bit 饱和计数器 (复位 2'b01 = 弱不取)
-// 全阵列读出 (fetch 按 pc 索引), W 写口按槽序倒序应用 (同索引低槽赢)
+// 全阵列读出 (fetch 按 pc 索引), W 写口按槽序正序应用 (同索引高槽/更年轻者最后写 → 它赢)
+// 各槽新值都基于"旧值快照"算出, 故同批同索引别名时只体现最年轻分支的一次更新 (简化)
 module bht #(
     parameter ISSUE_WIDTH = 1,
     parameter BHT_SIZE    = 32
@@ -27,14 +28,14 @@ module bht #(
         end
     endgenerate
 
-    // 倒序应用: 同索引低槽最后 NBA 写 → 低槽赢
+    // 正序应用: 同索引高槽 (更年轻) 最后 NBA 写 → 高槽赢 (与 rat "后槽覆盖" 约定一致)
     integer i;
     always @(posedge clk) begin
         if (!rst_n) begin
             for (i = 0; i < BHT_SIZE; i = i + 1)
                 counters_r[i] <= 2'b01;
         end else begin
-            for (i = ISSUE_WIDTH - 1; i >= 0; i = i - 1)
+            for (i = 0; i < ISSUE_WIDTH; i = i + 1)
                 if (upd_req[i])
                     counters_r[upd_idx[i * BW +: BW]] <= nv[i * 2 +: 2];
         end

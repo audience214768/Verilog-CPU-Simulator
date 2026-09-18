@@ -1,7 +1,10 @@
 // 取指: PC → imem (同步读 1 拍) → 寄存批 f2i_*; BHT/JAL/RAS 预测随指令流动
 // 内部实例化 bht + ras; 每批 RAS 操作在接收拍一次性应用 (接收拍之外 ops=0)
-// 握手: 只有"pc 被写入"的拍才发起新取指请求 (req 标记随 imem 延迟流动),
-//       到达 (inst_data 上是新请求的结果) 且批寄存器可接收时接收; redirect 清批并改 PC; halt 停止取指
+// 握手: 只有"pc 被写入"的拍才发起新取指请求; 到达数据读自上一拍锁存进 memory 的地址 imem_addr_d,
+//       该地址 == 期望交付地址 exp_pc_r 且批寄存器可接收时接收; redirect 清批并改 PC; halt 冻结取指
+// 满批丢弃 (rewind): 稳态下 pc_r 领先 exp_pc 一个批 (请求在途), 若此时到达的正是 exp_pc 而批
+//       寄存器满 (后端 stall), 该批会被丢弃且 pc 已越过它 → 永远不再交付。故丢弃拍把 pc 回退到
+//       exp_pc 重取; 回退后 memory 每拍重复读出 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
 module fetch #(
     parameter ISSUE_WIDTH = 1,
     parameter BHT_SIZE    = 32,
@@ -48,29 +51,32 @@ module fetch #(
     reg [ISSUE_WIDTH * 32 - 1 : 0] f2i_ptarget_r;
     reg [ISSUE_WIDTH * RA - 1 : 0] f2i_ras_r;
 
-    // ---- 取指握手: 请求序号 (tag) 随 imem 延迟流动, 按序接收 ----
+    // ---- 取指握手: 到达地址 vs 期望交付地址 ----
     // pc_wr_w: 本拍写 pc (顺序推进/预测目标/重定向) = 向 imem 发起一次新请求;
     //          stall/halt 拍不写, pc_r 保持 → imem 重复读出同一地址
-    // tag 机制: 每次请求带递增序号, inst_data(C+1) 对应 pres(C) = pc_r(C) 的序号 tag_r(C);
-    //   接收条件 = 到达序号 == 期望序号 del_tag_r。pc 保持 / 冲刷 / 预测跳转拍重复读出或
-    //   已作废的地址, 其序号与期望不符 → 自动丢弃 (不会重复发射, 也不会发射错路指令)
-    //   期望序号只在接收时 +1, 重定向时跳到 (tag_r + 1) = 跳转目标请求的序号
-    // 在途请求 ≤ 2 (imem 读 1 + 到达 1) → 2 bit 序号不回绕冲突
-    reg [1 : 0] tag_r, arr_tag_r, del_tag_r;
-    reg kill_r;     // 跳转应用拍 → 下拍到达作废 (见下)
+    // exp_pc_r: 下一条应向 decode 交付的批地址。到达数据读自 imem_addr_d (上一拍地址),
+    //   与之相等才是"下一批" → 接收。于是 pc 保持 (stall/halt) 造成的重复读出、
+    //   预测跳转/重定向拍的错路读出 (地址仍是顺序地址) 全部自动丢弃, 无需额外作废信号;
+    //   反之若到达的正是期望地址 (如重定向目标恰在途), 也照收不误
+    //   推进: 接收时 +4*W (批内首个预测跳转则推进到其目标); 重定向时直接跟随 redirect_pc
+    reg [31 : 0] exp_pc_r;
     wire batch_any   = |f2i_valid_r;
     wire batch_taken = batch_any && !stall;         // 本拍批被发射 (stall 由 cpu_top 给出)
     wire cap_ok_w  = !batch_any || batch_taken;     // 下拍批寄存器可接收 (空 或 本拍批被发射)
-    wire arr_ok_w  = !kill_r && (arr_tag_r == del_tag_r);   // 本拍到达是期望的下一条指令
-    wire cap_w     = arr_ok_w && cap_ok_w;          // 本拍接收到达
-    wire pc_wr_w   = rst_n && (redirect_valid || (!stall && !halt));
+    wire arr_ok_w  = (imem_addr_d[0 * 32 +: 32] == exp_pc_r);   // 本拍到达是期望的下一批
+    wire cap_w     = arr_ok_w && cap_ok_w && !halt; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
+    wire rewind_w  = arr_ok_w && !cap_ok_w && !halt; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
+    wire pc_wr_w   = rst_n && (redirect_valid || rewind_w || (!stall && !halt));
 
     // ---- 预测组合 (基于到达指令 inst_data 与 T 拍 pc_r) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] pred_target_w;
     wire [ISSUE_WIDTH - 1 : 0]      pred_taken_w;
     wire [ISSUE_WIDTH * 2 - 1 : 0]  ras_ops_w;
     wire [ISSUE_WIDTH * 32 - 1 : 0] ras_pv_w;
-    wire fetch_ok = cap_w && !redirect_valid && !halt;    // 接收拍 (RAS ops 仅此拍驱动)
+    wire fetch_ok = cap_w && !redirect_valid && !halt;    // 接收拍 (预测/RAS ops 仅此拍生效)
+    // 批内预测前缀链: pt_c[i] = "槽 i 之前已有预测跳转" = 槽 i 是否被截断
+    wire [ISSUE_WIDTH : 0]            pt_c;              // pred_taken 前缀 OR
+    wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] flow_c;        // 流式目标链 (首个跳转决定 PC)
     generate
         for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : pr
             wire [31 : 0] raw  = inst_data[g * 32 +: 32];
@@ -92,47 +98,39 @@ module fetch #(
                                                : is_br ? (pc_i + imm_b)
                                                : is_ret ? ras_top[g * 32 +: 32]
                                                : (pc_i + 32'd4);
-            assign ras_ops_w[g * 2 +: 2] = fetch_ok ? (is_call ? 2'd1 : (is_ret ? 2'd2 : 2'd0)) : 2'd0;
+            // RAS 操作只在"接收拍 + 该槽在取指路径上 (首个跳转及之前)"驱动:
+            // 截断之后的槽是错误路径, 若也 push/pop 会污染 RAS (其指令稍后从目标地址重新取)
+            assign ras_ops_w[g * 2 +: 2] = (fetch_ok && !pt_c[g])
+                                         ? (is_call ? 2'd1 : (is_ret ? 2'd2 : 2'd0)) : 2'd0;
             assign ras_pv_w[g * 32 +: 32] = pc_i + 32'd4;
         end
     endgenerate
 
-    // ---- 批内流式预测: 取指跟随最后一个预测跳转 (链: 低槽优先, 高槽覆盖) ----
-    wire [ISSUE_WIDTH : 0]            pt_c;              // pred_taken 前缀 OR
-    wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] flow_c;        // 流式目标链
+    // ---- 批内流式预测: PC 跟随"首个预测跳转"的目标 (低槽优先);
+    //      其后的槽属错误路径 (valid 已截断), 它们即使预测取也不得改写 PC ----
     assign pt_c[0] = 1'b0;
     assign flow_c[0 * 32 +: 32] = 32'd0;
     genvar f;
     generate
         for (f = 0; f < ISSUE_WIDTH; f = f + 1) begin : flow
             assign pt_c[f + 1] = pt_c[f] | pred_taken_w[f];
-            assign flow_c[(f + 1) * 32 +: 32] = pred_taken_w[f] ? pred_target_w[f * 32 +: 32]
-                                              : flow_c[f * 32 +: 32];
+            assign flow_c[(f + 1) * 32 +: 32] = pt_c[f] ? flow_c[f * 32 +: 32]
+                                              : pred_taken_w[f] ? pred_target_w[f * 32 +: 32]
+                                              : 32'd0;
         end
     endgenerate
 
-    // ---- 跳转作废 + 序号推进 (需 pt_c/flow_c, 故置于此处) ----
-    // 跳转作废: 预测跳转/重定向在 E 边沿改 PC, 而 E 结束时锁存进 imem 的地址是跳转前
-    // 呈现的顺序地址 (取指看不到尚未到达的分支), 其到达 (下拍) 必是错路 → 作废一拍
-    wire jump_w = pt_c[ISSUE_WIDTH] || redirect_valid;
+    // ---- 期望交付地址推进 (需 pt_c/flow_c, 故置于此处) ----
     always @(posedge clk) begin
-        if (!rst_n) begin
-            kill_r    <= 1'b0;
-            tag_r     <= 2'd0;
-            arr_tag_r <= 2'd0;                      // 复位值 PC = 序号 0, 首拍到齐
-            del_tag_r <= 2'd0;
-        end else begin
-            kill_r    <= jump_w;
-            tag_r     <= tag_r + {{1{1'b0}}, pc_wr_w};
-            arr_tag_r <= tag_r;                     // 与 memory 数据同延迟 (1 拍)
-            // 跳转 (重定向 / 接收了预测跳转批): 期待下拍发起的请求 (跳转目标), 跳过在途的顺序地址
-            del_tag_r <= (redirect_valid || (cap_w && pt_c[ISSUE_WIDTH])) ? (tag_r + 2'd1)
-                       : cap_w ? (del_tag_r + 2'd1) : del_tag_r;
-        end
+        if (!rst_n)               exp_pc_r <= 32'd0;    // 复位拍 memory 锁存地址 0, 首拍即到齐
+        else if (redirect_valid)  exp_pc_r <= redirect_pc;
+        else if (cap_w)           exp_pc_r <= pt_c[ISSUE_WIDTH] ? flow_c[ISSUE_WIDTH * 32 +: 32]
+                                                            : (exp_pc_r + 32'd4 * ISSUE_WIDTH);
     end
 
-    // ---- PC 推进 (redirect > 预测目标 > stall/halt 保持 > 顺序推进) ----
+    // ---- PC 推进 (redirect > 满批丢弃回退 > stall/halt 保持 > 预测目标 > 顺序推进) ----
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
+                          : rewind_w ? exp_pc_r
                           : (stall || halt) ? pc_r
                           : pt_c[ISSUE_WIDTH] ? flow_c[ISSUE_WIDTH * 32 +: 32]
                           : (pc_r + 32'd4 * ISSUE_WIDTH);
@@ -149,9 +147,14 @@ module fetch #(
         end
     endgenerate
     // imem_addr_d: imem_addr 延迟一拍 (与 memory 的 inst_data 同地址)
+    // 复位值 = pc_r(=0) 下的各槽地址 4*g: 复位期间 memory 已在读这组地址, 若复位成全 0
+    // 则复位后首批的 pc[1..W-1] 会被写成 0 (批内 pc 错位一拍)
     always @(posedge clk) begin
-        if (!rst_n) imem_addr_d <= {ISSUE_WIDTH * 32{1'b0}};
-        else        imem_addr_d <= imem_addr;
+        if (!rst_n)
+            for (bb = 0; bb < ISSUE_WIDTH; bb = bb + 1)
+                imem_addr_d[bb * 32 +: 32] <= 32'd4 * bb;
+        else
+            imem_addr_d <= imem_addr;
     end
 
     always @(posedge clk) begin

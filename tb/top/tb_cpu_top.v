@@ -25,14 +25,13 @@ module tb_cpu_top;
     // ---- 取指流水快照: pc_r / imem 地址 / 延迟地址 / 到达指令 / f2i 批寄存器 ----
     always @(negedge clk) begin
         if (rst_n)
-            $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d sp=%0d rsf=%0d tag=%0d atag=%0d dtag=%0d kill=%b aok=%b\n",
+            $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d sp=%0d rsf=%0d exp=%h aok=%b\n",
                     $time, dut.u_fetch.pc_r, dut.imem_addr_w, dut.u_fetch.imem_addr_d,
                     dut.inst_data, dut.f2i_valid, dut.f2i_raw, dut.f2i_pc,
                     dut.fetch_stall, dut.issue_en, dut.have_batch, dut.misp_valid,
                     dut.flushing_r, dut.halt_q_r,
                     dut.rob_head_w, dut.rob_last_w, dut.u_fl.sp, dut.rs_free_w,
-                    dut.u_fetch.tag_r, dut.u_fetch.arr_tag_r, dut.u_fetch.del_tag_r,
-                    dut.u_fetch.kill_r, dut.u_fetch.arr_ok_w);
+                    dut.u_fetch.exp_pc_r, dut.u_fetch.arr_ok_w);
         $fflush(progfd);
     end
 
