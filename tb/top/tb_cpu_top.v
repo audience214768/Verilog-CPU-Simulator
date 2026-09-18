@@ -22,21 +22,89 @@ module tb_cpu_top;
     integer errors = 0;
     integer progfd;
 
-    // ---- 稳定快照: negedge clk (组合已结算) 每 cycle 记录关键状态 ----
-    // S: 快照行; 风暴时 (组合不收敛) negedge 不触发, 靠 run_prog 超时定位
+    // ---- 取指流水快照: pc_r / imem 地址 / 延迟地址 / 到达指令 / f2i 批寄存器 ----
     always @(negedge clk) begin
-        $fwrite(progfd, "S%0d t=%0t sel=%b cdbv=%b flushing=%b misp=%b ie=%b hb=%b rs_v=%b sidx=%0d\n  e1: op=%02x f3=%0b pc=%h prs1=%0d prs2=%0d prd=%0d pt=%b robh=%0d robl=%0d lsqh=%0d lsqf=%0d cmt=%0d fls=%0d\n",
-                dut.commit_count_r, $time, dut.sel_valid, dut.cdb_slot_valid_w,
-                dut.flushing_r, dut.misp_valid, dut.issue_en, dut.have_batch,
-                dut.u_rs.entry_valid, dut.u_rs.sel_idx_w,
-                dut.u_rs.entry_opcode[1 * 7 +: 7], dut.u_rs.entry_func3[1 * 3 +: 3],
-                dut.u_rs.entry_pc[1 * 32 +: 32],
-                dut.u_rs.entry_prs1[1 * 6 +: 6], dut.u_rs.entry_prs2[1 * 6 +: 6],
-                dut.u_rs.entry_prd[1 * 6 +: 6], dut.u_rs.entry_pred_taken[1],
-                dut.rob_head_w, dut.rob_last_w, dut.u_lsq.head_r, dut.u_lsq.free_count_r,
-                dut.commit_count_r, dut.flush_count_r);
+        if (rst_n)
+            $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d flh=%0d flc=%0d tag=%0d atag=%0d dtag=%0d kill=%b aok=%b\n",
+                    $time, dut.u_fetch.pc_r, dut.imem_addr_w, dut.u_fetch.imem_addr_d,
+                    dut.inst_data, dut.f2i_valid, dut.f2i_raw, dut.f2i_pc,
+                    dut.fetch_stall, dut.issue_en, dut.have_batch, dut.misp_valid,
+                    dut.flushing_r, dut.halt_q_r,
+                    dut.rob_head_w, dut.rob_last_w, dut.u_fl.head, dut.u_fl.count,
+                    dut.u_fetch.tag_r, dut.u_fetch.arr_tag_r, dut.u_fetch.del_tag_r,
+                    dut.u_fetch.kill_r, dut.u_fetch.arr_ok_w);
         $fflush(progfd);
     end
+
+    // ---- RS 有效条目 (pc/prd/rob_tag) ----
+    integer ri;
+    always @(negedge clk) begin
+        if (rst_n)
+            for (ri = 0; ri < 16; ri = ri + 1)
+                if (dut.u_rs.valid_r[ri])
+                    $fwrite(progfd, "R t=%0t e=%0d pc=%h op=%02x prd=%0d rob=%0d prs1=%0d prs2=%0d pt=%b\n",
+                            $time, ri, dut.u_rs.pc_r[ri], dut.u_rs.opcode_r[ri],
+                            dut.u_rs.prd_r[ri], dut.u_rs.rob_r[ri],
+                            dut.u_rs.prs1_r[ri], dut.u_rs.prs2_r[ri],
+                            dut.u_rs.ptaken_r[ri]);
+        $fflush(progfd);
+    end
+
+    // ---- 发射轨迹: f2i 原始指令 vs decode 输出 vs 分配 ----
+    always @(negedge clk) begin
+        if (rst_n && dut.issue_en)
+            $fwrite(progfd, "ISS t=%0t raw=%h pc=%h d_rd=%0d wr=%b d_op=%02x alloc=%0d rob_last=%0d\n",
+                    $time, dut.f2i_raw[31 : 0], dut.f2i_pc[31 : 0], dut.d_rd[4 : 0],
+                    dut.d_writes_rd[0], dut.d_opcode[6 : 0], dut.alloc_val[5 : 0], dut.rob_last_w);
+        $fflush(progfd);
+    end
+
+    // ---- 提交轨迹: 每条提交指令的 index/raw/是否终止标记 ----
+    always @(negedge clk) begin
+        if (rst_n && dut.set_head_valid)
+            $fwrite(progfd, "CMT t=%0t head=%0d raw=%h rd=%0d new=%0d old=%0d marker=%b halt_q=%b ret_l=%b\n",
+                    $time, dut.rob_head_w, dut.rob_raw_w[dut.rob_head_w * 32 +: 32],
+                    dut.rob_rd_w[dut.rob_head_w * 5 +: 5],
+                    dut.rob_new_w[dut.rob_head_w * 6 +: 6],
+                    dut.rob_old_w[dut.rob_head_w * 6 +: 6],
+                    dut.marker_acc[0], dut.halt_q_r, dut.ret_latched_r);
+        $fflush(progfd);
+    end
+
+    // ---- 卡死现场: RS 条目 / ROB 窗口 / 指针 ----
+    task dump_stuck;
+        integer e, w;
+        begin
+            $display("STUCK rs_free=%0d sel_cnt=%0d robh=%0d robl=%0d rob_free=%0d flh=%0d flc=%0d lsqh=%0d lsql=%0d lsqf=%0d",
+                     dut.rs_free_w, dut.sel_cnt, dut.rob_head_w, dut.rob_last_w, dut.u_rob.free_r,
+                     dut.u_fl.head, dut.u_fl.count, dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.free_count_r);
+            $display("  FLUSH flushing=%b misp=%b walk_ptr=%0d fs=%0d issue_en=%b batch=%b stall=%b halt_q=%b cdbv=%b",
+                     dut.flushing_r, dut.misp_valid, dut.walk_ptr_r, dut.flush_fs_r,
+                     dut.issue_en, dut.have_batch, dut.fetch_stall, dut.halt_q_r, dut.cdb_slot_valid_w);
+            for (e = 0; e < 16; e = e + 1)
+                if (dut.u_rs.valid_r[e])
+                    $display("  RS[%0d] op=%02x prs1=%0d rdy1=%b prs2=%0d rdy2=%b prd=%0d rob=%0d lsq=%0d",
+                             e, dut.u_rs.opcode_r[e], dut.u_rs.prs1_r[e], dut.rt_ready_w[dut.u_rs.prs1_r[e]],
+                             dut.u_rs.prs2_r[e], dut.rt_ready_w[dut.u_rs.prs2_r[e]],
+                             dut.u_rs.prd_r[e], dut.u_rs.rob_r[e], dut.u_rs.lsq_r[e]);
+            $display("  MEM ld_busy=%b ld_start_v=%b ld_start_idx=%0d ld_start_addr=%h slots v=%b cnt=%b idx=%0d/%0d/%0d/%0d",
+                     dut.ld_busy, dut.ld_start_valid, dut.ld_start_idx, dut.ld_start_addr,
+                     dut.u_mem.slot_valid, dut.u_mem.slot_cnt,
+                     dut.u_mem.slot_idx[0 * 4 +: 4], dut.u_mem.slot_idx[1 * 4 +: 4],
+                     dut.u_mem.slot_idx[2 * 4 +: 4], dut.u_mem.slot_idx[3 * 4 +: 4]);
+            for (e = 0; e < 16; e = e + 1)
+                $display("  LSQ[%0d] v=%b ld=%b ar=%b dr=%b dn=%b rob=%0d prd=%0d addr=%h data=%h",
+                         e, dut.u_lsq.valid_r[e], dut.u_lsq.is_load_r[e], dut.u_lsq.addr_ready_r[e],
+                         dut.u_lsq.data_ready_r[e], dut.u_lsq.done_r[e],
+                         dut.u_lsq.rob_tag_r[e * 5 +: 5], dut.u_lsq.prs2_or_prd_r[e * 6 +: 6],
+                         dut.u_lsq.addr_r[e * 32 +: 32], dut.u_lsq.data_r[e * 32 +: 32]);
+            for (w = 0; w < 32; w = w + 1)
+                if (((w - dut.rob_head_w) & 31) < (32 - dut.u_rob.free_r))
+                    $display("  ROB[%0d] op=%02x rd=%0d new=%0d old=%0d lsq=%0d rdy=%b",
+                             w, dut.u_rob.opcode_r[w], dut.u_rob.rd_r[w], dut.u_rob.new_r[w],
+                             dut.u_rob.old_r[w], dut.u_rob.lsq_r[w], dut.u_rob.ready_r[w]);
+        end
+    endtask
 
     // 运行一个程序: 加载 hex → 复位 → 轮询直到 ret 锁存
     task run_prog;
@@ -66,6 +134,7 @@ module tb_cpu_top;
             end
             if (!dut.ret_latched_r) begin
                 $display("FAIL: %0s timeout (ret not latched, halt=%b)", fname, halt);
+                dump_stuck;
                 errors = errors + 1;
             end else if (ret_val !== exp) begin
                 $display("FAIL: %0s ret=%0d exp=%0d cyc=%0d commit=%0d flush=%0d",
@@ -85,8 +154,9 @@ module tb_cpu_top;
         clk = 0;
         rst_n = 0;
 
-        $fwrite(progfd, "START p2\n"); $fflush(progfd);
+        run_prog("p1_sum",    8'h56);
         run_prog("p2_vecadd", 8'h60);
+        run_prog("p3_vecmul", 8'h48);
 
         if (errors == 0) begin
             $display("ALL TESTS PASSED");

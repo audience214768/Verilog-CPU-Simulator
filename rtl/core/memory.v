@@ -109,6 +109,7 @@ module memory #(
     always @(posedge clk) begin
         if (!rst_n) begin
             slot_valid <= {MEM_INFLIGHT{1'b0}};
+            slot_cnt <= {MEM_INFLIGHT * CNTW{1'b0}};
             ld_done_valid_r <= 1'b0;
         end else begin
             ld_done_valid_r <= 1'b0;

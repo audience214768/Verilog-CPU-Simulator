@@ -34,7 +34,7 @@ module cpu_top #(
     localparam PCW = $clog2(PRF_SIZE + 1);
     localparam BW  = $clog2(BHT_SIZE);
     localparam RA  = $clog2(RAS_SIZE);
-    localparam TERM_RAW = 32'h0FF06093;   // ori x0, x0, 255
+    localparam TERM_RAW = 32'h0FF06013;   // ori x0, x0, 255
 
     // ---- 预声明 (iverilog: 实例端口表达式与 generate 内引用须先声明) ----
     wire [RA - 1 : 0]                  misp_ras_w;
@@ -310,8 +310,10 @@ module cpu_top #(
     reg [RW - 1 : 0] flush_fs_r, walk_ptr_r;
     wire [RW - 1 : 0] fs_eff_w, rem_w;
     wire walk_done;
-    // fs_eff = 当前生效冲刷点 (中途新误预测更老 → 取新); 无 flush 时组合为 misp_fs (=0), 由 flush_active 门控
-    assign fs_eff_w = flushing_r ? ((misp_valid && ((misp_fs_w - rob_head_w) < (flush_fs_r - rob_head_w))) ? misp_fs_w : flush_fs_r)
+    // 当拍新误预测是否比已注册的冲刷点更老 (冲刷中才可能为真: 更老的条目在 walker 期间才执行)
+    wire misp_older_w = (misp_fs_w - rob_head_w) < (flush_fs_r - rob_head_w);
+    // fs_eff = 当前生效冲刷点 (中途新误预测更老 → 取新); 无 flush 时组合为 misp_fs, 仅 walker 用 (flushing_r 门控)
+    assign fs_eff_w = flushing_r ? ((misp_valid && misp_older_w) ? misp_fs_w : flush_fs_r)
  : misp_fs_w;
     assign rem_w    = walk_ptr_r - fs_eff_w;   // 待回滚条数 (fs+1..walk_ptr]
     assign walk_done = flushing_r && (rem_w <= ISSUE_WIDTH);
@@ -340,7 +342,7 @@ module cpu_top #(
     endgenerate
 
     // ==================== 3. 发射 (B2) + 执行槽分发 (B1/B3/B4) ====================
-    assign rt_flush_clear_req = flclr_c[ISSUE_WIDTH * PRF_SIZE +: PRF_SIZE];
+    assign rt_flush_clear_req = flclr_c[(ISSUE_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];
 
     // ---- 计数链 (前缀累加; 段值在 slt/cmt generate 内生成) ----
     wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc, inv_acc;
@@ -359,10 +361,11 @@ module cpu_top #(
     assign n_inv    = inv_acc[ISSUE_WIDTH * 3 +: 3];
 
     // ---- 发射条件 (全批 or 不批; misp 周期抑制见约束 1) ----
+    // halt 后不得再发射: fetch 冻结 → have_batch 常 1, 若不门控会把同一批反复压入 rob/rs (死循环)
     wire have_batch = |f2i_valid;
     wire resources_ok = !rob_full && (rs_free_w + sel_cnt >= ISSUE_WIDTH)
                      && (fl_count >= n_wr) && (lsq_free_w + n_inv >= n_mem);
-    wire issue_en = have_batch && !misp_valid && !flushing_r && resources_ok;
+    wire issue_en = have_batch && !misp_valid && !flushing_r && !halt_q_r && resources_ok;
 
     // ---- 误预测汇出 (B4) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] redirect_c;
@@ -394,7 +397,7 @@ module cpu_top #(
             assign rob_push_rd[s * 5 +: 5]        = d_rd[s * 5 +: 5];
             assign rob_push_new[s * PW +: PW]     = ren_v ? alloc_val[s * PW +: PW] : {PW{1'b0}};
             assign rob_push_old[s * PW +: PW]     = ren_v ? old_map_chain[s * PW +: PW] : {PW{1'b0}};
-            assign rob_push_lsq[s * LW +: LW]     = memop ? (lsq_last_w + 1 + lsq_off) : {LW{1'b0}};
+            assign rob_push_lsq[s * LW +: LW]     = memop ? (lsq_last_w + lsq_off) : {LW{1'b0}};
             assign rob_push_raw[s * 32 +: 32]     = f2i_raw[s * 32 +: 32];
             assign rs_push_opcode[s * 7 +: 7]     = d_opcode[s * 7 +: 7];
             assign rs_push_func3[s * 3 +: 3]      = d_func3[s * 3 +: 3];
@@ -404,7 +407,7 @@ module cpu_top #(
             assign rs_push_prd[s * PW +: PW]      = ren_v ? alloc_val[s * PW +: PW] : {PW{1'b0}};
             assign rs_push_pc[s * 32 +: 32]       = f2i_pc[s * 32 +: 32];
             assign rs_push_imm[s * 32 +: 32]      = d_imm[s * 32 +: 32];
-            assign rs_push_lsq_tag[s * LW +: LW]  = memop ? (lsq_last_w + 1 + lsq_off) : {LW{1'b0}};
+            assign rs_push_lsq_tag[s * LW +: LW]  = memop ? (lsq_last_w + lsq_off) : {LW{1'b0}};
             assign rs_push_rob_tag[s * RW +: RW]  = rob_last_w + s;   // = ROB 写入 index (last_r + psum)
             assign rs_push_pred_taken[s]        = f2i_pred_taken[s];
             assign rs_push_pred_target[s * 32 +: 32] = f2i_pred_target[s * 32 +: 32];
@@ -429,7 +432,7 @@ module cpu_top #(
             wire [PW - 1 : 0] slot_rd1;
             execute_slot #(.ISSUE_WIDTH(ISSUE_WIDTH), .RS_SIZE(RS_SIZE), .PRF_SIZE(PRF_SIZE),
                            .LSQ_SIZE(LSQ_SIZE), .ROB_SIZE(ROB_SIZE), .RAS_SIZE(RAS_SIZE),
-                           .BHT_SIZE(BHT_SIZE)) u_slot (
+                           .BHT_SIZE(BHT_SIZE), .SLOT_ID(s)) u_slot (
                 .sel_valid(sel_valid[s]), .sel_idx(sel_idx[s * SRW +: SRW]),
                 .rs_entry_opcode(rs_entry_opcode), .rs_entry_func3(rs_entry_func3), .rs_entry_func7(rs_entry_func7),
                 .rs_entry_prs1(rs_entry_prs1), .rs_entry_prs2(rs_entry_prs2), .rs_entry_prd(rs_entry_prd),
@@ -495,19 +498,27 @@ module cpu_top #(
     endgenerate
 
     // ---- 冲刷动作 (B4): rob 截断 + fetch 重定向 + ras 恢复 (bht 更新在 slt 内) ----
-    assign set_last_valid = misp_valid;
+    // 冲刷中只接受"更老"的新误预测: 否则会按更新的条目截断 rob, 把 walker 正在回滚的窗口重新撑大
+    // (那些错路条目不再被 walker 回滚, 却留在窗口内 → 可能被提交)
+    assign set_last_valid = misp_valid && (!flushing_r || misp_older_w);
     assign set_last_val   = misp_fs_w;
 
     // ==================== 4. flush 窗口 (rs/lsq 失效, 年龄 > fs) ====================
-    wire flush_active = misp_valid || flushing_r;
+    // 掩码只用"已注册"的冲刷状态 (flushing_r/flush_fs_r), 不可用当拍 misp_valid/fs_eff_w:
+    //   sel → misp_det → misp_valid → fs_eff(= 误预测分支 rob_tag) → mask → cand → sel
+    //   是零延迟组合环 (misp 撤销瞬间 fs_eff 落到 0 → 掩码反把误预测条目自己杀掉 → 振荡)。
+    // 误预测拍因此不失效条目: W=1 时该拍选中的正是误预测分支本身, 错路条目本就不会被选中;
+    // walker 拍 (flushing_r=1) 掩码生效, 在 walker 的 posedge 清条目 (最少 1 拍, 不增停顿)。
+    wire flush_sel = flushing_r;
+    wire [RW - 1 : 0] fs_sel = flush_fs_r;
     generate
         for (e = 0; e < RS_SIZE; e = e + 1) begin : rsfm
-            assign rs_flush_mask[e] = flush_active && rs_entry_valid[e]
-                && ((rs_entry_rob_tag[e * RW +: RW] - rob_head_w) > (fs_eff_w - rob_head_w));
+            assign rs_flush_mask[e] = flush_sel && rs_entry_valid[e]
+                && ((rs_entry_rob_tag[e * RW +: RW] - rob_head_w) > (fs_sel - rob_head_w));
         end
         for (e = 0; e < LSQ_SIZE; e = e + 1) begin : lsqfm
-            assign lsq_flush_mask[e] = flush_active && lsq_valid_w[e]
-                && ((lsq_rob_tag_w[e * RW +: RW] - rob_head_w) > (fs_eff_w - rob_head_w));
+            assign lsq_flush_mask[e] = flush_sel && lsq_valid_w[e]
+                && ((lsq_rob_tag_w[e * RW +: RW] - rob_head_w) > (fs_sel - rob_head_w));
         end
     endgenerate
 
@@ -522,7 +533,9 @@ module cpu_top #(
             assign is_store_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h23);
             assign is_memop_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h03) || is_store_w[c];
             if (c == 0) begin : ce0
-                assign ce_w[0] = !flushing_r && !rob_empty && rob_ready_w[rob_head_w];
+                // misp 拍禁提交: rob 内 set_last 优先于 set_head (head 不前进), 但提交副作用
+                // (free_list 回收 / RAT arch / 计数) 已发生 → 同一条目会再提交一次, free_list 出重
+                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && rob_ready_w[rob_head_w];
             end else begin : cen
                 assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && rob_ready_w[eidx];  // store 截断批
             end
@@ -578,10 +591,10 @@ module cpu_top #(
         end else if (misp_valid && !flushing_r) begin
             flushing_r <= 1'b1;
             flush_fs_r <= misp_fs_w;
-            walk_ptr_r <= rob_last_w;          // 从触发时 last 开始回滚
+            walk_ptr_r <= rob_last_w - 1'b1;   // 最年轻的有效条目 (last 是空槽位, 不可回滚)
         end else if (flushing_r) begin
             // 中途新误预测: 更老才扩范围 (walk_ptr 照常递减, 防重复回滚)
-            if (misp_valid && ((misp_fs_w - rob_head_w) < (flush_fs_r - rob_head_w))) flush_fs_r <= misp_fs_w;
+            if (misp_valid && misp_older_w) flush_fs_r <= misp_fs_w;
             walk_ptr_r <= walk_ptr_r - ISSUE_WIDTH;   // 回绕
             if (walk_done) flushing_r <= 1'b0;
         end

@@ -86,33 +86,20 @@ module rs #(
 
     genvar ge, gj, gk;
 
-    // ---- 就绪: CDB 命中 OR 链 (j = 0..W; 槽 W = load 完成) + 年龄 ----
-    wire [RS_SIZE * (ISSUE_WIDTH + 1) - 1 : 0] h1c, h2c;
+    // ---- 就绪: prs==0 || load 完成广播命中 || rt_ready ----
+    // 执行槽广播 (组合 = sel_valid) 不参与就绪判断: 会形成
+    // ready_e → sel_valid → cdb_valid → ready_e 组合环 (回绕后 prd 撞旧映射即风暴);
+    // 执行依赖靠 rt_ready (写回拍置位, 下拍就绪), load 广播独立 (memory 寄存器驱动) 无环
     generate
         for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : rdy
-            for (gj = 0; gj <= ISSUE_WIDTH; gj = gj + 1) begin : hb
-                if (gj == 0) begin : b0
-                    assign h1c[ge * (ISSUE_WIDTH + 1) + 0]
-                         = cdb_slot_valid[0] && (cdb_tag[0 * PW +: PW] == prs1_r[ge]);
-                    assign h2c[ge * (ISSUE_WIDTH + 1) + 0]
-                         = cdb_slot_valid[0] && (cdb_tag[0 * PW +: PW] == prs2_r[ge]);
-                end else begin : bn
-                    assign h1c[ge * (ISSUE_WIDTH + 1) + gj]
-                         = h1c[ge * (ISSUE_WIDTH + 1) + (gj - 1)]
-                         || (cdb_slot_valid[gj] && (cdb_tag[gj * PW +: PW] == prs1_r[ge]));
-                    assign h2c[ge * (ISSUE_WIDTH + 1) + gj]
-                         = h2c[ge * (ISSUE_WIDTH + 1) + (gj - 1)]
-                         || (cdb_slot_valid[gj] && (cdb_tag[gj * PW +: PW] == prs2_r[ge]));
-                end
-            end
+            wire h1 = cdb_slot_valid[ISSUE_WIDTH]
+                   && (cdb_tag[ISSUE_WIDTH * PW +: PW] == prs1_r[ge]);
+            wire h2 = cdb_slot_valid[ISSUE_WIDTH]
+                   && (cdb_tag[ISSUE_WIDTH * PW +: PW] == prs2_r[ge]);
             assign age_pack[ge * RW +: RW] = rob_r[ge] - rob_head;
             assign ready_e_w[ge] = valid_r[ge]
-                && ((prs1_r[ge] == 0)
-                    || h1c[ge * (ISSUE_WIDTH + 1) + ISSUE_WIDTH]
-                    || rt_ready[prs1_r[ge]])
-                && ((prs2_r[ge] == 0)
-                    || h2c[ge * (ISSUE_WIDTH + 1) + ISSUE_WIDTH]
-                    || rt_ready[prs2_r[ge]]);
+                && ((prs1_r[ge] == 0) || h1 || rt_ready[prs1_r[ge]])
+                && ((prs2_r[ge] == 0) || h2 || rt_ready[prs2_r[ge]]);
         end
     endgenerate
 

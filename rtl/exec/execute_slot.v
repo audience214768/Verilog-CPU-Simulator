@@ -10,7 +10,8 @@ module execute_slot #(
     parameter LSQ_SIZE    = 16,
     parameter ROB_SIZE    = 32,
     parameter RAS_SIZE    = 8,
-    parameter BHT_SIZE    = 32
+    parameter BHT_SIZE    = 32,
+    parameter SLOT_ID     = 0     // 本槽编号 (旁路排除自己: prs==prd 时自旁路是组合环)
 ) (
     // ---- 选择与条目 (B3 字段取) ----
     input                          sel_valid,
@@ -83,14 +84,15 @@ module execute_slot #(
     wire is_mem    = is_load || is_store;
 
     // ---- B1 操作数获取 (CDB 旁路链, 槽内局部: 遍历 j∈[0..W], 槽 W = load 完成) ----
+    // 排除自己 (j == SLOT_ID): 自广播的 prd==prs 时 op 组合依赖自己的结果 = 组合环
     wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] byp1_acc, byp2_acc, byp1_c, byp2_c;
     wire [ISSUE_WIDTH : 0]                m1, m2;
     wire m1_any = |m1, m2_any = |m2;
     genvar j;
     generate
         for (j = 0; j <= ISSUE_WIDTH; j = j + 1) begin : byp
-            wire res1 = cdb_slot_valid[j] && (cdb_tag[j * PW +: PW] == prs1);
-            wire res2 = cdb_slot_valid[j] && (cdb_tag[j * PW +: PW] == prs2);
+            wire res1 = (j != SLOT_ID) && cdb_slot_valid[j] && (cdb_tag[j * PW +: PW] == prs1);
+            wire res2 = (j != SLOT_ID) && cdb_slot_valid[j] && (cdb_tag[j * PW +: PW] == prs2);
             wire [31 : 0] resv = (j < ISSUE_WIDTH) ? cdb_exec_result[j * 32 +: 32] : load_cdb_result;
             assign m1[j] = res1;
             assign m2[j] = res2;

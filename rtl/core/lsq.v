@@ -86,12 +86,18 @@ module lsq #(
         input [LW - 1 : 0]       h;
         input [LW - 1 : 0]       wl;
         integer k;
+        reg     go;
         begin
             // 仅跳过 head 处连续被 flush 的条目; 遇到第一个未 flush 条目即停
+            // 循环上界必须为常量 (Yosys 不支持变量上界), 首次不满足即置 go=0 提前停止
             flush_skip_f = {LCW{1'b0}};
-            for (k = 0; (k < LSQ_SIZE) && (k < wl)
-                     && mask[(h + k) & (LSQ_SIZE - 1)]; k = k + 1)
-                flush_skip_f = flush_skip_f + 1'b1;
+            go = 1'b1;
+            for (k = 0; k < LSQ_SIZE; k = k + 1) begin
+                if (go && (k < wl) && mask[(h + k) & (LSQ_SIZE - 1)])
+                    flush_skip_f = flush_skip_f + 1'b1;
+                else
+                    go = 1'b0;
+            end
         end
     endfunction
     wire [LCW - 1 : 0] flush_skip = flush_skip_f(flush_mask, head_r, winlen);
@@ -175,7 +181,7 @@ module lsq #(
                            && addr_ready_r[idx] && !done_r[idx] && store_ok[gd];
         end
     endgenerate
-    // 最老候选 = 最小距离
+    // 最老候选 = 最小距离 (cand 按距离索引: 位 k ↔ 条目 (head + k))
     function [LW - 1 : 0] first_one_f;
         input [LSQ_SIZE - 1 : 0] c;
         integer k;
@@ -185,7 +191,8 @@ module lsq #(
                 if (c[k]) first_one_f = k[LW - 1 : 0];
         end
     endfunction
-    wire [LW - 1 : 0] pidx = first_one_f(cand);
+    wire [LW - 1 : 0] pdist = first_one_f(cand);              // 距 head 的距离
+    wire [LW - 1 : 0] pidx  = (head_r + pdist) & (LSQ_SIZE - 1);   // 实际条目号
     assign ld_start_valid = |cand && !ld_busy;
     assign ld_start_addr  = addr_r[pidx * 32 +: 32];
     assign ld_start_width = width_r[pidx * 2 +: 2];
