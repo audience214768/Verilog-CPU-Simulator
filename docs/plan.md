@@ -148,12 +148,22 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 ### core/free_list.v
 | name | dir | width | 驱动方 | 说明 |
 |---|---|---|---|---|
-| `alloc_val[W*PW-1:0]` | out | PW×W | cpu_top | head 起连续 W 个空闲 preg（组合，回绕到 32，绝不分配 preg 0） |
-| `count_out[PCW-1:0]` | out | `$clog2(PRF_SIZE+1)` | cpu_top | 当前空闲 + 本拍 push 数（issue 判断） |
-| `pop_req[W-1:0]` | in | W | cpu_top | 弹出（prefix 语义） |
+| `alloc_val[W*PW-1:0]` | out | PW×W | cpu_top | 槽 i = 栈顶起第 pc_pre[i] 个空闲 preg（组合；仅 pop_req[i] 时有效；绝不分配 preg < 32） |
+| `count_out[PCW-1:0]` | out | `$clog2(PRF_SIZE+1)` | cpu_top | 本拍可分配量（= 栈内空闲数 sp；不含本拍 push） |
+| `pop_req[W-1:0]` | in | W | cpu_top | 弹出（逐槽；同拍多槽按槽序取栈顶起连续项） |
 | `push_valid[W-1:0], push_preg[W*PW-1:0]` | in | W / PW×W | cpu_top | 回收（commit 与 walker 复用同一端口——二者互斥：walker 期间 commit 冻结） |
 
-复位：head=32，count=PRF_SIZE-32（phys 0..31 已被恒等映射占用）。优先级：push > pop。**每个 preg 每生命周期恰好写一次**（free list 只在 producer 提交后释放）。
+复位：sp=PRF_SIZE-32，池内装入 preg 32..PRF_SIZE-1（栈顶=32）。**每个 preg 每生命周期恰好写一次**（free list 只在 producer 提交后释放）。
+
+实现演进（**仿真调试记录，见 git 提交的根因分析**）：
+- 原方案 `alloc_val[i] = head + i`（环形组合计算、不存值）+ `count += push 数`。**该方案不成立**，两个独立缺陷：
+  1. 回收请求里包含恒等映射区 preg（<32，如首次被覆盖的 x5/x6/x7）；环形池无法表示它们，但被计入了 count → 计数虚高；
+  2. 隐含"回收顺序 = 分配顺序"假设。实际上 commit 释放的是各 rd 的 `old_pnum`，同批内不同 rd 的到达次序任意（实测先放 34 后放 32），空闲集不再是环形连续区间，`head + i` 会算出仍在使用的 preg。症状：`add t2,t2,t0` 拿到的 preg 同时仍被 `t1` 引用 → 分支读到被覆盖的值 → 循环不退出。
+- 改为 **LIFO 栈 + 真实存储**（FREE_NUM × PW 位）：回收顺序任意都正确；`push_preg < 32` 的回收直接丢弃（恒等映射区永久退休，池只含 >= 32 的项），同时顺带过滤 walker 对 `new_pnum==0` 条目压入的 preg 0。
+- 同拍 push/pop：pop 读 `pool[sp-1-pc_pre]`，push 写 `pool[sp-pop_cnt+ps_pre]`（落在本拍 pop 腾出的槽位；组合读先于边沿写）。**易错点**：写成 `pool[sp+ps_pre]`（栈顶之上）会导致同拍 pop 腾出的槽位残留旧值，下拍 pop 读到已分配的 preg（本次调试中实际踩到）。
+- `count_out = sp`（不含本拍 push）：无同拍旁路，本拍回收的项本拍不可分配 → 池空时多 1 拍气泡；换来 pop 读索引恒在 `[0, sp)` 内。
+- 代价：FREE_NUM×PW 触发器（32×6 ≈ 56 µm²）+ 读 mux/写译码。面积阶段可再评估（如位图 + 优先编码器）。
+- 约束：需 PRF_SIZE >= 64（32 个恒等映射 + 池），PRF_SIZE 消融应向上扫描（64/96/128）而非向下。
 
 ### core/rob.v
 | name | dir | width | 驱动方 | 说明 |

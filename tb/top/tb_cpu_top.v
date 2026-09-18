@@ -25,12 +25,12 @@ module tb_cpu_top;
     // ---- 取指流水快照: pc_r / imem 地址 / 延迟地址 / 到达指令 / f2i 批寄存器 ----
     always @(negedge clk) begin
         if (rst_n)
-            $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d flh=%0d flc=%0d tag=%0d atag=%0d dtag=%0d kill=%b aok=%b\n",
+            $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d sp=%0d rsf=%0d tag=%0d atag=%0d dtag=%0d kill=%b aok=%b\n",
                     $time, dut.u_fetch.pc_r, dut.imem_addr_w, dut.u_fetch.imem_addr_d,
                     dut.inst_data, dut.f2i_valid, dut.f2i_raw, dut.f2i_pc,
                     dut.fetch_stall, dut.issue_en, dut.have_batch, dut.misp_valid,
                     dut.flushing_r, dut.halt_q_r,
-                    dut.rob_head_w, dut.rob_last_w, dut.u_fl.head, dut.u_fl.count,
+                    dut.rob_head_w, dut.rob_last_w, dut.u_fl.sp, dut.rs_free_w,
                     dut.u_fetch.tag_r, dut.u_fetch.arr_tag_r, dut.u_fetch.del_tag_r,
                     dut.u_fetch.kill_r, dut.u_fetch.arr_ok_w);
         $fflush(progfd);
@@ -53,9 +53,11 @@ module tb_cpu_top;
     // ---- 发射轨迹: f2i 原始指令 vs decode 输出 vs 分配 ----
     always @(negedge clk) begin
         if (rst_n && dut.issue_en)
-            $fwrite(progfd, "ISS t=%0t raw=%h pc=%h d_rd=%0d wr=%b d_op=%02x alloc=%0d rob_last=%0d\n",
+            $fwrite(progfd, "ISS t=%0t raw=%h pc=%h d_rd=%0d wr=%b d_op=%02x alloc=%0d prs1=%0d prs2=%0d old=%0d sp=%0d rdy=%b rob_last=%0d\n",
                     $time, dut.f2i_raw[31 : 0], dut.f2i_pc[31 : 0], dut.d_rd[4 : 0],
-                    dut.d_writes_rd[0], dut.d_opcode[6 : 0], dut.alloc_val[5 : 0], dut.rob_last_w);
+                    dut.d_writes_rd[0], dut.d_opcode[6 : 0], dut.alloc_val[5 : 0],
+                    dut.map_out1[5 : 0], dut.map_out2[5 : 0], dut.old_map_chain[5 : 0],
+                    dut.u_fl.sp, dut.rt_ready_w[dut.map_out1[5 : 0]], dut.rob_last_w);
         $fflush(progfd);
     end
 
@@ -71,13 +73,50 @@ module tb_cpu_top;
         $fflush(progfd);
     end
 
+    // ---- free_list 回收/分配轨迹 (posedge 采样 = 该边沿实际生效的值) ----
+    always @(posedge clk) begin
+        if (rst_n) begin
+            if (dut.fl_push_valid[0])
+                $fwrite(progfd, "PUSH t=%0t preg=%0d by=%0s sp=%0d\n",
+                        $time, dut.fl_push_preg, dut.flushing_r ? "walk" : "cmt",
+                        dut.u_fl.sp);
+            if (|dut.rename_valid)
+                $fwrite(progfd, "POP  t=%0t preg=%0d sp=%0d\n",
+                        $time, dut.alloc_val, dut.u_fl.sp);
+            $fflush(progfd);
+        end
+    end
+
+    // ---- 分支执行轨迹 (槽 0 的 branch 操作数/结果) ----
+    always @(negedge clk) begin
+        if (rst_n && dut.sel_valid[0] && (dut.slt[0].u_slot.opcode == 7'h63))
+            $fwrite(progfd, "BR t=%0t pc=%h prs1=%0d prs2=%0d op1=%h op2=%h prf1=%h prf2=%h taken=%b pred=%b misp=%b\n",
+                    $time, dut.slt[0].u_slot.pc, dut.slt[0].u_slot.prs1, dut.slt[0].u_slot.prs2,
+                    dut.slt[0].u_slot.op1, dut.slt[0].u_slot.op2,
+                    dut.u_prf.regs[dut.slt[0].u_slot.prs1], dut.u_prf.regs[dut.slt[0].u_slot.prs2],
+                    dut.slt[0].u_slot.br_taken, dut.slt[0].u_slot.pred_taken, dut.misp_valid);
+        $fflush(progfd);
+    end
+
+    // ---- 体系结构寄存器影子 (提交时按 rd 采样 prf 值, 用于观察程序语义) ----
+    reg [31 : 0] arch [0 : 31];
+    integer ai;
+    localparam TPW = 6;      // = $clog2(PRF_SIZE=64), 与 rtl/top/cpu_top.v 保持一致
+    always @(posedge clk) begin
+        if (rst_n && dut.set_head_valid) begin
+            if (dut.rob_rd_w[dut.rob_head_w * 5 +: 5] != 5'd0)
+                arch[dut.rob_rd_w[dut.rob_head_w * 5 +: 5]]
+                    <= dut.u_prf.regs[dut.rob_new_w[dut.rob_head_w * TPW +: TPW]];
+        end
+    end
+
     // ---- 卡死现场: RS 条目 / ROB 窗口 / 指针 ----
     task dump_stuck;
         integer e, w;
         begin
-            $display("STUCK rs_free=%0d sel_cnt=%0d robh=%0d robl=%0d rob_free=%0d flh=%0d flc=%0d lsqh=%0d lsql=%0d lsqf=%0d",
+            $display("STUCK rs_free=%0d sel_cnt=%0d robh=%0d robl=%0d rob_free=%0d sp=%0d rsf=%0d lsqh=%0d lsql=%0d lsqf=%0d",
                      dut.rs_free_w, dut.sel_cnt, dut.rob_head_w, dut.rob_last_w, dut.u_rob.free_r,
-                     dut.u_fl.head, dut.u_fl.count, dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.free_count_r);
+                     dut.u_fl.sp, dut.rs_free_w, dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.free_count_r);
             $display("  FLUSH flushing=%b misp=%b walk_ptr=%0d fs=%0d issue_en=%b batch=%b stall=%b halt_q=%b cdbv=%b",
                      dut.flushing_r, dut.misp_valid, dut.walk_ptr_r, dut.flush_fs_r,
                      dut.issue_en, dut.have_batch, dut.fetch_stall, dut.halt_q_r, dut.cdb_slot_valid_w);
@@ -131,9 +170,14 @@ module tb_cpu_top;
                              fname, dut.commit_count_r, dut.rob_head_w, dut.rob_last_w,
                              halt, dut.fetch_stall, dut.have_batch, dut.issue_en,
                              dut.u_fetch.pc_r);
+                if ((cyc % 500) == 0)
+                    $display("DBG %0s@%0d: x5(t0)=%0d x6(t1)=%0d x7(t2)=%0d x10(a0)=%0d pc=%h",
+                             fname, cyc, arch[5], arch[6], arch[7], arch[10], dut.u_fetch.pc_r);
             end
             if (!dut.ret_latched_r) begin
                 $display("FAIL: %0s timeout (ret not latched, halt=%b)", fname, halt);
+                $display("  ARCH x5(t0)=%0d x6(t1)=%0d x7(t2)=%0d x10(a0)=%0d x1=%0d x2=%0d",
+                         arch[5], arch[6], arch[7], arch[10], arch[1], arch[2]);
                 dump_stuck;
                 errors = errors + 1;
             end else if (ret_val !== exp) begin
