@@ -434,7 +434,7 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - **harness**：`tb/top/tb_cpu_prog.v`（`+PROG=<名>` 选程序、`+DUMP=N` 只记前 N 拍、`+TRACE=N` 逐拍 trace rob/rs/lsq/mem）+ `tb/top/prog/*.data`（19 个镜像，`$readmemh` 直载）；Makefile `ARGS=` 透传 vvp。
 - **已通过**：`naive` ret=94（45 拍）、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）。
 
-### 6. 整机仿真速度调查（进行中）
+### 6. 整机仿真速度调查（已定位并修复：根因在 mul.v 的华莱士树写法）
 
 **目标**：整机 TB 30~50 ms/拍（gcd 726 拍 ≈ 23 s；`tb_cpu_top` 833 拍 41 s），而 pi/queens/superloop 可能 10^5~10^6 拍 → 必须降下来才能跑完全部 18 个程序与消融矩阵。
 
@@ -460,13 +460,48 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - `iverilog -tvvm` 导出 vvp 汇编、按 `-pfileline` 定位 `concat8` 现场：oss-cad-suite 14.0-devel 与 homebrew 13.0 **两个安装都缺 vvm backend**（`Code generator failure: -2`）。
 - `iverilog -P`：**只对 root 模块生效，对其他模块静默忽略**（实测 `-Psub.P=8` 仍得 32，无任何警告）。消融矩阵必须用 `defparam` 或把参数提到 TB（root 层），否则会得到"所有参数都不影响性能"的假结论 —— 本次已踩坑：`rob8/rs8/lsq8/...` 一整列数字全等于 base。
 
-**未排除（按嫌疑排序）**：
-- **A. flush / 重定向路径**（最强嫌疑）：成本与 flush 活动同向（gcd flush=13 → 38 ms/拍；loopjal flush=0 → 1.1 ms/拍）。但"每次 flush 固定成本"的模型尚未定住 —— 由 gcd 50 拍/1 次 flush 反推 ~1.9 s/次，由 200 拍/13 次反推 ~0.55 s/次，两点不自洽，故也可能是"在飞指令数/占用度"或"flush 触发的组合反复求值"。子嫌疑：`rat` 回滚 walker（按 ROB 条目恢复映射）、`free_list` 恢复、`ready_table` 复位、cpu_top 冲刷掩码（32 条目年龄比较）、重定向后重取。
-- **B. 尚未隔离过的模块**：前端簇 `fetch/decode/bht/ras`、改名簇 `rat/free_list/ready_table/prf/cdb`，以及 cpu_top 胶合逻辑（`rob/lsq/memory` 已排除，剩下的 30 ms/拍只可能在这些里面）。
-- **C. 组合振荡 / 长链反复求值**：30 ms/拍 ≈ 10^7~10^8 次 functor 求值，远大于设计本身的 functor 数（~10^4~10^5）；`sample` 采样 99% 落在 `vvp_fun_concat8::run_run → vvp_send_vec8 → reduce4 → set_bit`，也符合"某个网络被反复逐位重建"的特征。iverilog 不报振荡，只会一直迭代到收敛。
-- **D. 占用度**：成本 ∝ 在飞指令数（loopjal 只有 1 条在飞，gcd 有几十条）。
+**根因（已定位，netlist 级证据，非推测）**：`rtl/exec/mul.v` 的华莱士树写成「**打包向量 + 逐位索引**」。
 
-**下一步（能定性的一条）**：写"每次迭代必误预测"的微程序 —— 与 `loopjal` 指令数、循环形状相同，只差 flush 密度。若其 ms/拍 接近 38，则 A 定案；否则转 B 的**存根二分**（逐个模块替换为平凡存根，看哪一个让时间塌掉）。
+用 `iverilog -g2005 -s tb_cpu_prog -o /dev/stdout tb/top/tb_cpu_prog.v rtl/*/*.v`（vvp 输出实为**可读文本**）解析全设计网表：
+
+- 全设计 **9466 个 `.part`（位选）节点，其中 8573 个（91%）在 `mul`**；单编译 mul+adder32 时，`mul` 占该编译 **15274 条语句的 76%**。整个组合逻辑只有 ~9000 functor / ~20000 net —— 30~50 ms/拍不可能来自网表规模，只能是某些部分每拍被反复重算/重投递。
+- 具体形状：`mul.v:21` 把 18 个部分积行**按行主序打包进一个 1152 位向量** `rows_pk`，`tree_level` 再对每一列每一位做 `in[(3k+0)*64 + c]` 这样的**单位索引**。实测各打包向量的读者数（全部是 1 位 `.part`）：
+
+  | net | 位宽 | 1 位读者数 |
+  |---|---|---|
+  | `rows_pk` | 1152 | **3042** |
+  | `l1` (t1 out) | 768 | 2028 |
+  | `l2` (t2 out) | 512 | 1268 |
+  | `l3` (t3 out) | 384 | 1014 |
+  | `l4` (t4 out) | 256 | 571 |
+  | `l5` (t5 out) | 192 | 507 |
+
+- 与运行时 profile 完全吻合：99% 采样落在 `vvp_fun_concat8::run_run → vvp_send_vec8 → reduce4 → set_bit` —— 即「一个大 concat 建起来、再逐位投递给上千个 1 位消费者」。任一输入位变化 → 整棵树重算 → 向 3042 个目标逐位重投递。
+- **解释了全部旧观测**：a) 成本跟随「流水线活动量」而非 flush —— `loopjal` 是 `jal x0,0` 自循环，操作数长期不变 → 树不翻转 → 零传播，故 1.10 ms/拍；gcd 每拍都在换指令 → 每拍全量重算，故 32 ms/拍。b) 与 flush 的相关性是巧合（flush 多 = 在飞指令多 = 活动量高），这正是"每次 flush 固定成本模型两点不自洽"的原因。c) 隔离微 TB（rob/lsq/memory）快，因为里面没有乘法器。d) `tb_mul` 极慢，同一个原因。e) **C 的 `concat8` 采样不是振荡，是逐位扇出**；A/D 是同一现象（活动量）的两种描述；B 由本次定位排除。
+
+**另经核验**：全设计 **0 个组合环**（Tarjan SCC 分析；此前一度出现的"213 个环"是图构建把「共享同一输入的 functor」误判成环，已修正）。
+
+**修复（三处，纯重构 + 活动门控，功能逐位一致、周期数不变）**：
+
+1. **`mul.v` — `tree_level` 改词级运算**（主要收益）。保留端口 `input [IN*64-1:0]`，内部对 **64 位整行**做压缩，彻底消除逐位索引。要点：进位行 `<< 1` 精确复现 `c-1` 列索引（列 0 自然得 0，列 63 的进位同样丢弃，且是确定 0 而非 X）；`(x&y)|(x&z)|(y&z)` 是多数函数展开；**半加器进位必须是 `(x & y) << 1` 而非多数表达式**；`thru` 行整行原样搬运；**`<<` 优先级高于 `&`/`^`/`|`，外层括号必须照写**。
+2. **`mul.v` — 校正位行改整行单驱动**。原先第 17 行用 64 次**单位写**构造，改成一条 64 位拼接 `hot_row`（位 `2i` = `pp_neg[i]`，i=0..16，其余为 0）。**不要**把 `rows_pk` 改成单驱动：实测 Icarus 对**常量基址的 `+:` 目的端写**（17 个 booth 行写）不产生任何 `.part` 节点，已在编译期合并、运行时免费，收益为零而代价是 `$mem` 推断风险。
+3. **`alu.v` — 非乘法指令时门控乘法器输入**。`mul` 是纯组合的，即使指令不是乘法，只要 `a`/`b` 变（几乎每拍）整棵 1152 位树就重算 —— gcd 里一条乘法都没有却要 32 ms/拍，就是这个原因。`wire sel_prod = (op >= 5'd10)` 把输入钳到 0。**必须用 `>=` 而非枚举**：`result` 的 default 分支取 `product[63:32]`，编码 14..31 也消费它。
+
+**效果（实测）**：
+
+| 测试 | 修复前 | 修复后 | 加速 |
+|---|---|---|---|
+| `tb_mul` (2400 checks) | 202.01 s | 1.79 s | **113×** |
+| `tb_cpu_top` (833 拍) | 42.01 s / 50.4 ms·拍 | 0.61 s / 0.73 ms·拍 | **69×** |
+| `tb_cpu_prog +PROG=gcd` (726 拍) | 24.00 s / 33.1 ms·拍 | 0.52 s / 0.72 ms·拍 | **46×** |
+
+**等价性证据**（改的是纯组合网络的求值方式，必须逐位一致）：`tb_cpu_top` 三行 PASS 逐字符一致（`p1_sum ret=86 cycles=417 commit=305 flush=2 branch=100`、`p2_vecadd ret=96 cycles=224 commit=178`、`p3_vecmul ret=72 cycles=192 commit=146`）；`tb_cpu_top.v:194` 写的 4298 行逐拍 trace `/tmp/cpu_top_prog.log` 与基线 **byte-identical**；gcd `ret=178 cycles=726 commit=364 flush=60 branch=120` 不变；`make` 12 个 TB 全绿（退出码 0）。
+
+**网表收敛**：`mul` 的 `.part` 节点 8573 → 211，每拍位操作量从 ~6.35M 降到 ~38k（~167×）；全编译语句数 20066 → 2142。综合面积（YoSys + ASAP7，同一条命令前后各跑一次）：`mul` 555.191820 → **554.608620** µm²（−0.10%），`cpu_top` 7765.351740 → **7774.741260** µm²（**+0.12%**，门控 mux 的代价）—— 都在"纯重构"的预期内，面积未动。
+
+> 踩坑记录：`synth/out/` 在 `.gitignore` 里，此前留着的 `cpu_stat.txt` 是 **8月18** 的陈旧产物（远早于本轮改动），拿它当基线会得到"面积涨 6.8 倍"的假结论。面积门禁必须**当场重跑基线**（本次做法：`git stash` 改动的 RTL → `make synth synth-cpu` → `git stash pop`），不能复用工作区里的历史文件。
+
+**教训**：§6 前面几轮把注意力全放在"数据结构大的模块"（rob/lsq/memory）和"flush 路径"上，是因为**先用采样 profile 猜了成分再去找模块**，而采样只给到 `concat8`/`send_vec8` 这种通用 functor，不含模块名。真正定性的是**网表级统计**（`.part` 节点按模块归类）——它直接指出 91% 的位选挤在一个模块里。这类问题下次应当**先按模块统计网表节点**，再谈 profile。
 
 ## 消融 + 综合（报告素材）
 
@@ -477,5 +512,6 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 ## 关键文件
 
 - 修改：rtl/front/{fetch,decode,bht,ras}.v、rtl/core/{rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory}.v、rtl/exec/{alu,branch}.v、rtl/top/cpu_top.v（Phase A 先写接口骨架 + cpu_top 全部布线，Phase B 逐模块填充内部；新增 TB 9 个）
-- 不动：rtl/exec/{adder32,mul}.v、Makefile（自动发现新文件）
+- 修改（§6 性能修复）：rtl/exec/mul.v（tree_level 改词级运算 + 校正位行整行单驱动）、rtl/exec/alu.v（非乘法 op 门控乘法器输入）
+- 不动：rtl/exec/adder32.v、Makefile（自动发现新文件）
 - 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp
