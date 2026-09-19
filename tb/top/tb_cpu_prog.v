@@ -219,10 +219,13 @@ module tb_cpu_prog;
             end
             if ((perf_n > 0) && !dut.ret_latched_r) begin
                 // 性能模式: 只跑固定拍数, 报 IPC (提交数/拍); 不作对错判定
+                // ipc 定点打印: 整数部分 + 千分位。不可写成 (commit*1000000)/cyc % 1000 ——
+                // commit*1000000 在 32 位下回绕 (实测 basicopt1 打出 ipc=634.114 这种垃圾)。
+                // 先取余: commit%cyc < cyc ≤ MAX_CYCLE=2e6, 再 *1000 = 2e9 < 2^31-1, 不溢出
                 $display("PERF: %0s cycles=%0d commit=%0d ipc=%0d.%03d flush=%0d branch=%0d",
                          nm, cyc, commit_count,
-                         (commit_count * 1000) / cyc,
-                         ((commit_count * 1000000) / cyc) % 1000,
+                         commit_count / cyc,
+                         ((commit_count % cyc) * 1000) / cyc,
                          flush_count, branch_count);
             end else if (!dut.ret_latched_r) begin
                 $display("FAIL: %0s timeout @%0d (halt=%b pc=%h commit=%0d)",
