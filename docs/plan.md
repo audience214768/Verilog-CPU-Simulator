@@ -503,6 +503,80 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 
 **教训**：§6 前面几轮把注意力全放在"数据结构大的模块"（rob/lsq/memory）和"flush 路径"上，是因为**先用采样 profile 猜了成分再去找模块**，而采样只给到 `concat8`/`send_vec8` 这种通用 functor，不含模块名。真正定性的是**网表级统计**（`.part` 节点按模块归类）——它直接指出 91% 的位选挤在一个模块里。这类问题下次应当**先按模块统计网表节点**，再谈 profile。
 
+### 7. 18 个编译程序只过 9 个：控制流跳出代码段 / 停滞（调查中）
+
+**背景**：§6 的速度问题解决后，18 个测试程序第一次跑得完。结果 **9 过 9 挂**（原始 RTL，未加任何 LSQ 补丁）。全量 run 墙钟 2928 s。
+
+```
+naive          PASS ret=94    cycles=45      commit=27
+gcd            PASS ret=178   cycles=726     commit=364
+array_test1    PASS ret=123   cycles=244     commit=145
+array_test2    PASS ret=43    cycles=287     commit=171
+lvalue2        PASS ret=175   cycles=67      commit=35
+manyarguments  PASS ret=40    cycles=83      commit=43
+expr           PASS ret=58    cycles=661     commit=488
+basicopt1      PASS ret=88    cycles=755464  commit=472952   ← 修复前跑不动
+superloop      PASS ret=134   cycles=661668  commit=485005   ← 修复前跑不动
+
+statement_test FAIL timeout@2000000 halt=0 pc=000011fc commit=780
+multiarray     FAIL timeout@2000000 halt=0 pc=00001178 commit=772
+hanoi          FAIL timeout@2000000 halt=0 pc=0000103c commit=273
+bulgarian      FAIL timeout@2000000 halt=0 pc=000013bc commit=4555
+magic          FAIL timeout@2000000 halt=0 pc=007a1b6c commit=429     ← pc 远在代码段外
+qsort          FAIL timeout@2000000 halt=0 pc=000010e8 commit=184820
+queens         FAIL timeout@2000000 halt=0 pc=000011dc commit=410
+pi             FAIL timeout@2000000 halt=0 pc=000011f8 commit=1210197
+tak            FAIL timeout@2000000 halt=0 pc=00001084 commit=365
+```
+
+**先分清三种"超时"，不要当成同一个 bug**（此前一轮的记录把它们混为一谈，是错的判读）：
+
+| 形态 | 判据 | 命中 |
+|---|---|---|
+| **a. 真死锁** | commit 数冻结在很小的值，逐拍 trace 状态完全不变 | `hanoi`（commit=273，见下） |
+| **b. 跑飞** | `pc` 跳出代码段 | `magic`（pc=0x007a1b6c，远超 `MEM_SIZE`=0x40000；程序装载在 0x1000） |
+| **c. 只是慢/未定** | commit 数很大，可能仍在推进，只是 2M 拍不够 | `pi`(1.21M)、`qsort`(18.5万)、`bulgarian`(4555)、`statement_test`(780)、`multiarray`(772)、`queens`(410)、`tak`(365) |
+
+**b 形态就是最初的问题（"控制流为什么跳出代码段"），而它现在有了确定的最小复现：`magic`。** 之前一直拿 `hanoi` 当复现，但 hanoi 其实是 a 形态（停滞），两者的根因未必相同 —— 这是本轮最重要的认识修正。
+
+**a 形态（hanoi）已定位到 `rtl/core/lsq.v`，证据链**：
+
+- 冻结拍状态：`pc=0000103c f2v=1 raw=00054783 iss=0 hb=1 misp=0 flsh=0 halt=0 robh=17 robl=31 rdy=0`。
+  `raw=0x00054783` 解码 = `lw x15, 0(x10)`；`rob_ready_w[17]=0` —— ROB 头是一条永不完成的 load。
+- `issue_en=0`，而 `have_batch=1`、`misp/flushing/halt` 全 0 → **发射是被资源门挡住的，不是没批可取**。
+  `resources_ok` 的四项里只有 LSQ 那项不成立：`lsq_free_w + n_inv >= n_mem` → `0 + 0 >= 1` = 假。
+- LSQ 探针（`hanoi` 第 396~397 拍）：`free=1 h=1 l=0 win=15 valid=1111100000000000`
+  → **窗口 15 槽里只有 5 条活的，10 个洞**；下一拍一次 push 后 `free=0 h=1 l=1 win=0`。
+
+**两个缺陷**：
+
+- **Bug A（主因）**：`winlen = (last_r - head_r) & (LSQ_SIZE - 1)` **分不清空与满**。`free_count_r` 复位成 16，允许占满 16 槽，于是 `head == last` 既表示空也表示满 → `winlen` 翻成 0 → `in_win = (gd < winlen)` 对所有 `gd` 为假 → `cand` 全灭 → 没有任何 load 能发起；同一拍 `free_count=0` 又挡住新发射 → ROB 头那条 load 永不完成 → 不提交 → `head` 不动 → **闭环死锁**。
+- **Bug B（次因）**：`flush_skip_f` 只跳过"**当拍被 flush 掩码命中且正好落在 head**"的条目。但被冲刷的条目是窗口的**后缀**（年龄 > fs），所以 `flush_skip` 几乎恒为 0；这些条目变成只能靠提交时 `|invalidate` 一条条回收的洞 → 窗口被洞撑大（实测 15 槽只剩 5 条活）。
+
+**C++ 参考（用户指定为权威语义）确认了意图**：`src/core/cpu_top.cpp:291-296` 每拍**无条件** `while (lsq_hd != lsq_lt && !valid[lsq_hd]) lsq_hd++;` 跳过 head 处的无效条目；`include/storage/lsq_module.hpp` 里 `full = ((last+1) % LSQ_SIZE == head)`，即**保留 1 槽**、占用 ≤ 15，`head == last` 唯一表示空；**根本没有 `free_count`**（由 head/last 导出）；flush 期间 `issue_lsq_.suppressed = 1` 抑制 push。
+
+**已经排除的可能原因**：
+
+1. **不是 §6 的性能修复引入的** —— mul/alu 改动是逐位等价的（`tb_cpu_top` 三行 PASS 逐字符一致、逐拍 trace byte-identical、gcd 周期/提交/冲刷全不变），不可能改变程序语义。18 个程序这次跑的结果就是**未加任何 LSQ 补丁的原始 RTL** 产出的。
+2. **不是取指 PC 被陈旧预测劫持**（那个已在 `5fee7b7` 修掉，gcd 由死锁变 PASS）。
+3. **不是 ROB 满 / RS 满 / 写口不足 / 没有批可发** —— 探针显示 `rob_full=0`、`have_batch=1`、`misp=flushing=halt=0`，`resources_ok` 四项里只有 LSQ 那项为假。
+4. **不是 flush 未收敛** —— hanoi 冻结拍 `misp=0 flsh=0`。
+5. **`lsq.full` 输出根本没被 cpu_top 使用**（只声明、只连到实例端口），所以 `full` 这个信号本身不参与任何判断，它只通过 `free_count` 起作用 —— 排查时不要盯 `full`。
+6. **模块级新旧等价测试（`/tmp/muleq`）未跑完就被终止**，输出只有 `=== compiled ===`。但这条已被更强的证据覆盖：`tb_mul` 直接对 2400 组输入逐位比对 64 位积且 PASS，整机逐拍 trace 与基线 byte-identical。**不必重跑**。
+7. **§6 的 A/B/C/D 四个嫌疑**（flush 路径 / 未隔离模块 / 组合振荡 / 占用度）在 §6 已全部关闭，与本节无关。
+
+**还未排除 / 当前卡点**：
+
+- 忠实照 C++ 语义改出的版本（`/tmp/fix/rtl/core/lsq.v`：`flush_skip = flush_skip_f(~valid_r, head_r, winlen)` + `free_count_r <= (LSQ_SIZE - 1)` 复位）**能编译、能过单元 TB，但 `hanoi` 从"卡在 pc=0000103c"变成 `pc=xxxxxxxx (commit=x)`** —— 出现 X 传播。这堵住了整条路。
+- **候选 1：补丁细节错**。`cpu_top.v:551` 的 `inv_one` 只由 `ce_w[c] && is_memop_w[c]` 产生，**没有按 `lsq_valid_w[cmt_lsq_tag]` 门控**。我的补丁把 `head_r <= head_r + flush_skip + (|invalidate)` 写成两项相加：`flush_skip` 数的是"洞"，`|invalidate` 数的是"当拍提交"；**若两者命中同一条目就会把 head 多推一格，丢掉一条活条目**，随后 `free_count` 多算、窗口错位。这是最可疑的一处，应当先查。
+- **候选 2：被掩盖的另一个 bug**。修好 LSQ 后 hanoi 第一次能跑过原来的死锁点，可能撞上此前根本到不了的代码路径上的缺陷；X 的来源可能是 PRF 读到从未写过的物理寄存器、或分支/访存前向路径。若如此，这正是 b 形态（`magic` 跑飞）的同源问题。
+- **候选 3：X 根本不来自 LSQ**（尚未做任何排除）。
+- **候选 4：那 7 个"c 形态"程序**（commit 数很大）是不是同一个 bug，**完全没查**。它们可能只是 2M 拍不够（那就该先量一下它们的 IPC 是否正常），也可能是另一类缺陷。
+
+**下一步（探针已备好、尚未执行）**：在 `/tmp/fix/tb_dbg.v` 加 `FIRST_BAD` 探针 —— `pc_r` 首次为 X 或首次越出 `[0x1000, 0x8000)` 时打印那一拍的 `pc_r / f2i_raw / rob_head / rob_last / lsq head,last,free_count`，定位第一拍。同时给 TB 加 `+MAXC=N` 上限，避免每次都跑到 2M 拍（hanoi 的死锁点在第 404 拍左右，几千拍足够复现）。
+
+**优先级建议**：b 形态（`magic` 跑飞）才是最初那个"跳出代码段"的问题，且 hanoi 的 a 形态未必同源。修 LSQ 前，先用 `magic` 复现一次"跑飞"，确认两者是不是一个 bug —— 否则可能修完 LSQ 发现 `magic` 照跑飞。
+
 ## 消融 + 综合（报告素材）
 
 - 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × PRF{32,64,128} × LSQ{8,16,32} × MEM_LATENCY{1,3,6} × BHT{16,32,128} × RAS{0,8,32}，3 程序各跑一遍，记录 IPC/提交/冲刷统计（cpu_top 调试输出）
