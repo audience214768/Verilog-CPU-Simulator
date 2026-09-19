@@ -52,6 +52,29 @@ module tb_cpu_prog;
         end
     end
 
+    // ---- 停滞归因计数 (纯 TB 侧采样, 不改 DUT、不进综合面积): 回答"IPC 为什么低" ----
+    //   分类互斥: 冲刷拍 (misp/flushing) > 无批可取 (取指供给不上) > 有批未发射 (结构资源挡)
+    //   结构资源四项可同时不满足, 故分别累计 (属"谁挡的"多重归因, 不求各分类之和等于总拍数)
+    integer st_cyc, st_iss, st_flush, st_nob, st_rob, st_rs, st_fl, st_lsq, st_misp;
+    always @(negedge clk) begin
+        if (rst_n && !dut.halt_q_r) begin
+            st_cyc = st_cyc + 1;
+            if (dut.issue_en) begin
+                st_iss = st_iss + 1;
+            end else if (dut.misp_valid || dut.flushing_r) begin
+                st_flush = st_flush + 1;
+            end else if (!dut.have_batch) begin
+                st_nob = st_nob + 1;
+            end else begin
+                if (dut.rob_full)                   st_rob = st_rob + 1;
+                if ((dut.rs_free_w + dut.sel_cnt) < 1) st_rs = st_rs + 1;
+                if (dut.fl_count < dut.n_wr)        st_fl = st_fl + 1;
+                if (dut.lsq_free_w < dut.n_mem)     st_lsq = st_lsq + 1;
+            end
+            if (dut.misp_valid) st_misp = st_misp + 1;
+        end
+    end
+
     // ---- 可选逐拍 trace (+TRACE=N 止, +FROM=M 起, 缺省 0 = 关): rob 头 / rs / lsq / 取指 ----
     integer te;
     always @(negedge clk) begin
@@ -130,6 +153,8 @@ module tb_cpu_prog;
             rst_n = 1'b1;
             #1; #8; #1;
             cyc = 0;
+            st_cyc = 0; st_iss = 0; st_flush = 0; st_nob = 0;
+            st_rob = 0; st_rs = 0; st_fl = 0; st_lsq = 0; st_misp = 0;
             while (!dut.ret_latched_r && cyc < MAX_CYCLE
                    && ((perf_n == 0) || (cyc < perf_n))) begin
                 #1; #8; #1;
@@ -158,6 +183,10 @@ module tb_cpu_prog;
                 $display("PASS: %0s ret=%0d cycles=%0d commit=%0d flush=%0d branch=%0d",
                          nm, ret_val, cyc, commit_count, flush_count, branch_count);
             end
+            // 停滞归因: nobatch=取指没批 / flushcyc=冲刷拍 / block.*=有批但资源挡 (可重叠归因)
+            $display("STALL: %0s cyc=%0d issue=%0d nobatch=%0d flushcyc=%0d misp=%0d | block rob=%0d rs=%0d fl=%0d lsq=%0d",
+                     nm, st_cyc, st_iss, st_nob, st_flush, st_misp,
+                     st_rob, st_rs, st_fl, st_lsq);
         end
     endtask
 
