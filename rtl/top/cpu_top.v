@@ -619,14 +619,21 @@ module cpu_top #(
         end
     end
 
-    // ---- 性能统计 ----
+    // ---- 性能统计 (窗口 = 程序本身, 不含 halt 之后的 ROB 排空) ----
+    // halt 后 fetch 冻结但**提交不停**: ret_sample 要等 rob_empty (见上方 halt 锁存),
+    // 故 halt 标记之后的条目会继续提交。若照常累加, "已提交指令数"就多出 ≤ ROB_SIZE 条,
+    // 且多出的部分随 halt 时刻的 ROB 占用浮动 —— 实测 naive 真值 18 条被记成 27 条,
+    // 而 27 = 18 + 9 (halt 标记后方 rob 内的条目数)。
+    // 故三个计数器一律在 halt 抬起后冻结, 与 TB 侧 STALL/JUMP 的采样窗口
+    // (tb_cpu_prog.v: rst_n && !dut.halt_q_r) 对齐, 使 PASS 行与 STALL/JUMP 行同窗口。
+    // 注意: halt_q_r 在 halt 标记**提交的那一拍**仍为 0, 故标记本身计入 (naive 的 18 含它)。
     reg [31 : 0] commit_count_r, flush_count_r, branch_count_r;
     always @(posedge clk) begin
         if (!rst_n) begin
             commit_count_r <= 32'd0;
             flush_count_r <= 32'd0;
             branch_count_r <= 32'd0;
-        end else begin
+        end else if (!halt_q_r) begin
             commit_count_r <= commit_count_r + {29'd0, n_commit};
             flush_count_r <= flush_count_r + {31'd0, misp_valid};
             branch_count_r <= branch_count_r + {29'd0, n_branch};
