@@ -13,6 +13,20 @@ module tb_cpu_prog;
     localparam MEM_SIZE  = 262144;
     localparam MAX_CYCLE = 2000000;
 
+    // ---- 消融可调参数 (默认 = 现状, 行为不变) ----
+    // iverilog -P 只作用于 root 模块, 故参数须声明在 TB 层再下传 DUT; 覆盖示例:
+    //   iverilog -g2005 -s tb_cpu_prog -P tb_cpu_prog.MEM_LATENCY_TB=20 \
+    //            -P tb_cpu_prog.MEM_INFLIGHT_TB=16 -o /tmp/x.vvp $(ls rtl/*/*.v) tb/top/tb_cpu_prog.v
+    // (注意: make 不会因 IV/-P 变化而重建 .vvp, 消融一律直接 iverilog + vvp 建到 /tmp)
+    parameter MEM_LATENCY_TB  = 3;      // 性能档要求 20 (docs/description.md)
+    parameter MEM_INFLIGHT_TB = 4;
+    parameter ROB_SIZE_TB     = 32;
+    parameter RS_SIZE_TB      = 16;
+    parameter PRF_SIZE_TB     = 64;
+    parameter LSQ_SIZE_TB     = 16;
+    parameter BHT_SIZE_TB     = 32;
+    parameter RAS_SIZE_TB     = 8;
+
     reg clk = 1'b0, rst_n = 1'b0;
     always #5 clk = ~clk;
 
@@ -22,7 +36,10 @@ module tb_cpu_prog;
     wire [$clog2(32) - 1 : 0] rob_head;
     wire        rob_ready_head;
 
-    cpu_top #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE)) dut (
+    cpu_top #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE),
+              .MEM_LATENCY(MEM_LATENCY_TB), .MEM_INFLIGHT(MEM_INFLIGHT_TB),
+              .ROB_SIZE(ROB_SIZE_TB), .RS_SIZE(RS_SIZE_TB), .PRF_SIZE(PRF_SIZE_TB),
+              .LSQ_SIZE(LSQ_SIZE_TB), .BHT_SIZE(BHT_SIZE_TB), .RAS_SIZE(RAS_SIZE_TB)) dut (
         .clk(clk), .rst_n(rst_n),
         .halt(halt), .ret_val(ret_val),
         .commit_count(commit_count), .flush_count(flush_count),
@@ -72,6 +89,39 @@ module tb_cpu_prog;
                 if (dut.lsq_free_w < dut.n_mem)     st_lsq = st_lsq + 1;
             end
             if (dut.misp_valid) st_misp = st_misp + 1;
+        end
+    end
+
+    // ---- 控制转移按指令类型分 bin (纯 TB 解码, 不改 DUT): 回答"误预测该修 RAS 还是 BHT" ----
+    //   bin: 0=jal 1=ret(jalr x0,0(x1)) 2=jalr(其他/间接跳转) 3=beq 4=bne 5=其他条件分支 6=非控制指令
+    function integer bin_f;
+        input [31 : 0] raw;
+        reg [6 : 0] opc;
+        reg [2 : 0] f3;
+        begin
+            opc = raw[6 : 0];
+            f3  = raw[14 : 12];
+            bin_f = (opc == 7'b1101111) ? 0
+                  : (opc == 7'b1100111) ? (((raw[11 : 7] == 5'd0) && (raw[19 : 15] == 5'd1)) ? 1 : 2)
+                  : (opc == 7'b1100011) ? ((f3 == 3'b000) ? 3 : (f3 == 3'b001) ? 4 : 5)
+                  : 6;
+        end
+    endfunction
+
+    integer kj [0 : 6];     // 预测取跳转次数 (每次伴随 1 拍取指气泡)
+    integer mj [0 : 6];     // 误预测次数 (每次 2~3 拍重定向 + 错路已发射指令作废)
+    wire [31 : 0] misp_raw_w = dut.rob_raw_w[dut.misp_fs_w * 32 +: 32];   // 误预测的那条指令
+    integer kb;
+    always @(negedge clk) begin
+        if (rst_n && !dut.halt_q_r) begin
+            if (dut.u_fetch.pc_jmp_w) begin
+                kb = bin_f(dut.u_fetch.inst_data[31 : 0]);
+                kj[kb] = kj[kb] + 1;
+            end
+            if (dut.misp_valid) begin
+                kb = bin_f(misp_raw_w);
+                mj[kb] = mj[kb] + 1;
+            end
         end
     end
 
@@ -155,6 +205,9 @@ module tb_cpu_prog;
             cyc = 0;
             st_cyc = 0; st_iss = 0; st_flush = 0; st_nob = 0;
             st_rob = 0; st_rs = 0; st_fl = 0; st_lsq = 0; st_misp = 0;
+            for (mi = 0; mi < 7; mi = mi + 1) begin
+                kj[mi] = 0; mj[mi] = 0;
+            end
             while (!dut.ret_latched_r && cyc < MAX_CYCLE
                    && ((perf_n == 0) || (cyc < perf_n))) begin
                 #1; #8; #1;
@@ -187,6 +240,9 @@ module tb_cpu_prog;
             $display("STALL: %0s cyc=%0d issue=%0d nobatch=%0d flushcyc=%0d misp=%0d | block rob=%0d rs=%0d fl=%0d lsq=%0d",
                      nm, st_cyc, st_iss, st_nob, st_flush, st_misp,
                      st_rob, st_rs, st_fl, st_lsq);
+            $display("JUMP: %0s taken jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d | misp jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d",
+                     nm, kj[0], kj[1], kj[2], kj[3], kj[4], kj[5],
+                     mj[0], mj[1], mj[2], mj[3], mj[4], mj[5]);
         end
     endtask
 
