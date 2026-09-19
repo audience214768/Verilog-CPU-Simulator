@@ -21,6 +21,14 @@ module mul (
     wire [18 * 64 - 1 : 0] rows_pk;
     wire [16 : 0] pp_neg;
 
+    // 校正位行: 位 2i = pp_neg[i] (负部分积的补码 +1), 其余位为 0
+    wire [63 : 0] hot_row;
+    assign hot_row = { 31'b0, pp_neg[16], 1'b0, pp_neg[15], 1'b0, pp_neg[14], 1'b0,
+                       pp_neg[13], 1'b0, pp_neg[12], 1'b0, pp_neg[11], 1'b0, pp_neg[10], 1'b0,
+                       pp_neg[9], 1'b0, pp_neg[8], 1'b0, pp_neg[7], 1'b0, pp_neg[6], 1'b0,
+                       pp_neg[5], 1'b0, pp_neg[4], 1'b0, pp_neg[3], 1'b0, pp_neg[2], 1'b0,
+                       pp_neg[1], 1'b0, pp_neg[0] };
+
     genvar i;
     generate
         for (i = 0; i < 17; i = i + 1) begin : booth
@@ -42,14 +50,8 @@ module mul (
                     {pp[(64 - (2 * i) - 1) : 0], {(2 * i){1'b0}}};
             end
         end
-        // 校正位行: hot[i] 在列 2i (负部分积的补码 +1)
-        for (i = 0; i < 64; i = i + 1) begin : hot
-            if ((i & 1) == 0 && i < 34) begin : set
-                assign rows_pk[17 * 64 + i] = pp_neg[i / 2];
-            end else begin : clear
-                assign rows_pk[17 * 64 + i] = 1'b0;
-            end
-        end
+        // 校正位行整行单驱动写入
+        assign rows_pk[17 * 64 +: 64] = hot_row;
     endgenerate
 
     wire [12 * 64 - 1 : 0] l1;
@@ -83,42 +85,26 @@ module tree_level #(
     output [(2 * F + 2 * H + R) * 64 - 1 : 0] out
 );
     localparam OUT = F + H + R;         // 本列输出行数 (和位 + 直通)
-    localparam TOT = 2 * F + 2 * H + R; // 总输出行数 = 本列输出 + 进位
 
-    genvar c, k;
+    // 以 64 位整行为单位做压缩 (行 k = 一列部分积); 进位行 << 1 等价于逐位列取 c-1,
+    // 列 0 自然得 0, 列 63 的进位同样丢弃 (与逐位版一致), 且是确定 0 而非 X
+    genvar k;
     generate
-        for (c = 0; c < 64; c = c + 1) begin : col
-            for (k = 0; k < TOT; k = k + 1) begin : bit_
-                if (k < OUT) begin : outbit
-                    if (k < F) begin : fa
-                        assign out[k * 64 + c] =
-                            in[(3 * k + 0) * 64 + c] ^
-                            in[(3 * k + 1) * 64 + c] ^
-                            in[(3 * k + 2) * 64 + c];
-                    end else if (k < F + H) begin : ha
-                        assign out[k * 64 + c] =
-                            in[(3 * F + 0) * 64 + c] ^ in[(3 * F + 1) * 64 + c];
-                    end else begin : thru
-                        assign out[k * 64 + c] = in[(3 * F + 2 * H) * 64 + c];
-                    end
-                end else begin : carrybit
-                    if (c > 0) begin : src
-                        if (k - OUT < F) begin : fa2
-                            assign out[k * 64 + c] =
-                                (in[(3 * (k - OUT) + 0) * 64 + c - 1] &
-                                 in[(3 * (k - OUT) + 1) * 64 + c - 1]) |
-                                (in[(3 * (k - OUT) + 2) * 64 + c - 1] &
-                                 (in[(3 * (k - OUT) + 0) * 64 + c - 1] |
-                                  in[(3 * (k - OUT) + 1) * 64 + c - 1]));
-                        end else begin : ha2
-                            assign out[k * 64 + c] =
-                                in[(3 * F + 0) * 64 + c - 1] & in[(3 * F + 1) * 64 + c - 1];
-                        end
-                    end else begin : zero
-                        assign out[k * 64 + c] = 1'b0; // 列 0 无低列进位
-                    end
-                end
-            end
+        for (k = 0; k < F; k = k + 1) begin : fa
+            wire [63 : 0] x = in[(3 * k + 0) * 64 +: 64];
+            wire [63 : 0] y = in[(3 * k + 1) * 64 +: 64];
+            wire [63 : 0] z = in[(3 * k + 2) * 64 +: 64];
+            assign out[k * 64 +: 64]         = x ^ y ^ z;
+            assign out[(OUT + k) * 64 +: 64] = ((x & y) | (x & z) | (y & z)) << 1;
+        end
+        if (H == 1) begin : ha
+            wire [63 : 0] x = in[(3 * F + 0) * 64 +: 64];
+            wire [63 : 0] y = in[(3 * F + 1) * 64 +: 64];
+            assign out[F * 64 +: 64]         = x ^ y;         // 半加器和
+            assign out[(OUT + F) * 64 +: 64] = (x & y) << 1;  // 半加器进位是 AND, 非多数
+        end
+        if (R == 1) begin : thru
+            assign out[(F + H) * 64 +: 64] = in[(3 * F + 2 * H) * 64 +: 64]; // 整行原样搬运
         end
     endgenerate
 endmodule
