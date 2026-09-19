@@ -147,6 +147,10 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 - **访存宽度**：测试程序实际用到 `lbu`(36) 与 `sb`(3) → decode 放开 `lb/lbu/lh/lhu/sb/sh`（f3[1:0] 作宽度、f3[2] 作无符号），取消原先"只支持 lw/sw"的限制。
 - **参考模拟器作 oracle**：`RISC-V-Tomasulo-CPU-Simulator/build/code` 从 stdin 读 `.data` 镜像、stdout 打印 `ret`；18 个测试用例期望值已采集，与 TB 内 `exp_ret_f` 表逐条吻合（无 div/rem/mul 指令，GCC 把 `% 253` 强度削减掉了）。
 - **harness**：`tb/top/tb_cpu_prog.v`（`+PROG=<名>` 选程序、`+DUMP=N` 只记前 N 拍、`+TRACE=N` 逐拍 trace rob/rs/lsq/mem）+ `tb/top/prog/*.data`（19 个镜像，`$readmemh` 直载）；Makefile `ARGS=` 透传 vvp。
+- **⚠ 陷阱：`+PERF=N` 是"定拍窗口"模式，与判对错互斥**。`while` 条件含 `cyc < perf_n`（`tb_cpu_prog.v:214`），
+  故一旦给了 `+PERF`，程序**跑到 N 拍就退出**，永远走不到 `PASS/FAIL` 分支（输出只有 `PERF:` 一行）。
+  反过来说：**要判对错就不能给 `+PERF`**，要量 IPC 就不能指望它判对错 ——
+  本次查 lat=20 判词时误加了 `+PERF=200000`，白跑一轮（只拿到 IPC，无判词）。§9 量 IPC 时须显式分开两次运行。
 - **已通过**：`naive` ret=94（45 拍）、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）。
 
 ### 6. 整机仿真速度调查（已定位并修复：根因在 mul.v 的华莱士树写法）
