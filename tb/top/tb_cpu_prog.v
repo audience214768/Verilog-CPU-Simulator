@@ -11,7 +11,9 @@
 module tb_cpu_prog;
     // 0x40000: 覆盖代码 (0x1000) / 栈 (0x20000, 程序入口 lui sp,0x20) / 停机 MMIO (0x30004)
     localparam MEM_SIZE  = 262144;
-    localparam MAX_CYCLE = 2000000;
+    // 超时上限: 提成 parameter 以便 -P 覆盖 —— 20 拍性能配置下重型程序总拍数远超 200 万
+    // (magic 在 3 拍下已 81.9 万拍), 用默认值跑会得到"超时"而非"对/错", 那是无效结论
+    parameter  MAX_CYCLE = 2000000;
 
     // ---- 消融可调参数 (默认 = 现状, 行为不变) ----
     // iverilog -P 只作用于 root 模块, 故参数须声明在 TB 层再下传 DUT; 覆盖示例:
