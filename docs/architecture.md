@@ -265,6 +265,18 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 **lsq.v 内部**：完成合并（mem_done → 检查更老 store 全部 data_ready[发起时已保证] → 字节合并覆盖 → 符号扩展 → 输出 load_cdb_*）；load 完成后条目保留到提交。写优先级：flush > invalidate(commit) > push > set_*。
 
+**发起/在飞语义（§8.2 修复后定稿，`issued_r` 为新增状态）**：
+- 每槽一位 `issued_r`，**发起被 `memory` 接受即置位，完成脉冲回来才清** —— 这是"不重复发起"的唯一依据。
+  只靠 `done_r[idx]` 不够：从发起到完成之间有整个 `MEM_LATENCY` 窗口，同一条 load 会被反复发起、
+  灌满全部 `MEM_INFLIGHT` 个飞行槽（缺陷 A，§8.2）。
+- **在飞条目不可被判 `dead`**：`dead = ~valid_r | flush_mask | invalidate` 再排除在飞项
+  ⇒ 槽位在完成回来前不可复用，完成当拍读到的 `prs2_or_prd_r`/`addr_r`/`width_r`/`rob_tag_r`
+  必然还属于原请求（灭缺陷 B：槽位复用导致陈旧完成写坏目的寄存器）。
+  代价：flush 时若恰有在飞 load，head 最多阻塞 `MEM_LATENCY` 拍（飞行槽必定倒计时到期，不会死锁）。
+- `cand` 额外加 `!kill`（本拍就被 flush/失效的条目不发起）：否则 `issued` 与 `valid` 同拍翻转，
+  而 head 的 `skip` 用的仍是边沿前的 `issued=0` ⇒ 条目照样被跳过、槽位照样被复用。
+- 端口无变化；新增 `LSQ_SIZE` 个触发器（默认 16）。
+
 ### core/memory.v
 | name | dir | width | 驱动方 | 说明 |
 |---|---|---|---|---|
@@ -310,7 +322,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 2. `writes_rd` 抑制（rd=0/store/branch/标记）——漏则 x0 被重命名
 3. 同 preg 同拍 set+clear → clear 赢（ready_table 优先级）
 4. flush 时 head 可能已在窗口内 → rob 内部收敛
-5. load 完成脉冲与 flush 竞争 → lsq 检查条目有效性，无效丢弃
+5. load 完成脉冲与 flush 竞争 → 见 `lsq.v` 的"发起/在飞语义"（§8.2 定稿）：**在飞条目不被判失效、head 不跳过它**（槽位与身份保留到完成回来），故完成当拍读到的地址/宽度/目的寄存器必然还属于原请求；陈旧完成由条目有效性筛掉，不写 CDB。只做"无效丢弃"不够 —— 槽位若在完成前被复用，新请求的元数据会被旧完成当成本次结果写走
 6. 同拍多误预测 → 最老 tag；walker 中途扩展不重复回滚（walk_ptr 只递减）
 7. 执行槽选择互斥（同年龄低槽赢）、两槽不选同一 RS 条目
 8. 同批 2 store 提交 → 第 2 个下拍；同批 2 call → RAS 链保证 top[i] 正确
@@ -322,7 +334,9 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 ## 关键文件
 
-- 修改：rtl/front/{fetch,decode,bht,ras}.v、rtl/core/{rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory}.v、rtl/exec/{alu,branch}.v、rtl/top/cpu_top.v（Phase A 先写接口骨架 + cpu_top 全部布线，Phase B 逐模块填充内部；新增 TB 9 个）
+- 修改：rtl/front/{fetch,decode,bht,ras}.v、rtl/core/{rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory}.v、rtl/exec/{alu,branch}.v、rtl/top/cpu_top.v（Phase A 先写接口骨架 + cpu_top 全部布线，Phase B 逐模块填充内部；**Phase A 新增 TB 9 个**：tb_rat/tb_rs/tb_lsq/tb_memory/tb_fetch/tb_alu/tb_branch/tb_rob/tb_cpu_top）
+- 修改（实现期新增）：rtl/exec/execute_slot.v（B1/B3/B4 的操作数获取、执行分发、误预测检测汇出）
+- 新增（§5）：tb/top/tb_cpu_prog.v（编译程序整机验证）；当前 `tb/` 共 **12** 个 = Phase A 的 9 个 + 既有 tb_mul/tb_adder32 + tb_cpu_prog
 - 修改（§6 性能修复）：rtl/exec/mul.v（tree_level 改词级运算 + 校正位行整行单驱动）、rtl/exec/alu.v（非乘法 op 门控乘法器输入）
 - 不动：rtl/exec/adder32.v、Makefile（自动发现新文件）
 - 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp
