@@ -10,11 +10,9 @@
 #                   -N 使 $stop 相当于 $finish 且退出码为 1
 #                   ($finish(n) 的参数只是诊断级别, 不改变退出码, 勿用)
 #
-# 目标:
-#   make                    编译并运行全部 testbench
-#   make run TB=exec/tb_x   只运行单个
 #   make sim/exec/tb_x.vvp  仅编译单个
 #   make wave TB=exec/tb_x  运行单个并打开 surfer 波形
+#   make bench ARGS="+P"    Verilator 快速仿真整机程序 (IPC 测量口径, 见 docs/plan.md)
 #   make clean              删除 sim/
 # ============================================================
 SIM := sim
@@ -56,6 +54,30 @@ wave: $(VVPS)
 
 clean:
 	rm -rf $(SIM) synth/out
+
+# ============================================================
+# Verilator 快速仿真 (IPC 测量口径; docs/description.md:30 指定 Verilator)
+#   make bench ARGS="+PROG=pi"      默认 MAX_CYCLE=2 亿拍
+#   复用 tb/top/tb_cpu_prog.v (不新建 TB), 打印格式与 plusarg 与 Icarus 完全一致,
+#   两个引擎的数字可直接逐字段比对; 产物落 sim/bench/ 不污染 sim/<域>/
+#   MAX_CYCLE 是 top 模块 parameter, 用 -pvalue+ 在 verilate 时烘焙 (默认 200 万对 pi 不够)
+#   失败路径的 $stop 在 Verilator 下退出码为 1, 与 vvp -N 一致
+#
+#   注意: Verilator 是 2-state, **无法复现 X 传播类缺陷** (docs/plan.md §8 的 tak lat=20)
+#         ⇒ 分工固定: Verilator 管速度与 IPC, Icarus 保留为正确性签署工具
+# ============================================================
+VERILATOR ?= verilator
+VB   := $(SIM)/bench
+VMAX ?= 200000000
+
+.PHONY: bench
+bench:
+	@mkdir -p $(VB)
+	$(VERILATOR) --binary --timing -O3 -Wno-fatal --top-module tb_cpu_prog \
+	             -Mdir $(VB)/obj -o ../bench \
+	             -pvalue+MAX_CYCLE=$(VMAX) \
+	             $(SRCS) tb/top/tb_cpu_prog.v
+	$(VB)/bench $(ARGS)
 
 # ============================================================
 # 综合 (YoSys + ASAP7 7nm 标准单元库, RVT+TT)

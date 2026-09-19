@@ -153,7 +153,7 @@ module rs #(
     wire [ISSUE_WIDTH * RS_SIZE * SRW - 1 : 0] ecst;
     generate
         for (gk = 0; gk < ISSUE_WIDTH; gk = gk + 1) begin : enc
-            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : bit
+            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : bg
                 wire cand_p = !valid_r[ge] && (prec[ge * CSW +: CSW] == gk);
                 wire [SRW - 1 : 0] prev_p = (ge == 0)
                     ? {SRW{1'b0}}
@@ -170,7 +170,7 @@ module rs #(
     wire [ISSUE_WIDTH * RS_SIZE - 1 : 0] pvc;
     generate
         for (gk = 0; gk < ISSUE_WIDTH; gk = gk + 1) begin : pv
-            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : bit
+            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : bg
                 wire cand_p = !valid_r[ge] && (prec[ge * CSW +: CSW] == gk);
                 if (ge == 0) begin : b0
                     assign pvc[gk * RS_SIZE + 0] = cand_p;
