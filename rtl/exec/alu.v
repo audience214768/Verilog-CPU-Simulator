@@ -21,7 +21,11 @@ module alu (
     wire [63 : 0] product;
     wire m_as = (op == 5'd11) || (op == 5'd12);
     wire m_bs = (op == 5'd11);
-    mul umul (.a(a), .b(b), .a_signed(m_as), .b_signed(m_bs), .product(product));
+    // 非乘法 op 时把操作数钳到 0: mul 是纯组合的, 不门控则每拍都重算整棵华莱士树。
+    // 用 >= 而非枚举: result 的 default 分支取 product[63:32], 编码 14..31 也消费它
+    wire sel_prod = (op >= 5'd10);
+    mul umul (.a(sel_prod ? a : 32'd0), .b(sel_prod ? b : 32'd0),
+              .a_signed(m_as), .b_signed(m_bs), .product(product));
 
     // 算术右移: 64 位符号位复制后逻辑右移 (避免 ?: 上下文把 >>> 降级为逻辑右移)
     wire [63 : 0] sra64 = {{32{a[31]}}, a} >> b[4 : 0];
