@@ -3,7 +3,13 @@
 ## 乱序执行多发射CPU
 ## 可以参数化，比如多发射指令数、ROB、RS等数据结构的大小，具体到后端实现不需要参数化（比如加法器、乘法器的位数）
 ## 报告：架构设计探索，性能消融（不同参数下性能优化情况）
-## 用YoSys+ASP7工艺库综合面积，要求单发射情况下面积在1500-2000um2，性能和面积翻倍比例在1.3x。
+## 评测要求一律以 docs/description.md 为准 (该文件只能由用户手动修改; 计划/架构/分析文档随其更新):
+##   面积 = YoSys+ASP7 综合 (内存不综合不计面积, 禁止用寄存器组当内存); IPC = Verilator 统计;
+##   频率需 ≥300MHz; 统一内存 (冯·诺依曼); 三档要求"面积上限与最低 IPC 同时满足":
+##     (面积上限 µm², 最低 IPC) = (10000, 0.6000) / (20000, 0.7800) / (40000, 1.0140), 90/95/100 分;
+##     档位按 "IPC 增至 1.3× ↔ 面积上限增至 2×" 设置;
+##   IPC 测试点 = ACMClassCourse-2025/CPU-2026-Benchmark; 内存延迟: 功能 3 拍, 性能档要求 20 拍;
+##   ISA = RV32IM 去掉 CSR*/ECALL/EBREAK/FENCE/FENCE.I 与 LH/LHU/LB/LBU
 ## 注意，需要实现乘法，采用2位booth编码+华莱士树
 ## 模块化目录: 
 rtl/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块在域内平铺, 模块名=文件名
@@ -27,3 +33,7 @@ core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory; exec=adder32,mul,alu,b
 - 时序: 状态仅写在 always @(posedge clk) 内, 同步低有效复位 rst_n; 组合逻辑一律 assign/?: (不写 always @*)
 - 常数: 魔法数用 localparam 命名 (如 TERM_RAW = 32'h0FF06093)
 - 注释: 模块头注释说明功能/握手/写优先级; 中文注释; 不写逐行流水账
+
+- 需要记录架构探索过程和debug记录，并实时提交git
+
+- 要求以docs/description.md为准，该文件只能由我手动修改，其他计划、架构、分析文档可以修改

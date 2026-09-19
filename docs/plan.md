@@ -4,7 +4,7 @@
 
 verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。`adder32` 与 `mul`（2位Booth+华莱士树）已实现，其余 15 个模块是空壳占位。本计划定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议与实现/TB 顺序，供实现阶段直接照做。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
 
-需求（project.pptx + CLAUDE.md）：RV32IM（去掉 csr*/fence/半字与字节 load）、参数化 W∈{1,2,4} × PRF 大小 × ROB 大小（及 RS/LSQ 等）、跑 3 个程序（向量乘/向量加/0-100 累加）、报告含参数消融、YoSys+ASAP7 单发射 1500–2000µm²、面积翻倍性能 ≥1.3×。
+需求（**以 `docs/description.md` 为准**，该文件只由用户手动修改；本节及全文的指标口径随其更新）：RV32IM（去掉 CSR*/ECALL/EBREAK/FENCE(.I) 与 LH/LHU/LB/LBU）、参数化 W∈{1,2,4} × PRF 大小 × ROB 大小（及 RS/LSQ 等）、正确性两阶段（基础程序：向量乘/向量加/0-100 累加 → 仿真程序：CPU Simulator 全部程序）、报告含参数消融与架构探索；面积用 YoSys+ASP7 综合（内存不综合不计面积、禁止用寄存器组当内存）、IPC 用 Verilator 统计（测试点 = CPU-2026-Benchmark 仓库）、频率 ≥300MHz、统一内存（冯·诺依曼）、内存延迟功能 3 拍 / 性能档 20 拍；三档"面积上限与最低 IPC 同时满足"：(10000, 0.6000) / (20000, 0.7800) / (40000, 1.0140)，档位设计为 IPC ×1.3 ↔ 面积上限 ×2。
 
 ## 已确认的设计决策（与用户商定）
 
@@ -503,7 +503,7 @@ head 只有 `RA` 位，满栈 `head = RAS_SIZE` 被截断为 0 → 满栈判据 
 
 **教训**：§6 前面几轮把注意力全放在"数据结构大的模块"（rob/lsq/memory）和"flush 路径"上，是因为**先用采样 profile 猜了成分再去找模块**，而采样只给到 `concat8`/`send_vec8` 这种通用 functor，不含模块名。真正定性的是**网表级统计**（`.part` 节点按模块归类）——它直接指出 91% 的位选挤在一个模块里。这类问题下次应当**先按模块统计网表节点**，再谈 profile。
 
-### 7. 18 个编译程序只过 9 个：控制流跳出代码段 / 停滞（调查中）
+### 7. 18 个编译程序只过 9 个：控制流跳出代码段 / 停滞（已定位并修复：两个独立缺陷）
 
 **背景**：§6 的速度问题解决后，18 个测试程序第一次跑得完。结果 **9 过 9 挂**（原始 RTL，未加任何 LSQ 补丁）。全量 run 墙钟 2928 s。
 
@@ -565,7 +565,42 @@ tak            FAIL timeout@2000000 halt=0 pc=00001084 commit=365
 6. **模块级新旧等价测试（`/tmp/muleq`）未跑完就被终止**，输出只有 `=== compiled ===`。但这条已被更强的证据覆盖：`tb_mul` 直接对 2400 组输入逐位比对 64 位积且 PASS，整机逐拍 trace 与基线 byte-identical。**不必重跑**。
 7. **§6 的 A/B/C/D 四个嫌疑**（flush 路径 / 未隔离模块 / 组合振荡 / 占用度）在 §6 已全部关闭，与本节无关。
 
-**还未排除 / 当前卡点**：
+**结论：a 与 b 两个形态是**两个独立缺陷**，各自修复后 hanoi 才通过。**
+
+#### 7.1 修复 1 — LSQ 窗口语义（a 形态真死锁），commit `c641e71`
+
+照 C++ 参考语义重写 `rtl/core/lsq.v`：
+
+- **环形保留 1 槽**：占用 ≤ `LSQ_SIZE-1`，`head == last` 唯一表示"空"（与参考 `full = ((last+1) % LSQ_SIZE == head)` 一致）。Bug A 由此根除：不再出现 `winlen` 分不清空/满而翻成 0 → `cand` 全灭 → 无 load 可发起 + `free_count=0` 挡住发射的闭环。
+- **head 每拍跳过 head 处连续死条目**：`dead = ~valid_r | flush_mask | invalidate`，`skip = dead_skip_f(dead, head_r, winlen)`。Bug B 由此根除：被 flush 的条目不再只在"恰好位于 head 的那一拍"才回收。
+  - 关键是 `dead` 必须含 `flush_mask | invalidate`：flush/invalidate 到 posedge 才清 `valid_r`，**组合跳过必须提前把它们算作死**。这一点是单元 TB 的 L7/L8 抓出来的（漏了 `flush_mask` 会多推窗口）。
+- **`free_count` 改为组合导出**（`(LSQ_SIZE-1) - winlen + skip`），删掉 `free_count_r` 寄存器 —— 参考实现根本没有这个状态，去掉它消除了一整类状态失步 bug。`cpu_top` 的发射门随之从 `lsq_free_w + n_inv >= n_mem` 改回 `lsq_free_w >= n_mem`（`free_count` 已含本拍失效腾出的槽），并删掉孤立的 `n_inv`/`inv_acc` 链。
+- **原"候选 1"（head 多推一格）不成立**：最终版本 head 只加 `skip`，当拍失效的条目已由 `dead` 覆盖，不存在 `flush_skip + |invalidate` 两项相加。
+- 验证：`tb_lsq` ALL TESTS PASSED（L1/L2/L7/L8/L9/L10/L15 期望值按新语义更新）；hanoi 提交由 273 解冻到 130151。**但随即暴露 b 形态跑飞** —— 说明 a 与 b 确实不同源（§7.2）。
+
+#### 7.2 修复 2 — 取指失步（b 形态跑飞），commit `a7ce958`
+
+先用探针拿到第一拍：`tb_cpu_prog` 加 `+BAD=<hex>`（pc 首次越界即打印拍号并 `$finish`，省得每次跑到 2M 拍），
+`+PROG=hanoi +BAD=8000` 得 `BAD: pc=00008004 > 00008000 at cyc=346498`；按 +4/拍反推失步发生在 cyc≈339K、pc 仍在代码段内（此前 hanoi 的 trace 探针只在"卡死"时有用，跑飞场景要靠 `+BAD` + `+FROM/+TRACE` 回放窗口）。
+
+根因在 `rtl/front/fetch.v`：`pc_r` 是"下一次请求地址"、`exp_pc_r` 是"下一批交付地址"，两者必须同步推进（pc 领先恰好一个批）。到达批被接收时若批内有预测跳转（jal/ret），`exp_pc_r` 跳到该目标，而 `pc_r` 被 `stall` 按在原地 —— 而 `stall=1` 恰是**冲刷期的常态**（`cpu_top`: `fetch_stall = (have_batch && !issue_en) || flushing_r || halt_q_r`），递归程序里"jal 后面紧跟 jal/ret"又极常见，重定向目标正好落在这类地址上。命中即永久失步：`exp_pc` 停在目标不动，`pc` 只做顺序推进，到达地址流再也追不上 `exp_pc` → **pc 每拍 +4W 走进未映射区，commit 冻结**（这正是 §7 表格 b 形态的成因，`magic` 的 `pc=0x7a1b6c` 同源）。
+
+修法：预测跳转 `pc_jmp_w = pred_ok_w && pt_c[ISSUE_WIDTH]` 提到 `stall` 保持之前，**并把 `pc_jmp_w` 纳入 `pc_wr_w`** —— 否则 stall 拍写使能为 0，跳转目标根本写不进 pc。这个漏改是先跑测试才抓到的（实测炸出 417 个用例），不是靠读代码看出来的。`stall` 且到达批无预测跳转时仍保持 pc：那种情况 `exp_pc` 只 +4W，到达地址流下一拍即与之重合，不失步（已写进注释）。
+
+**方法论教训（重要）**：`tb_fetch` 段 2 的 300 拍随机模型对照**不可能**独立发现这类缺陷 —— 模型与 RTL 同源，只验证"等价"而非"正确"。故补了独立期望的定向用例 **F14**（重定向到 `0x300` 的 `jal -16` + `stall=1` + 批寄存器空）：修前 `pc=00000300 / exp=000002f0` 并跑飞，修后 PASS。
+
+#### 7.3 修复后的程序结果
+
+| 程序 | 修复前 | 修复后 |
+|---|---|---|
+| hanoi | timeout@2M, commit=273（a 形态死锁） | **PASS** ret=20 cycles=326181 commit=130306 |
+| statement_test | timeout@2M, commit=780（原判"c 形态：只是慢"） | **PASS** ret=50 cycles=1504 commit=822 |
+| multiarray | timeout@2M, commit=772（同上） | **PASS** ret=115 cycles=1901 commit=1289 |
+| 前述 9 个 PASS | — | 逐字符不变（cycles/commit/flush/branch 全同，无回归） |
+
+**"c 形态只是慢"这个判读也是错的**：`statement_test`/`multiarray` 的 commit 数在几百就冻住，本就是停滞/失步，修完两处后 1.5~1.9K 拍就跑完了。剩下 7 个原"c 形态"（pi/qsort/bulgarian/queens/tak 等）正在用修复后的 RTL 全量重跑，结论待补。
+
+**仍未排除 / 当前卡点（已全部关闭，保留备查）**：
 
 - 忠实照 C++ 语义改出的版本（`/tmp/fix/rtl/core/lsq.v`：`flush_skip = flush_skip_f(~valid_r, head_r, winlen)` + `free_count_r <= (LSQ_SIZE - 1)` 复位）**能编译、能过单元 TB，但 `hanoi` 从"卡在 pc=0000103c"变成 `pc=xxxxxxxx (commit=x)`** —— 出现 X 传播。这堵住了整条路。
 - **候选 1：补丁细节错**。`cpu_top.v:551` 的 `inv_one` 只由 `ce_w[c] && is_memop_w[c]` 产生，**没有按 `lsq_valid_w[cmt_lsq_tag]` 门控**。我的补丁把 `head_r <= head_r + flush_skip + (|invalidate)` 写成两项相加：`flush_skip` 数的是"洞"，`|invalidate` 数的是"当拍提交"；**若两者命中同一条目就会把 head 多推一格，丢掉一条活条目**，随后 `free_count` 多算、窗口错位。这是最可疑的一处，应当先查。
@@ -573,14 +608,17 @@ tak            FAIL timeout@2000000 halt=0 pc=00001084 commit=365
 - **候选 3：X 根本不来自 LSQ**（尚未做任何排除）。
 - **候选 4：那 7 个"c 形态"程序**（commit 数很大）是不是同一个 bug，**完全没查**。它们可能只是 2M 拍不够（那就该先量一下它们的 IPC 是否正常），也可能是另一类缺陷。
 
-**下一步（探针已备好、尚未执行）**：在 `/tmp/fix/tb_dbg.v` 加 `FIRST_BAD` 探针 —— `pc_r` 首次为 X 或首次越出 `[0x1000, 0x8000)` 时打印那一拍的 `pc_r / f2i_raw / rob_head / rob_last / lsq head,last,free_count`，定位第一拍。同时给 TB 加 `+MAXC=N` 上限，避免每次都跑到 2M 拍（hanoi 的死锁点在第 404 拍左右，几千拍足够复现）。
+**下一步（探针已备好、尚未执行）** → **已执行**：探针没按原计划加在 `/tmp/fix/tb_dbg.v`，而是直接落在 `tb/top/tb_cpu_prog.v`（`+BAD=<hex>` 越界即报第一拍并结束；`+FROM/+TRACE` 回放窗口）。hanoi 用它拿到 cyc=346498 越界，比原计划的"X 或越界"更省事，也不再需要跑到 2M 拍。
 
-**优先级建议**：b 形态（`magic` 跑飞）才是最初那个"跳出代码段"的问题，且 hanoi 的 a 形态未必同源。修 LSQ 前，先用 `magic` 复现一次"跑飞"，确认两者是不是一个 bug —— 否则可能修完 LSQ 发现 `magic` 照跑飞。
+**优先级建议** → **复盘**：这条判断对了一半。a/b 形态确实不同源（§7.1 修完 LSQ 后 hanoi 立刻从"死锁"变成"跑飞"），但"先用 `magic` 复现跑飞"这一步**没必要** —— 修完 LSQ 的 hanoi 自己就成了 b 形态的最小复现，且在 hanoi 上取第一拍比在 `magic`（2M 拍级别）上快得多。教训：**同一程序修掉一层缺陷后暴露的下一层，往往是更新鲜、更便宜的复现**，不必执着于"最初的见证者"。
 
 ## 消融 + 综合（报告素材）
 
-- 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × PRF{32,64,128} × LSQ{8,16,32} × MEM_LATENCY{1,3,6} × BHT{16,32,128} × RAS{0,8,32}，3 程序各跑一遍，记录 IPC/提交/冲刷统计（cpu_top 调试输出）
-- YoSys + ASAP7：单发射核心 1500–2000µm²（RAM 用 ram 风格映射/黑盒，**报告注明面积为核心逻辑**）；2× 面积 → ≥1.3× 性能
+- 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × PRF{32,64,128} × LSQ{8,16,32} × MEM_LATENCY{3,20} × BHT{16,32,128} × RAS{0,8,32}，3 程序各跑一遍，记录 IPC/提交/冲刷统计（cpu_top 调试输出）
+  - MEM_LATENCY 必须含 **20 拍**：description.md 规定性能阶段的内存延迟为 20 拍（功能仿真 3 拍），评估性能档要用 20
+- YoSys + ASAP7 实测（默认参数、单发射、当前代码）：全核 **7768.5 µm²**（memory 黑盒另计），mul 554.6；详见 `docs/area_budget.md`
+  - 达标口径（description.md）：**面积上限与最低 IPC 同时满足** —— (10000, 0.6000) / (20000, 0.7800) / (40000, 1.0140)；默认配置面积已在第 1 档内，瓶颈是 IPC
+  - IPC 评测口径是 **Verilator 跑 CPU-2026-Benchmark**，本仓库的 `+PERF=N` 只是内部对照，报告中须说明两者口径差异
 - 可选消融点（报告素材）：RAT 快照恢复 vs walker、值捕获 RS vs 状态式、无延迟内存 vs MEM_LATENCY
 
 ## 关键文件
