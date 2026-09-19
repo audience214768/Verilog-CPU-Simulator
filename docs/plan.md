@@ -480,8 +480,18 @@ PERF: tak cycles=200000 commit=x ipc=x.00x flush=29 branch=51          (lat=20, 
 
 ### 8.1 `queens` / `tak` 归因【进行中】
 
-**已观测**：`lat=20 / inf=16` 下 `queens` 算错、`tak` 出 X（见上）。**复现矩阵**（3 拍 / 20 拍 ×
-inf 4/16）进行中 —— **在拿到复现结果前不下结论**。
+**已观测**：
+
+| 程序 | 配置 | 结果 |
+|---|---|---|
+| queens | lat=20, inf=16 | FAIL ret=7 exp=171, cycles=110575 |
+| tak | lat=20, inf=16 | `commit=x` flush=29 branch=51 |
+| **tak** | **lat=20, inf=4** | **`commit=x` flush=26 branch=57** |
+| tak / queens | lat=3 | PASS（§7.3） |
+
+**`tak` 在 `inf=4` 与 `inf=16` 下都出 X** ⇒ 与 `MEM_INFLIGHT` 无关，只跟 `MEM_LATENCY=20` 有关。
+（`MEM_INFLIGHT` 是**本设计的**参数、非评测规定；它被排除后，嫌疑集中在延迟相关的时序假设上。）
+`queens` / `tak` 在 3 拍的复现腿仍在跑 —— **在拿到 3 拍对照前不下结论**。
 
 **为什么值得优先**：这是**正确性**问题，而用户的口径是"先确保程序正确性，再谈优化"。
 且它只在性能配置下暴露 → 若性能档评测（`MEM_LATENCY=20`）下算错，IPC 再高也无意义。
