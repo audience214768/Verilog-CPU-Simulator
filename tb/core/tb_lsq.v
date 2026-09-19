@@ -1,7 +1,10 @@
 // tb_lsq: 段 1 小规模+极端 (空态/push+set_addr 后发起/store 未执行阻塞 load/年龄仲裁/
-//        低槽优先/flush 洞与 head 跳过/连续 flush 跳过/满态/环形回绕/同拍 push+invalidate/
+//        低槽优先/洞与 head 跳过/连续死条目跳过/满态 (保留 1 槽)/环形回绕/同拍 push+invalidate/
 //        同拍 push+set/字节合并最年轻优先/head 处 store 前递/符号扩展/store 不产 load_cdb/
 //        done 抑制再发起/ld_busy 门控); 段 2 随机模型对照 (300 拍)
+//   契约: 环形容量保留 1 槽 (占用 ≤ LSQ-1), head==last 唯一表示空;
+//         head 每拍推进跳过 head 处连续死条目 (~valid | 本拍 invalidate);
+//         free_count = 本拍可 push 数 = (LSQ-1) - 占用 + 跳过数 (组合导出, 无独立状态)
 `timescale 1ns/1ps
 module tb_lsq;
     localparam W   = 2;
@@ -146,7 +149,7 @@ module tb_lsq;
             #1; #8; #1;
             m_valid = 0; m_is_load = 0; m_ardy = 0; m_drdy = 0; m_done = 0; m_unsg = 0;
             m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
-            m_head = 0; m_last = 0; m_free = LSQ[LCW - 1 : 0];
+            m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
         end
     endtask
 
@@ -154,10 +157,9 @@ module tb_lsq;
     task tick;
         integer s, k2;
         reg [LW : 0]     pwin;
-        reg [LCW - 1 : 0] fskip, pcnt, off;
+        reg [LCW - 1 : 0] fskip, fpost, pcnt, off;
         reg [LSQ - 1 : 0] pv, pl;
         reg [LW - 1 : 0] ph, pls;
-        reg [LCW - 1 : 0] pf;
         reg [LW : 0]     win;
         reg [LSQ : 0]    sok;
         reg [LSQ - 1 : 0] cand;
@@ -169,16 +171,18 @@ module tb_lsq;
             #1;
             #8;
             #1;
-            // ---- 快照 pre 状态 (flush_skip/done 条件/psum 用) ----
+            // ---- 快照 pre 状态 (跳过数/done 条件/psum 用) ----
             pv = m_valid;
             pl = m_is_load;
             ph = m_head;
             pls = m_last;
-            pf = m_free;
             pwin = (pls - ph) & (LSQ - 1);
+            // head 处连续死条目数 (洞 + 本拍 flush + 本拍 invalidate)
             fskip = 0;
             for (k2 = 0; (k2 < LSQ) && (k2 < pwin)
-                     && flush_mask[(ph + k2) & (LSQ - 1)]; k2 = k2 + 1)
+                     && (!pv[(ph + k2) & (LSQ - 1)] || flush_mask[(ph + k2) & (LSQ - 1)]
+                         || invalidate[(ph + k2) & (LSQ - 1)]);
+                 k2 = k2 + 1)
                 fskip = fskip + 1'b1;
             pcnt = push_valid[0] + push_valid[1];
             // ---- 1) flush / invalidate 失效 ----
@@ -212,12 +216,19 @@ module tb_lsq;
             // ---- 4) load 完成标记 (用 pre 有效性) ----
             if (mem_done_valid && pv[mem_done_idx] && pl[mem_done_idx])
                 m_done[mem_done_idx] = 1'b1;
-            // ---- 5) 指针更新 ----
-            m_head = ph + fskip + (|invalidate);
+            // ---- 5) 指针更新 (head 推进跳过 head 处连续死条目) ----
+            m_head = ph + fskip;
             m_last = pls + pcnt;
-            m_free = pf - pcnt + fskip + (|invalidate);
-            // ---- 期望 (post 状态): 发起链 ----
+            // ---- 期望 (post 状态): free 导出 + 发起链 ----
             win = (m_last - m_head) & (LSQ - 1);
+            // free_count 是组合导出量 (无寄存器): 本拍可 push 数 = (LSQ-1) - 占用 + head 处连续死条目
+            fpost = 0;
+            for (k2 = 0; (k2 < LSQ) && (k2 < win)
+                     && (!m_valid[(m_head + k2) & (LSQ - 1)] || flush_mask[(m_head + k2) & (LSQ - 1)]
+                         || invalidate[(m_head + k2) & (LSQ - 1)]);
+                 k2 = k2 + 1)
+                fpost = fpost + 1'b1;
+            m_free = (LSQ - 1) - win + fpost;
             sok[0] = 1'b1;
             for (k2 = 0; k2 < LSQ; k2 = k2 + 1) begin
                 bad = m_valid[(m_head + k2) & (LSQ - 1)]
@@ -348,16 +359,16 @@ module tb_lsq;
 
         m_valid = 0; m_is_load = 0; m_ardy = 0; m_drdy = 0; m_done = 0; m_unsg = 0;
         m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
-        m_head = 0; m_last = 0; m_free = LSQ[LCW - 1 : 0];
+        m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
         e_ldv = 0; e_pidx = 0; e_la = 0; e_lw = 0; e_ok = 0; e_prd = 0; e_rob = 0; e_res = 0;
 
         clr_all();
         #23 rst_n = 1;
         #1;
 
-        // L1: 复位空态
+        // L1: 复位空态 (保留 1 槽: free = LSQ-1)
         check_all();
-        if (head !== 0 || last !== 0 || full !== 1'b0 || free_count !== 16) begin
+        if (head !== 0 || last !== 0 || full !== 1'b0 || free_count !== LSQ - 1) begin
             $display("FAIL: L1 reset state"); errors = errors + 1;
         end else begin
             $display("PASS: L1 reset empty");
@@ -368,7 +379,7 @@ module tb_lsq;
         push_load(3, 7, 2'b10, 1'b0);
         tick();
         check_all();
-        if (last !== 1 || free_count !== 15 || valid[0] !== 1'b1
+        if (last !== 1 || free_count !== LSQ - 2 || valid[0] !== 1'b1
          || is_load[0] !== 1'b1 || addr_ready[0] !== 1'b0 || ld_start_valid !== 1'b0) begin
             $display("FAIL: L2 push load"); errors = errors + 1;
         end else begin
@@ -479,7 +490,7 @@ module tb_lsq;
             $display("PASS: L6 age arbitration");
         end
 
-        // L7: flush 洞 (非 head) + invalidate 推进 head
+        // L7: 洞 (非 head) + head 处提交失效 → head 一步跳过两者 (洞不会永久占窗口)
         do_reset();
         clr_all();
         push_load(0, 1, 2'b10, 1'b0);
@@ -498,25 +509,25 @@ module tb_lsq;
         tick();   // 槽2
         clr_all();
         flush_mask = 16'h0002;   // 洞在距离 1 (非 head)
-        invalidate = 16'h0001;   // head 处失效
+        invalidate = 16'h0001;   // head 处失效 → 与洞连成 2 个死条目
         tick();
         check_all();
-        if (valid[1] !== 1'b0 || head !== 4'd1 || free_count !== 14) begin
-            $display("FAIL: L7 flush hole (v=%h h=%0d free=%0d)", valid, head, free_count);
+        if (valid[1] !== 1'b0 || head !== 4'd2 || free_count !== 14) begin
+            $display("FAIL: L7 hole + invalidate skip (v=%h h=%0d free=%0d)", valid, head, free_count);
             errors = errors + 1;
         end
         clr_all();
-        invalidate = 16'h0002;   // head 推进到洞 → 跳过
+        invalidate = 16'h0004;   // head (条目 2) 提交失效 → 窗口清空, head 追上 last
         tick();
         check_all();
-        if (head !== 4'd2 || free_count !== 15) begin
-            $display("FAIL: L7 skip hole (h=%0d free=%0d)", head, free_count);
+        if (head !== 4'd3 || last !== 4'd3 || free_count !== LSQ - 1 || full !== 1'b0) begin
+            $display("FAIL: L7b head catch last (h=%0d l=%0d free=%0d)", head, last, free_count);
             errors = errors + 1;
         end else begin
-            $display("PASS: L7 flush hole + head skip");
+            $display("PASS: L7 hole + head skip");
         end
 
-        // L8: 连续 flush 在 head → flush_skip 一步跳过
+        // L8: 连续 flush 在 head → 一步跳过 (洞不留窗口)
         do_reset();
         clr_all();
         push_load(0, 1, 2'b10, 1'b0);
@@ -534,17 +545,17 @@ module tb_lsq;
         push_is_load[1] = 1'b1;
         tick();
         clr_all();
-        flush_mask = 16'h0003;   // 距离 0,1 全 flush
+        flush_mask = 16'h0003;   // 距离 0,1 全 flush → 跳过 2 槽
         tick();
         check_all();
-        if (head !== 4'd2 || last !== 4'd3 || free_count !== 15) begin
+        if (head !== 4'd2 || last !== 4'd3 || free_count !== LSQ - 2) begin
             $display("FAIL: L8 flush skip (h=%0d l=%0d free=%0d)", head, last, free_count);
             errors = errors + 1;
         end else begin
             $display("PASS: L8 consecutive flush skip");
         end
 
-        // L9: 同拍 push + invalidate → free 净变化 0
+        // L9: 同拍 push + invalidate (腾出的槽当拍即可复用)
         do_reset();
         clr_all();
         push_load(0, 1, 2'b10, 1'b0);
@@ -554,18 +565,18 @@ module tb_lsq;
         invalidate = 16'h0001;
         tick();
         check_all();
-        if (head !== 4'd1 || last !== 4'd2 || free_count !== 15) begin
+        if (head !== 4'd1 || last !== 4'd2 || free_count !== LSQ - 2) begin
             $display("FAIL: L9 push+invalidate (h=%0d l=%0d free=%0d)", head, last, free_count);
             errors = errors + 1;
         end else begin
             $display("PASS: L9 push + invalidate same cycle");
         end
 
-        // L10: 满态 full (8 拍 × 2 push = 16)
+        // L10: 满态 full (保留 1 槽: 7 拍 × 2 + 1 = 15 条占满)
         do_reset();
         begin : l10
             integer i2;
-            for (i2 = 0; i2 < 8; i2 = i2 + 1) begin
+            for (i2 = 0; i2 < 7; i2 = i2 + 1) begin
                 clr_all();
                 push_valid[0] = 1'b1; push_valid[1] = 1'b1;
                 push_rob_tag[0 * RW +: RW] = i2 * 2;
@@ -579,12 +590,15 @@ module tb_lsq;
             end
         end
         clr_all();
+        push_load(14, 15, 2'b10, 1'b0);
+        tick();
+        clr_all();
         check_all();
-        if (!full || free_count !== 0 || last !== 4'd0 || valid !== 16'hFFFF) begin
+        if (!full || free_count !== 0 || last !== 4'd15 || valid !== 16'h7FFF) begin
             $display("FAIL: L10 full (full=%b free=%0d last=%0d v=%h)", full, free_count, last, valid);
             errors = errors + 1;
         end else begin
-            $display("PASS: L10 full state (ring wraps)");
+            $display("PASS: L10 full state (occupancy = LSQ-1)");
         end
 
         // L11: 字节合并前向 — 最年轻重叠 store 赢, 不重叠字节用 mem
@@ -742,11 +756,11 @@ module tb_lsq;
             $display("PASS: L14 push + set_addr same cycle");
         end
 
-        // L15: 环形回绕 — 满态后 invalidate×3 + push 3 → 指针回绕
+        // L15: 环形回绕 — 满态 (last=15) 后 invalidate×3 + push 3 → last 回绕到 2
         do_reset();
         begin : l15
             integer i2;
-            for (i2 = 0; i2 < 8; i2 = i2 + 1) begin
+            for (i2 = 0; i2 < 7; i2 = i2 + 1) begin
                 clr_all();
                 push_valid[0] = 1'b1; push_valid[1] = 1'b1;
                 push_rob_tag[0 * RW +: RW] = i2 * 2;
@@ -760,11 +774,19 @@ module tb_lsq;
             end
         end
         clr_all();
+        push_load(14, 15, 2'b10, 1'b0);
+        tick();   // 15 条占满: last=15, head=0
+        clr_all();
         invalidate = 16'h0001; tick();
         clr_all();
         invalidate = 16'h0002; tick();
         clr_all();
         invalidate = 16'h0004; tick();   // head=3, free=3
+        check_all();
+        if (head !== 4'd3 || free_count !== 3) begin
+            $display("FAIL: L15a head advance (h=%0d free=%0d)", head, free_count);
+            errors = errors + 1;
+        end
         clr_all();
         push_valid[0] = 1'b1; push_valid[1] = 1'b1;
         push_rob_tag[0 * RW +: RW] = 30;
@@ -774,14 +796,14 @@ module tb_lsq;
         push_width[0 * 2 +: 2] = 2'b10;
         push_width[1 * 2 +: 2] = 2'b10;
         push_is_load[0] = 1'b1; push_is_load[1] = 1'b1;
-        tick();   // 槽0,1
+        tick();   // 槽15, 回绕到槽0
         clr_all();
         push_load(32, 32, 2'b10, 1'b0);
-        tick();   // 槽2
+        tick();   // 槽1
         clr_all();
         check_all();
-        if (last !== 4'd3 || head !== 4'd3 || free_count !== 0 || full !== 1'b1
-         || valid !== 16'hFFFF) begin
+        if (last !== 4'd2 || head !== 4'd3 || free_count !== 0 || full !== 1'b1
+         || valid !== 16'hFFFB) begin
             $display("FAIL: L15 wrap (h=%0d l=%0d free=%0d v=%h)", head, last, free_count, valid);
             errors = errors + 1;
         end else begin

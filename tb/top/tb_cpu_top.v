@@ -115,7 +115,7 @@ module tb_cpu_top;
         begin
             $display("STUCK rs_free=%0d sel_cnt=%0d robh=%0d robl=%0d rob_free=%0d sp=%0d rsf=%0d lsqh=%0d lsql=%0d lsqf=%0d",
                      dut.rs_free_w, dut.sel_cnt, dut.rob_head_w, dut.rob_last_w, dut.u_rob.free_r,
-                     dut.u_fl.sp, dut.rs_free_w, dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.free_count_r);
+                     dut.u_fl.sp, dut.rs_free_w, dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.free_count_w);
             $display("  FLUSH flushing=%b misp=%b walk_ptr=%0d fs=%0d issue_en=%b batch=%b stall=%b halt_q=%b cdbv=%b",
                      dut.flushing_r, dut.misp_valid, dut.walk_ptr_r, dut.flush_fs_r,
                      dut.issue_en, dut.have_batch, dut.fetch_stall, dut.halt_q_r, dut.cdb_slot_valid_w);

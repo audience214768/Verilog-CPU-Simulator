@@ -1,6 +1,10 @@
 // 装载/存储队列: 发射建条目, 执行写 addr/data, load 发起需所有更老 store 已执行,
 // 完成时字节合并前向 (未提交更老 store 的 data 覆盖重叠字节), 提交时 store 直写主存 / 条目失效
-// 窗口 [head,last); head 推进跳过被 flush 的洞; 写优先级 flush > invalidate > push > set_*
+// 窗口 [head,last): 环形容量保留 1 槽 (占用 ≤ LSQ_SIZE-1) → head==last 唯一表示"空",
+// 否则 (last-head) 同时表示 0 与 LSQ_SIZE, 窗口被判成空 → 无 load 可发起且 head 不再前进 = 死锁
+// head 每拍无条件推进跳过 head 处的连续"死条目"(洞 + 当拍 flush + 当拍提交失效),
+// free_count 由 head/last 组合导出 (= 本拍可 push 数, 已含本拍失效腾出的槽; cpu_top 不再另加)
+// 写优先级 flush > invalidate > push > set_*
 // 组合发起: 最老未完成 load (cand 距离链) + 更老 store 全执行 + !ld_busy
 module lsq #(
     parameter ISSUE_WIDTH = 1,
@@ -13,7 +17,7 @@ module lsq #(
     // A: 指针/状态
     output [$clog2(LSQ_SIZE) - 1 : 0]     head, last,
     output              full,
-    output [$clog2(LSQ_SIZE + 1) - 1 : 0]    free_count,     // 当前空闲 (本拍失效数由 cpu_top 相加)
+    output [$clog2(LSQ_SIZE + 1) - 1 : 0]    free_count,     // 本拍可 push 数 (已含本拍失效腾出的槽)
     output [LSQ_SIZE - 1 : 0] valid, is_load, addr_ready, data_ready,
     // A: 内容 (commit 读 store 数据)
     output [LSQ_SIZE * 32 - 1 : 0] addr, data,
@@ -66,7 +70,6 @@ module lsq #(
     reg [LSQ_SIZE * 2 - 1 : 0]  width_r;
     reg [LSQ_SIZE - 1 : 0]  is_unsigned_r;
     reg [LW - 1 : 0]    head_r, last_r;
-    reg [LCW - 1 : 0]   free_count_r;
 
     // ---- push 槽偏移 (同 rob: psum[k] = 前 k 个 push 数) ----
     wire [(ISSUE_WIDTH + 1) * LCW - 1 : 0] psum;
@@ -79,28 +82,34 @@ module lsq #(
     endgenerate
     wire [LCW - 1 : 0] push_cnt = psum[ISSUE_WIDTH * LCW +: LCW];
 
-    // ---- flush 连续跳过数 (head 处连续被 flush 的条目数, 限窗口内) ----
+    // ---- 窗口长度 / head 处连续死条目数 (限窗口内) ----
+    // winlen 是当前占用的槽数 (含洞); 因容量保留 1 槽, winlen ∈ [0, LSQ_SIZE-1], 0 只表示空
     wire [LW - 1 : 0] winlen = (last_r - head_r) & (LSQ_SIZE - 1);
-    function [LCW - 1 : 0] flush_skip_f;
-        input [LSQ_SIZE - 1 : 0] mask;
+    // 死条目 = 已失效的洞 + 本拍被 flush 的条目 + 本拍被提交失效的条目
+    // (flush/invalidate 都在 posedge 才清 valid_r, 组合跳过必须提前把它们算作死)
+    wire [LSQ_SIZE - 1 : 0] dead = ~valid_r | flush_mask | invalidate;
+    function [LCW - 1 : 0] dead_skip_f;
+        input [LSQ_SIZE - 1 : 0] dead;
         input [LW - 1 : 0]       h;
         input [LW - 1 : 0]       wl;
         integer k;
         reg     go;
         begin
-            // 仅跳过 head 处连续被 flush 的条目; 遇到第一个未 flush 条目即停
+            // 仅跳过 head 处连续的死条目; 遇到第一个活条目即停
             // 循环上界必须为常量 (Yosys 不支持变量上界), 首次不满足即置 go=0 提前停止
-            flush_skip_f = {LCW{1'b0}};
+            dead_skip_f = {LCW{1'b0}};
             go = 1'b1;
             for (k = 0; k < LSQ_SIZE; k = k + 1) begin
-                if (go && (k < wl) && mask[(h + k) & (LSQ_SIZE - 1)])
-                    flush_skip_f = flush_skip_f + 1'b1;
+                if (go && (k < wl) && dead[(h + k) & (LSQ_SIZE - 1)])
+                    dead_skip_f = dead_skip_f + 1'b1;
                 else
                     go = 1'b0;
             end
         end
     endfunction
-    wire [LCW - 1 : 0] flush_skip = flush_skip_f(flush_mask, head_r, winlen);
+    wire [LCW - 1 : 0] skip = dead_skip_f(dead, head_r, winlen);
+    // 本拍可 push 数 = 保留 1 槽 - 当前占用 + 本拍被跳过的槽 (跳过的槽本拍即可复用)
+    wire [LCW - 1 : 0] free_count_w = LSQ_SIZE[LCW - 1 : 0] - 1'b1 - {1'b0, winlen} + skip;
 
     // ---- posedge 写 (优先级: flush > invalidate > push > set_*; 指针更新) ----
     integer i;
@@ -119,7 +128,6 @@ module lsq #(
             is_unsigned_r <= {LSQ_SIZE{1'b0}};
             head_r <= {LW{1'b0}};
             last_r <= {LW{1'b0}};
-            free_count_r <= LSQ_SIZE[LCW - 1 : 0];
         end else begin
             // 1) flush / invalidate: 失效 (洞保留, head 推进跳过)
             for (i = 0; i < LSQ_SIZE; i = i + 1) begin
@@ -158,10 +166,9 @@ module lsq #(
             // 4) load 完成标记 (仅有效 load 条目)
             if (mem_done_valid && valid_r[mem_done_idx] && is_load_r[mem_done_idx])
                 done_r[mem_done_idx] <= 1'b1;
-            // 5) 指针更新
-            head_r <= head_r + flush_skip + (|invalidate);
+            // 5) 指针更新 (free_count 由 head/last 组合导出, 无独立状态)
+            head_r <= head_r + skip;
             last_r <= last_r + push_cnt;
-            free_count_r <= free_count_r - push_cnt + flush_skip + (|invalidate);
         end
     end
 
@@ -270,8 +277,8 @@ module lsq #(
     // ---- 输出 ----
     assign head       = head_r;
     assign last       = last_r;
-    assign full       = (free_count_r == 0);
-    assign free_count = free_count_r;
+    assign full       = (free_count_w == 0);
+    assign free_count = free_count_w;
     assign valid      = valid_r;
     assign is_load    = is_load_r;
     assign addr_ready = addr_ready_r;

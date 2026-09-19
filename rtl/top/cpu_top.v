@@ -346,26 +346,25 @@ module cpu_top #(
     assign rt_flush_clear_req = flclr_c[(ISSUE_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];
 
     // ---- 计数链 (前缀累加; 段值在 slt/cmt generate 内生成) ----
-    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc, inv_acc;
-    wire [2 : 0] n_wr, n_mem, n_commit, n_branch, n_inv, sel_cnt;
+    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc;
+    wire [2 : 0] n_wr, n_mem, n_commit, n_branch, sel_cnt;
     assign wr_acc[0 * 3 +: 3]  = 3'd0;
     assign mem_acc[0 * 3 +: 3] = 3'd0;
     assign sel_acc[0 * 3 +: 3] = 3'd0;
     assign br_acc[0 * 3 +: 3]  = 3'd0;
     assign com_acc[0 * 3 +: 3] = 3'd0;
-    assign inv_acc[0 * 3 +: 3] = 3'd0;
     assign n_wr     = wr_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_mem    = mem_acc[ISSUE_WIDTH * 3 +: 3];
     assign sel_cnt  = sel_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_branch = br_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_commit = com_acc[ISSUE_WIDTH * 3 +: 3];
-    assign n_inv    = inv_acc[ISSUE_WIDTH * 3 +: 3];
 
     // ---- 发射条件 (全批 or 不批; misp 周期抑制见约束 1) ----
     // halt 后不得再发射: fetch 冻结 → have_batch 常 1, 若不门控会把同一批反复压入 rob/rs (死循环)
+    // lsq_free_w 已是"本拍可 push 数"(内部已含本拍失效腾出的槽), 此处不再另加本拍失效数
     wire have_batch = |f2i_valid;
     wire resources_ok = !rob_full && (rs_free_w + sel_cnt >= ISSUE_WIDTH)
-                     && (fl_count >= n_wr) && (lsq_free_w + n_inv >= n_mem);
+                     && (fl_count >= n_wr) && (lsq_free_w >= n_mem);
     wire issue_en = have_batch && !misp_valid && !flushing_r && !halt_q_r && resources_ok;
 
     // ---- 误预测汇出 (B4) ----
@@ -541,7 +540,6 @@ module cpu_top #(
                 assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && rob_ready_w[eidx];  // store 截断批
             end
             assign com_acc[(c + 1) * 3 +: 3] = com_acc[c * 3 +: 3] + ce_w[c];
-            assign inv_acc[(c + 1) * 3 +: 3] = inv_acc[c * 3 +: 3] + (ce_w[c] && is_memop_w[c]);
             // free_list 回收: new_pnum!=0 才 push old_pnum
             assign cmt_push_v[c] = ce_w[c] && (rob_new_w[eidx * PW +: PW] != 0);
             assign cmt_push_p[c * PW +: PW] = rob_old_w[eidx * PW +: PW];
