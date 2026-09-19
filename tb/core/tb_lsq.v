@@ -77,6 +77,7 @@ module tb_lsq;
 
     // ---- 模型 ----
     reg [LSQ - 1 : 0] m_valid, m_is_load, m_ardy, m_drdy, m_done, m_unsg;
+    reg [LSQ - 1 : 0] m_issued;      // 请求在飞 (镜像 DUT issued_r)
     reg [LSQ * 32 - 1 : 0] m_addr, m_data;
     reg [LSQ * RW - 1 : 0] m_rob;
     reg [LSQ * PW - 1 : 0] m_preg;
@@ -148,8 +149,35 @@ module tb_lsq;
             rst_n = 1'b1;
             #1; #8; #1;
             m_valid = 0; m_is_load = 0; m_ardy = 0; m_drdy = 0; m_done = 0; m_unsg = 0;
+            m_issued = 0;
             m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
             m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
+        end
+    endtask
+
+    // cand/store_ok 距离链 (镜像 DUT 的组合发起链)
+    // 对同一拍调用两次: 边沿前 (piss/pwin, 决定本拍发起是否被接受) 与边沿后 (观察 ld_start_valid)
+    task calc_cand;
+        input  [LSQ - 1 : 0] v, l, iss;
+        input  [LW - 1 : 0]  hd;
+        input  [LW : 0]      wl;
+        output [LSQ : 0]     so;
+        output [LSQ - 1 : 0] cd;
+        integer k3;
+        reg     bd;
+        begin
+            so[0] = 1'b1;
+            for (k3 = 0; k3 < LSQ; k3 = k3 + 1) begin
+                bd = v[(hd + k3) & (LSQ - 1)] && !l[(hd + k3) & (LSQ - 1)]
+                  && !(m_ardy[(hd + k3) & (LSQ - 1)] && m_drdy[(hd + k3) & (LSQ - 1)]);
+                so[k3 + 1] = so[k3] && !(bd && (k3 < wl));
+                cd[k3] = (k3 < wl) && v[(hd + k3) & (LSQ - 1)]
+                      && l[(hd + k3) & (LSQ - 1)] && m_ardy[(hd + k3) & (LSQ - 1)]
+                      && !iss[(hd + k3) & (LSQ - 1)]
+                      && !m_done[(hd + k3) & (LSQ - 1)]
+                      && !(flush_mask[(hd + k3) & (LSQ - 1)] || invalidate[(hd + k3) & (LSQ - 1)])
+                      && so[k3];
+            end
         end
     endtask
 
@@ -158,12 +186,13 @@ module tb_lsq;
         integer s, k2;
         reg [LW : 0]     pwin;
         reg [LCW - 1 : 0] fskip, fpost, pcnt, off;
-        reg [LSQ - 1 : 0] pv, pl;
+        reg [LSQ - 1 : 0] pv, pl, piss;
         reg [LW - 1 : 0] ph, pls;
         reg [LW : 0]     win;
         reg [LSQ : 0]    sok;
         reg [LSQ - 1 : 0] cand;
-        reg              bad;
+        reg              acc_v;
+        reg [LW - 1 : 0] acc_idx;
         reg [7 : 0]      b0, b1, b2, b3;
         reg [31 : 0]     la;
         reg [LW : 0]     dd;
@@ -171,20 +200,28 @@ module tb_lsq;
             #1;
             #8;
             #1;
-            // ---- 快照 pre 状态 (跳过数/done 条件/psum 用) ----
+            // ---- 快照 pre 状态 (跳过数/done 条件/发起条件/psum 用) ----
             pv = m_valid;
             pl = m_is_load;
+            piss = m_issued;
             ph = m_head;
             pls = m_last;
             pwin = (pls - ph) & (LSQ - 1);
-            // head 处连续死条目数 (洞 + 本拍 flush + 本拍 invalidate)
+            // head 处连续死条目数 (洞 + 本拍 flush + 本拍 invalidate; 在飞条目不算死)
             fskip = 0;
             for (k2 = 0; (k2 < LSQ) && (k2 < pwin)
-                     && (!pv[(ph + k2) & (LSQ - 1)] || flush_mask[(ph + k2) & (LSQ - 1)]
-                         || invalidate[(ph + k2) & (LSQ - 1)]);
+                     && ((!pv[(ph + k2) & (LSQ - 1)] || flush_mask[(ph + k2) & (LSQ - 1)]
+                          || invalidate[(ph + k2) & (LSQ - 1)])
+                         && !piss[(ph + k2) & (LSQ - 1)]);
                  k2 = k2 + 1)
                 fskip = fskip + 1'b1;
             pcnt = push_valid[0] + push_valid[1];
+            // ---- 发起条件用 pre 状态算 (DUT 的 ld_start_valid 是寄存器输出) → 决定 issued 置位 ----
+            calc_cand(pv, pl, piss, ph, pwin, sok, cand);
+            acc_v = (|cand) && !ld_busy;
+            acc_idx = 0;
+            for (k2 = LSQ - 1; k2 >= 0; k2 = k2 - 1)
+                if (cand[k2]) acc_idx = (ph + k2[LW - 1 : 0]) & (LSQ - 1);
             // ---- 1) flush / invalidate 失效 ----
             m_valid = m_valid & ~flush_mask & ~invalidate;
             // ---- 2) push (last + psum; psum[1] = push_valid[0]) ----
@@ -196,6 +233,7 @@ module tb_lsq;
                     m_ardy[(pls + off) & (LSQ - 1)] = 1'b0;
                     m_drdy[(pls + off) & (LSQ - 1)] = 1'b0;
                     m_done[(pls + off) & (LSQ - 1)] = 1'b0;
+                    m_issued[(pls + off) & (LSQ - 1)] = 1'b0;
                     m_rob[((pls + off) & (LSQ - 1)) * RW +: RW] = push_rob_tag[s * RW +: RW];
                     m_preg[((pls + off) & (LSQ - 1)) * PW +: PW] = push_prs2_or_prd[s * PW +: PW];
                     m_wid[((pls + off) & (LSQ - 1)) * 2 +: 2] = push_width[s * 2 +: 2];
@@ -213,10 +251,13 @@ module tb_lsq;
                     m_drdy[set_data_idx[s * LW +: LW]] = 1'b1;
                 end
             end
-            // ---- 4) load 完成标记 (用 pre 有效性) ----
-            if (mem_done_valid && pv[mem_done_idx] && pl[mem_done_idx])
-                m_done[mem_done_idx] = 1'b1;
-            // ---- 5) 指针更新 (head 推进跳过 head 处连续死条目) ----
+            // ---- 4) 发起置位, 5) 完成: 清 in-flight + 标记 done (用 pre 有效性) ----
+            if (acc_v) m_issued[acc_idx] = 1'b1;
+            if (mem_done_valid) begin
+                m_issued[mem_done_idx] = 1'b0;
+                if (pv[mem_done_idx] && pl[mem_done_idx]) m_done[mem_done_idx] = 1'b1;
+            end
+            // ---- 6) 指针更新 (head 推进跳过 head 处连续死条目) ----
             m_head = ph + fskip;
             m_last = pls + pcnt;
             // ---- 期望 (post 状态): free 导出 + 发起链 ----
@@ -224,22 +265,13 @@ module tb_lsq;
             // free_count 是组合导出量 (无寄存器): 本拍可 push 数 = (LSQ-1) - 占用 + head 处连续死条目
             fpost = 0;
             for (k2 = 0; (k2 < LSQ) && (k2 < win)
-                     && (!m_valid[(m_head + k2) & (LSQ - 1)] || flush_mask[(m_head + k2) & (LSQ - 1)]
-                         || invalidate[(m_head + k2) & (LSQ - 1)]);
+                     && ((!m_valid[(m_head + k2) & (LSQ - 1)] || flush_mask[(m_head + k2) & (LSQ - 1)]
+                          || invalidate[(m_head + k2) & (LSQ - 1)])
+                         && !m_issued[(m_head + k2) & (LSQ - 1)]);
                  k2 = k2 + 1)
                 fpost = fpost + 1'b1;
             m_free = (LSQ - 1) - win + fpost;
-            sok[0] = 1'b1;
-            for (k2 = 0; k2 < LSQ; k2 = k2 + 1) begin
-                bad = m_valid[(m_head + k2) & (LSQ - 1)]
-                   && !m_is_load[(m_head + k2) & (LSQ - 1)]
-                   && !(m_ardy[(m_head + k2) & (LSQ - 1)] && m_drdy[(m_head + k2) & (LSQ - 1)]);
-                sok[k2 + 1] = sok[k2] && !(bad && (k2 < win));
-                cand[k2] = (k2 < win) && m_valid[(m_head + k2) & (LSQ - 1)]
-                       && m_is_load[(m_head + k2) & (LSQ - 1)]
-                       && m_ardy[(m_head + k2) & (LSQ - 1)]
-                       && !m_done[(m_head + k2) & (LSQ - 1)] && sok[k2];
-            end
+            calc_cand(m_valid, m_is_load, m_issued, m_head, win, sok, cand);
             e_ldv = (|cand) && !ld_busy;
             // cand 按"距 head 的距离"索引, 而 ld_start_idx 是物理条目号
             // (= (head + 距离) & (LSQ-1), 与 DUT 的 pidx 一致); head != 0 时两者不同
@@ -358,6 +390,7 @@ module tb_lsq;
         $dumpvars(0, tb_lsq);
 
         m_valid = 0; m_is_load = 0; m_ardy = 0; m_drdy = 0; m_done = 0; m_unsg = 0;
+        m_issued = 0;
         m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
         m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
         e_ldv = 0; e_pidx = 0; e_la = 0; e_lw = 0; e_ok = 0; e_prd = 0; e_rob = 0; e_res = 0;
@@ -402,13 +435,30 @@ module tb_lsq;
         if (ld_start_valid !== 1'b0) begin
             $display("FAIL: L3b ld_busy gates"); errors = errors + 1;
         end
+        // L3c: 发起被接收后进入 in-flight → 不再重复发起 (旧实现此处会每拍重发起,
+        //      一个 load 灌满整个 memory 飞行槽, 之后产生一串陈旧完成脉冲)
         ld_busy = 1'b0;
         tick();
         check_all();
-        if (ld_start_valid !== 1'b1) begin
-            $display("FAIL: L3c re-issue after busy"); errors = errors + 1;
+        if (ld_start_valid !== 1'b0 || m_issued[0] !== 1'b1) begin
+            $display("FAIL: L3c in-flight suppresses re-issue (v=%b iss=%b)",
+                     ld_start_valid, m_issued[0]);
+            errors = errors + 1;
+        end
+        tick();
+        check_all();
+        if (ld_start_valid !== 1'b0) begin
+            $display("FAIL: L3d still suppressed next cycle"); errors = errors + 1;
+        end
+        // 完成脉冲回来后才允许再发起 (done 抑制)
+        clr_all();
+        mem_done_valid = 1'b1; mem_done_idx = 4'd0; mem_done_data = 32'h0;
+        tick();
+        check_all();
+        if (!load_cdb_valid || m_issued[0] !== 1'b0) begin
+            $display("FAIL: L3e completion clears in-flight"); errors = errors + 1;
         end else begin
-            $display("PASS: L3 set_addr issue + ld_busy gating");
+            $display("PASS: L3 issue/handshake + ld_busy gating + no duplicate issue");
         end
 
         // L4: mem_done → load_cdb + done 抑制再发起
@@ -808,6 +858,73 @@ module tb_lsq;
             errors = errors + 1;
         end else begin
             $display("PASS: L15 ring wrap");
+        end
+
+        // L16: 在飞条目被 flush → head 不得跳过它 (槽位不可复用), 完成脉冲被丢弃后才回收
+        //      (这是 tak 在 lat=20 下踩到的路径: 槽位复用后陈旧完成写坏新 load 的目的寄存器)
+        do_reset();
+        clr_all();
+        push_load(0, 1, 2'b10, 1'b0);      // 槽0: load
+        tick();
+        clr_all();
+        set_a(0, 32'h300);
+        tick();                            // 槽0 addr 就绪 → 下一拍被接收
+        check_all();
+        if (ld_start_valid !== 1'b1) begin
+            $display("FAIL: L16a not issuable"); errors = errors + 1;
+        end
+        clr_all();
+        tick();                            // 本拍被接收 → 条目转 in-flight
+        check_all();
+        if (m_issued[0] !== 1'b1) begin
+            $display("FAIL: L16b not marked in-flight (iss=%b)", m_issued[0]);
+            errors = errors + 1;
+        end
+        clr_all();
+        flush_mask = 16'h0001;             // flush 一个已在飞的条目
+        tick();
+        check_all();
+        if (m_issued[0] !== 1'b1 || head !== 4'd0 || free_count !== LSQ - 2) begin
+            $display("FAIL: L16c in-flight blocks skip (iss=%b h=%0d free=%0d)",
+                     m_issued[0], head, free_count);
+            errors = errors + 1;
+        end
+        clr_all();
+        mem_done_valid = 1'b1; mem_done_idx = 4'd0; mem_done_data = 32'h0;
+        tick();                            // 完成回来: valid 已清 → 不写 CDB; issued 清
+        check_all();
+        if (load_cdb_valid !== 1'b0 || m_issued[0] !== 1'b0) begin
+            $display("FAIL: L16d stale completion must be dropped (v=%b iss=%b)",
+                     load_cdb_valid, m_issued[0]);
+            errors = errors + 1;
+        end
+        clr_all();
+        tick();                            // in-flight 清掉后才允许 head 跳过该槽
+        check_all();
+        if (head !== 4'd1) begin
+            $display("FAIL: L16e head not released (h=%0d)", head);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: L16 in-flight entry not recycled until completion");
+        end
+
+        // L17: 发起同拍被 flush → 不得发起 (否则 issued 与 valid 同拍翻转, head 照样跳过该槽)
+        do_reset();
+        clr_all();
+        push_load(0, 1, 2'b10, 1'b0);
+        tick();
+        clr_all();
+        set_a(0, 32'h300);
+        tick();                            // 可发起 (addr 就绪)
+        clr_all();
+        flush_mask = 16'h0001;             // 与"被接收"同拍 flush
+        tick();
+        check_all();
+        if (m_issued[0] !== 1'b0 || head !== 4'd1) begin
+            $display("FAIL: L17 issue+flush same cycle (iss=%b h=%0d)", m_issued[0], head);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: L17 issue suppressed on same-cycle flush");
         end
 
         if (errors == 0)

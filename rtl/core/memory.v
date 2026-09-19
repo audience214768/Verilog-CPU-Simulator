@@ -1,6 +1,6 @@
 // 主存: 字节寻址 RAM (初始 0 + 可选 INIT_FILE), 取指同步读, load 飞行槽 (MEM_LATENCY 倒计时),
 // store 提交直写, init 口供 TB 逐字节加载
-// 被 flush 的 load 完成脉冲由 lsq.v 按条目有效性丢弃 (飞行槽不取消)
+// 被 flush 的 load 完成脉冲由 lsq.v 按 issued/valid 丢弃 (飞行槽不取消)
 // 注意: initial 清零/readmemh 仅仿真 (综合时忽略, 面积预算按小 MEM_SIZE 评估)
 module memory #(
     parameter ISSUE_WIDTH  = 1,
@@ -72,6 +72,8 @@ module memory #(
     reg [31 : 0]     ld_done_data_r;
 
     // 槽空闲: 无效或本拍到期 (完成拍后可复用)
+    // 到期掩码每拍至多一位: ld_start_valid 是单比特口, 每拍只武装一个槽, 定长 MEM_LATENCY 下
+    // 武装拍互不相同 ⇒ 到期拍必然错开 ⇒ 倒计时循环里每拍至多一个槽到期 (不会互相覆盖完成脉冲)
     wire [MEM_INFLIGHT - 1 : 0] slot_free;
     genvar gs;
     generate
@@ -113,7 +115,7 @@ module memory #(
             ld_done_valid_r <= 1'b0;
         end else begin
             ld_done_valid_r <= 1'b0;
-            // 倒计时 + 到期完成
+            // 倒计时 + 到期完成 (每拍至多一个槽到期, 见上方 slot_free 处的说明)
             for (i = 0; i < MEM_INFLIGHT; i = i + 1) begin
                 if (slot_valid[i]) begin
                     if (slot_cnt[i * CNTW +: CNTW] == 1) begin

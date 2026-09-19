@@ -4,8 +4,17 @@
 // 否则 (last-head) 同时表示 0 与 LSQ_SIZE, 窗口被判成空 → 无 load 可发起且 head 不再前进 = 死锁
 // head 每拍无条件推进跳过 head 处的连续"死条目"(洞 + 当拍 flush + 当拍提交失效),
 // free_count 由 head/last 组合导出 (= 本拍可 push 数, 已含本拍失效腾出的槽; cpu_top 不再另加)
-// 写优先级 flush > invalidate > push > set_*
-// 组合发起: 最老未完成 load (cand 距离链) + 更老 store 全执行 + !ld_busy
+// 写优先级 flush > invalidate > push > set_*; 发起置位 issued 先于完成清 issued (同拍时完成胜)
+//
+// in-flight 协议 (issued_r): 条目号 mem_done_idx 是完成与请求之间唯一的身份标识,
+// 因此"条目号 → 请求"必须一一对应, 否则完成会落到复用后的新条目上写坏目的寄存器:
+//   ① 发起后 issued_r=1, 该条目不再参与 cand → 同一 load 只进一个飞行槽 (不会重复发起,
+//      否则一个 load 产生多个完成脉冲, 首个完成置 done 后条目被提交/复用, 余下的陈旧完成
+//      就把旧数据写进新条目的 prs2_or_prd);
+//   ② issued_r=1 的条目即使 valid_r 被 flush/invalidate 清掉也不算死条目 → head 不会跳过它,
+//      槽位不会被 push 复用, 直到完成脉冲回来才清 issued_r (之后才可回收)。
+//      代价: flush 时若恰有在飞 load, head 最多阻塞 MEM_LATENCY 拍 (memory 槽必定倒计时到期)。
+// 组合发起: 最老未完成 load (cand 距离链) + 更老 store 全执行 + !ld_busy + !issued
 module lsq #(
     parameter ISSUE_WIDTH = 1,
     parameter LSQ_SIZE    = 16,
@@ -64,6 +73,7 @@ module lsq #(
 
     // ---- 状态 ----
     reg [LSQ_SIZE - 1 : 0]  valid_r, is_load_r, addr_ready_r, data_ready_r, done_r;
+    reg [LSQ_SIZE - 1 : 0]  issued_r;       // 该条目已有 load 请求在飞 (完成脉冲未回)
     reg [LSQ_SIZE * 32 - 1 : 0] addr_r, data_r;
     reg [LSQ_SIZE * RW - 1 : 0] rob_tag_r;
     reg [LSQ_SIZE * PW - 1 : 0] prs2_or_prd_r;
@@ -85,9 +95,11 @@ module lsq #(
     // ---- 窗口长度 / head 处连续死条目数 (限窗口内) ----
     // winlen 是当前占用的槽数 (含洞); 因容量保留 1 槽, winlen ∈ [0, LSQ_SIZE-1], 0 只表示空
     wire [LW - 1 : 0] winlen = (last_r - head_r) & (LSQ_SIZE - 1);
-    // 死条目 = 已失效的洞 + 本拍被 flush 的条目 + 本拍被提交失效的条目
-    // (flush/invalidate 都在 posedge 才清 valid_r, 组合跳过必须提前把它们算作死)
-    wire [LSQ_SIZE - 1 : 0] dead = ~valid_r | flush_mask | invalidate;
+    // 本拍被 flush/提交失效的条目 (posedge 才清 valid_r, 组合逻辑须提前当作已失效)
+    wire [LSQ_SIZE - 1 : 0] kill = flush_mask | invalidate;
+    // 死条目 = 洞 + 本拍被杀 + 在飞例外
+    // 在飞条目 (issued_r) 即便 valid_r 被清也不算死: 完成脉冲按条目号回传, 槽位在完成前不可复用
+    wire [LSQ_SIZE - 1 : 0] dead = (~valid_r | kill) & ~issued_r;
     function [LCW - 1 : 0] dead_skip_f;
         input [LSQ_SIZE - 1 : 0] dead;
         input [LW - 1 : 0]       h;
@@ -111,6 +123,43 @@ module lsq #(
     // 本拍可 push 数 = 保留 1 槽 - 当前占用 + 本拍被跳过的槽 (跳过的槽本拍即可复用)
     wire [LCW - 1 : 0] free_count_w = LSQ_SIZE[LCW - 1 : 0] - 1'b1 - {1'b0, winlen} + skip;
 
+    // ---- 组合发起: 距离链 store_ok[d] = 前 d 个条目无未执行 store ----
+    // (放在 posedge 块之前: 块的发起置位要用 pidx, iverilog 要求先声明后使用)
+    wire [LSQ_SIZE : 0] store_ok;
+    wire [LSQ_SIZE - 1 : 0] cand;
+    genvar gd;
+    generate
+        assign store_ok[0] = 1'b1;
+        for (gd = 0; gd < LSQ_SIZE; gd = gd + 1) begin : iss
+            wire [LW - 1 : 0] idx = (head_r + gd) & (LSQ_SIZE - 1);
+            wire              in_win = (gd < winlen);
+            wire              is_bad_store = valid_r[idx] && !is_load_r[idx]
+                                          && !(addr_ready_r[idx] && data_ready_r[idx]);
+            assign store_ok[gd + 1] = store_ok[gd] && (in_win ? !is_bad_store : 1'b1);
+            // !kill: 本拍就被 flush/失效的条目不可发起 —— 否则 issued 与 valid 同拍更新,
+            //        head 仍会照常跳过它 (skip 用的是边沿前的 issued=0), 槽位照样被复用 → 又失去身份
+            assign cand[gd] = in_win && valid_r[idx] && is_load_r[idx]
+                           && addr_ready_r[idx] && !issued_r[idx] && !done_r[idx]
+                           && !kill[idx] && store_ok[gd];
+        end
+    endgenerate
+    // 最老候选 = 最小距离 (cand 按距离索引: 位 k ↔ 条目 (head + k))
+    function [LW - 1 : 0] first_one_f;
+        input [LSQ_SIZE - 1 : 0] c;
+        integer k;
+        begin
+            first_one_f = {LW{1'b0}};
+            for (k = LSQ_SIZE - 1; k >= 0; k = k - 1)
+                if (c[k]) first_one_f = k[LW - 1 : 0];
+        end
+    endfunction
+    wire [LW - 1 : 0] pdist = first_one_f(cand);              // 距 head 的距离
+    wire [LW - 1 : 0] pidx  = (head_r + pdist) & (LSQ_SIZE - 1);   // 实际条目号
+    assign ld_start_valid = |cand && !ld_busy;
+    assign ld_start_addr  = addr_r[pidx * 32 +: 32];
+    assign ld_start_width = width_r[pidx * 2 +: 2];
+    assign ld_start_idx   = pidx;
+
     // ---- posedge 写 (优先级: flush > invalidate > push > set_*; 指针更新) ----
     integer i;
     always @(posedge clk) begin
@@ -120,6 +169,7 @@ module lsq #(
             addr_ready_r <= {LSQ_SIZE{1'b0}};
             data_ready_r <= {LSQ_SIZE{1'b0}};
             done_r <= {LSQ_SIZE{1'b0}};
+            issued_r <= {LSQ_SIZE{1'b0}};
             addr_r <= {LSQ_SIZE * 32{1'b0}};
             data_r <= {LSQ_SIZE * 32{1'b0}};
             rob_tag_r <= {LSQ_SIZE * RW{1'b0}};
@@ -142,6 +192,7 @@ module lsq #(
                     addr_ready_r[(last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)] <= 1'b0;
                     data_ready_r[(last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)] <= 1'b0;
                     done_r[(last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)] <= 1'b0;
+                    issued_r[(last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)] <= 1'b0;
                     rob_tag_r[((last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)) * RW +: RW]
                         <= push_rob_tag[i * RW +: RW];
                     prs2_or_prd_r[((last_r + psum[i * LCW +: LCW]) & (LSQ_SIZE - 1)) * PW +: PW]
@@ -163,47 +214,18 @@ module lsq #(
                     data_ready_r[set_data_idx[i * LW +: LW]] <= 1'b1;
                 end
             end
-            // 4) load 完成标记 (仅有效 load 条目)
+            // 4) 发起置位 (ld_start_valid 当拍被 memory 接收 → 该条目转为 in-flight, 不再进 cand)
+            if (ld_start_valid) issued_r[pidx] <= 1'b1;
+            // 5) 完成: 清 in-flight (无条件清 —— 已被 flush 的条目也靠它放开 head 跳过),
+            //    有效条目再置 done 抑制重复发起。同拍 4)/5) 命中同一条目时 5) 胜 (完成后不再在飞)
+            if (mem_done_valid) issued_r[mem_done_idx] <= 1'b0;
             if (mem_done_valid && valid_r[mem_done_idx] && is_load_r[mem_done_idx])
                 done_r[mem_done_idx] <= 1'b1;
-            // 5) 指针更新 (free_count 由 head/last 组合导出, 无独立状态)
+            // 6) 指针更新 (free_count 由 head/last 组合导出, 无独立状态)
             head_r <= head_r + skip;
             last_r <= last_r + push_cnt;
         end
     end
-
-    // ---- 组合发起: 距离链 store_ok[d] = 前 d 个条目无未执行 store ----
-    wire [LSQ_SIZE : 0] store_ok;
-    wire [LSQ_SIZE - 1 : 0] cand;
-    genvar gd;
-    generate
-        assign store_ok[0] = 1'b1;
-        for (gd = 0; gd < LSQ_SIZE; gd = gd + 1) begin : iss
-            wire [LW - 1 : 0] idx = (head_r + gd) & (LSQ_SIZE - 1);
-            wire              in_win = (gd < winlen);
-            wire              is_bad_store = valid_r[idx] && !is_load_r[idx]
-                                          && !(addr_ready_r[idx] && data_ready_r[idx]);
-            assign store_ok[gd + 1] = store_ok[gd] && (in_win ? !is_bad_store : 1'b1);
-            assign cand[gd] = in_win && valid_r[idx] && is_load_r[idx]
-                           && addr_ready_r[idx] && !done_r[idx] && store_ok[gd];
-        end
-    endgenerate
-    // 最老候选 = 最小距离 (cand 按距离索引: 位 k ↔ 条目 (head + k))
-    function [LW - 1 : 0] first_one_f;
-        input [LSQ_SIZE - 1 : 0] c;
-        integer k;
-        begin
-            first_one_f = {LW{1'b0}};
-            for (k = LSQ_SIZE - 1; k >= 0; k = k - 1)
-                if (c[k]) first_one_f = k[LW - 1 : 0];
-        end
-    endfunction
-    wire [LW - 1 : 0] pdist = first_one_f(cand);              // 距 head 的距离
-    wire [LW - 1 : 0] pidx  = (head_r + pdist) & (LSQ_SIZE - 1);   // 实际条目号
-    assign ld_start_valid = |cand && !ld_busy;
-    assign ld_start_addr  = addr_r[pidx * 32 +: 32];
-    assign ld_start_width = width_r[pidx * 2 +: 2];
-    assign ld_start_idx   = pidx;
 
     // ---- load 完成: 字节合并前向 + 符号扩展 (组合, 丢弃失效条目) ----
     wire ld_ok = mem_done_valid && valid_r[mem_done_idx] && is_load_r[mem_done_idx];
