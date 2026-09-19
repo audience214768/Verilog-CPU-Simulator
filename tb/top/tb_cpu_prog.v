@@ -34,19 +34,39 @@ module tb_cpu_prog;
     reg [8 * 16 - 1 : 0] prog_name;
     integer dump_cyc;
     integer trace_n;
+    integer trace_from;  // trace 窗口起点 (+FROM=M), 用于回放越界拍前后的若干拍
     integer cyc;
     integer perf_n;      // >0: 只跑 N 拍 (性能测量; 不看 ret, 供消融矩阵用)
 
-    // ---- 可选逐拍 trace (+TRACE=N, 缺省 0 = 关): 定位卡死时看 rob 头 / rs / lsq / 取指 ----
+    // ---- 失步探针 (+BAD=<hex 阈值>, 0 = 关): pc 越界即报第一拍并结束 (省得跑到 2M 拍) ----
+    // 定位"pc 跑飞"类故障 (pc 越界而 commit 冻结): 先拿到越界拍号, 再用 +FROM/+TRACE 回放窗口
+    integer bad_pc;
+    reg     bad_seen = 1'b0;
+    always @(negedge clk) begin
+        if (rst_n && (bad_pc > 0) && !bad_seen && (dut.u_fetch.pc_r > bad_pc)) begin
+            bad_seen <= 1'b1;
+            $display("BAD: pc=%h > %h at cyc=%0d (stall=%b f2v=%b fl=%b halt=%b)",
+                     dut.u_fetch.pc_r, bad_pc, cyc, dut.fetch_stall, dut.f2i_valid,
+                     dut.flushing_r, dut.halt_q_r);
+            $finish;
+        end
+    end
+
+    // ---- 可选逐拍 trace (+TRACE=N 止, +FROM=M 起, 缺省 0 = 关): rob 头 / rs / lsq / 取指 ----
     integer te;
     always @(negedge clk) begin
-        if (rst_n && (cyc <= trace_n) && (trace_n > 0)) begin
-            $display("T %0d pc=%h f2v=%b raw=%h iss=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d rdy=%b raw_h=%h",
-                     cyc, dut.u_fetch.pc_r, dut.f2i_valid, dut.f2i_raw[31 : 0],
+        if (rst_n && (cyc <= trace_n) && (cyc >= trace_from) && (trace_n > 0)) begin
+            $display("T %0d pc=%h exp=%h arrd=%h f2v=%b raw=%h iss=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d rdy=%b raw_h=%h",
+                     cyc, dut.u_fetch.pc_r, dut.u_fetch.exp_pc_r, dut.u_fetch.imem_addr_d[31 : 0],
+                     dut.f2i_valid, dut.f2i_raw[31 : 0],
                      dut.issue_en, dut.have_batch, dut.misp_valid, dut.flushing_r,
                      dut.halt_q_r, dut.rob_head_w, dut.rob_last_w,
                      dut.rob_ready_w[dut.rob_head_w],
                      dut.rob_raw_w[dut.rob_head_w * 32 +: 32]);
+            $display("   FCH arr=%b cap=%b rw=%b predok=%b pcwr=%b stall=%b rasops=%b",
+                     dut.u_fetch.arr_ok_w, dut.u_fetch.cap_w, dut.u_fetch.rewind_w,
+                     dut.u_fetch.pred_ok_w, dut.u_fetch.pc_wr_w, dut.fetch_stall,
+                     dut.u_fetch.ras_ops_w);
             for (te = 0; te < 16; te = te + 1)
                 if (dut.u_rs.valid_r[te])
                     $display("   RS[%0d] op=%02x prs1=%0d rdy1=%b prs2=%0d rdy2=%b prd=%0d rob=%0d lsq=%0d pc=%h",
@@ -159,7 +179,9 @@ module tb_cpu_prog;
         if (!$value$plusargs("PROG=%s", prog_name)) prog_name = "naive";
         if (!$value$plusargs("DUMP=%d", dump_cyc))  dump_cyc  = 2000;
         if (!$value$plusargs("TRACE=%d", trace_n))  trace_n   = 0;
+        if (!$value$plusargs("FROM=%d", trace_from)) trace_from = 0;
         if (!$value$plusargs("PERF=%d", perf_n))    perf_n    = 0;
+        if (!$value$plusargs("BAD=%h", bad_pc))     bad_pc    = 0;
         if (dump_cyc == 0) $dumpoff;      // +DUMP=0: 完全不记录 (长程序 VCD 可达数百 MB)
 
         run_prog(prog_name);
