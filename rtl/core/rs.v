@@ -17,7 +17,9 @@ module rs #(
     // A: 选择结果 (组合, 年龄优先, 槽 0 最老)
     output [ISSUE_WIDTH - 1 : 0]     sel_valid,
     output [ISSUE_WIDTH * $clog2(RS_SIZE) - 1 : 0] sel_idx,
-    output [$clog2(RS_SIZE + 1) - 1 : 0]             free_count,   // 当前空槽 (本拍选中数由 cpu_top 相加)
+    // 当前空槽数 = !valid_r 计数 (严格值); push 分配器 (prec/cand_p) 同样只看 !valid_r,
+    // 不含本拍 clear 腾出的槽 → 消费方不得再加本拍选中数, 否则 push 会被静默丢弃 (见 docs/plan.md §7.4)
+    output [$clog2(RS_SIZE + 1) - 1 : 0]             free_count,
     // A: 条目字段 (cpu_top 按 sel_idx 取)
     output [RS_SIZE - 1 : 0]        entry_valid,
     output [RS_SIZE * 7 - 1 : 0]      entry_opcode,

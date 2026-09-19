@@ -362,8 +362,11 @@ module cpu_top #(
     // ---- 发射条件 (全批 or 不批; misp 周期抑制见约束 1) ----
     // halt 后不得再发射: fetch 冻结 → have_batch 常 1, 若不门控会把同一批反复压入 rob/rs (死循环)
     // lsq_free_w 已是"本拍可 push 数"(内部已含本拍失效腾出的槽), 此处不再另加本拍失效数
+    // rs 项同样必须用"真空闲槽数": rs.v 的 push 分配器只认 !valid_r, 看不到本拍 clear,
+    // 若把本拍选中数 sel_cnt 也算作可用, 会放行一次注定被 rs.v 丢弃的 push
+    // (指令入 rob 却无 rs 条目 → 永不执行 → 依赖链死锁; 详见 docs/plan.md §7.4)
     wire have_batch = |f2i_valid;
-    wire resources_ok = !rob_full && (rs_free_w + sel_cnt >= ISSUE_WIDTH)
+    wire resources_ok = !rob_full && (rs_free_w >= ISSUE_WIDTH)
                      && (fl_count >= n_wr) && (lsq_free_w >= n_mem);
     wire issue_en = have_batch && !misp_valid && !flushing_r && !halt_q_r && resources_ok;
 
