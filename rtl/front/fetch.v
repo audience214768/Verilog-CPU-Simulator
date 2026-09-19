@@ -5,6 +5,9 @@
 // 满批丢弃 (rewind): 稳态下 pc_r 领先 exp_pc 一个批 (请求在途), 若此时到达的正是 exp_pc 而批
 //       寄存器满 (后端 stall), 该批会被丢弃且 pc 已越过它 → 永远不再交付。故丢弃拍把 pc 回退到
 //       exp_pc 重取; 回退后 memory 每拍重复读出 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
+// 失步防护: pc 是"下一次请求地址", exp_pc 是"下一批交付地址", 两者必须同步推进 (pc 领先恰好一个
+//       批)。到达批被接收时若其内有预测跳转, exp_pc 跳到该目标, pc 必须同拍跳到同一目标——
+//       故预测跳转优先于 stall 保持 (见 pc_next 注释), 否则两者永久失步, 取指跑飞
 module fetch #(
     parameter ISSUE_WIDTH = 1,
     parameter BHT_SIZE    = 32,
@@ -53,7 +56,8 @@ module fetch #(
 
     // ---- 取指握手: 到达地址 vs 期望交付地址 ----
     // pc_wr_w: 本拍写 pc (顺序推进/预测目标/重定向) = 向 imem 发起一次新请求;
-    //          stall/halt 拍不写, pc_r 保持 → imem 重复读出同一地址
+    //          stall/halt 拍不写 (例外: 到达批的预测跳转要改 pc, 见 pc_jmp_w),
+    //          pc_r 保持 → imem 重复读出同一地址
     // exp_pc_r: 下一条应向 decode 交付的批地址。到达数据读自 imem_addr_d (上一拍地址),
     //   与之相等才是"下一批" → 接收。于是 pc 保持 (stall/halt) 造成的重复读出、
     //   预测跳转/重定向拍的错路读出 (地址仍是顺序地址) 全部自动丢弃, 无需额外作废信号;
@@ -71,7 +75,6 @@ module fetch #(
     // pc 会被陈旧指令的目标劫持 → imem_addr_d 再也追不上 exp_pc_r → 永久失步死锁。
     // 非期望批时 pc 只做顺序推进 (它只是"在途请求", 不改变 exp_pc 的推进)
     wire pred_ok_w = arr_ok_w && !halt;
-    wire pc_wr_w   = rst_n && (redirect_valid || rewind_w || (!stall && !halt));
 
     // ---- 预测组合 (基于到达指令 inst_data 与 T 拍 pc_r) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] pred_target_w;
@@ -133,13 +136,21 @@ module fetch #(
                                                             : (exp_pc_r + 32'd4 * ISSUE_WIDTH);
     end
 
-    // ---- PC 推进 (redirect > 满批丢弃回退 > stall/halt 保持 > 预测目标 > 顺序推进) ----
+    // ---- PC 推进 (redirect > 满批丢弃回退 > 预测目标 > stall/halt 保持 > 顺序推进) ----
     // 预测目标只在 pred_ok_w (到达批属于本流) 时采用, 见 pred_ok_w 注释
+    // 预测目标优先于 stall 保持: 到达批被接收 (cap_w) 时 exp_pc 已推进到其跳转目标,
+    //   若因 stall (cpu_top 冲刷期 flushing_r 使然) 而让 pc 停在原地, pc 之后只做顺序推进,
+    //   到达地址流再也追不上 exp_pc → 取指永久跑飞 (pc 每拍 +4*W 走进未映射区, commit 冻结)。
+    //   带预测跳转的到达批必然是"被接收"的 (arr_ok && !rewind ⇒ cap_ok), 故 pc 与 exp_pc 同步跳
+    // 注: stall 且到达批无预测跳转时仍保持 pc——exp_pc 只 +4*W, 到达流下一拍即与之重合, 不失步
+    wire pc_jmp_w = pred_ok_w && pt_c[ISSUE_WIDTH];
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
                           : rewind_w ? exp_pc_r
+                          : pc_jmp_w ? flow_c[ISSUE_WIDTH * 32 +: 32]
                           : (stall || halt) ? pc_r
-                          : (pred_ok_w && pt_c[ISSUE_WIDTH]) ? flow_c[ISSUE_WIDTH * 32 +: 32]
                           : (pc_r + 32'd4 * ISSUE_WIDTH);
+    // pc_jmp_w 必须在写使能里 (否则 stall 拍 pc_wr_w=0, 上面选的跳转目标根本写不进去)
+    wire pc_wr_w = rst_n && (redirect_valid || rewind_w || pc_jmp_w || (!stall && !halt));
     always @(posedge clk) begin
         if (!rst_n)       pc_r <= 32'd0;
         else if (pc_wr_w) pc_r <= pc_next;

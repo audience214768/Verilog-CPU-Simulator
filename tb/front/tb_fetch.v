@@ -219,11 +219,13 @@ module tb_fetch;
             if (redirect_valid)   m_exp = redirect_pc;
             else if (m_cap)       m_exp = m_ptc ? m_flow : (m_exp + 32'd4 * IW);
             // A3) PC 推进 + 地址延迟 (m_pc_prev 更新后 imem 数据随之切换到本拍地址)
+            //     预测目标优先于 stall 保持: 到达批被接收时 exp_pc 已跳到其目标, pc 必须跟随,
+            //     否则 pc 之后只顺序推进, 到达流再也追不上 exp_pc = 永久失步 (F14)
             m_pc_prev = m_pc;
             m_pc = redirect_valid ? redirect_pc
                  : m_rew ? m_exp                    // 满批丢弃 → 回退到待交付批重取
-                 : (stall || halt) ? m_pc
-                 : (m_predok && m_ptc) ? m_flow : (m_pc + 32'd4 * IW);
+                 : (m_predok && m_ptc) ? m_flow
+                 : (stall || halt) ? m_pc : (m_pc + 32'd4 * IW);
             // A4) ras: restore > 本拍 ops (ops 为上一拍门控后的结果)
             if (ras_restore_valid) begin
                 m_head = ras_restore_head;
@@ -681,6 +683,36 @@ module tb_fetch;
         end else begin
             $display("PASS: F13 ras restore head");
         end
+        clr_all();
+        tick();
+
+        // F14 接收拍 stall (批寄存器空) + 到达批内有预测跳转: exp_pc 推进到跳转目标, pc 必须同拍跟随,
+        //   否则 pc 只做顺序推进而 exp_pc 停在目标上 → 到达地址流再也追不上 exp_pc = 永久失步
+        //   (cpu_top 冲刷期正是此场景: flushing_r 使 stall=1, 若重定向目标是 jal/ret 且批寄存器已空,
+        //    该批会被接收且 exp_pc 跳到目标, 而旧实现让 pc 停在原地 → 取指跑飞)
+        imem[8'hC0] = jal_enc(5'd0, -32'd16);        // 0x300: 回跳 -16 → 目标 0x2F0 (不在顺序路径上)
+        clr_all();
+        stall = 1'b1;                                 // 与冲刷期 fetch_stall 一致
+        redirect_valid = 1'b1; redirect_pc = 32'h300;
+        tick();                                       // 重定向沿: pc/exp_pc ← 0x300, 批清空
+        redirect_valid = 1'b0;
+        tick();                                       // 到达旧地址 ≠ exp_pc → 不接收 (批仍空)
+        tick();                                       // 到达 0x300 == exp_pc 且批空 → 接收 (stall 中)
+        if ((dut.exp_pc_r !== 32'h2F0) || (dut.pc_r !== 32'h2F0)) begin
+            $display("FAIL: F14 stall-capture taken jump (pc=%h exp=%h)", dut.pc_r, dut.exp_pc_r);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F14 capture during stall still follows predicted target");
+        end
+        clr_all();
+        fetch_until(32'h2F0, 8);                      // 失步则目标批永远交付不了
+        if ((f2i_valid !== {IW{1'b1}}) || (f2i_pc[31 : 0] !== 32'h2F0)) begin
+            $display("FAIL: F14b target batch after stall capture (%b @%h)", f2i_valid, f2i_pc[31 : 0]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F14b target batch delivered after stall capture");
+        end
+        imem[8'hC0] = NOP;
         clr_all();
         tick();
 
