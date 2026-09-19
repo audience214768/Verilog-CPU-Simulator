@@ -327,7 +327,9 @@ qsort / queens / superloop / tak 全部 `PASS`，ret 与期望值逐一相符。
 | basicopt1 | 755464 | 472952 | 45051 | 155139 | 一致 |
 | hanoi | 326181 | 130306 | 12830 | 17459 | 一致（cycles/commit 逐位相同） |
 
-其余 6 个（bulgarian/magic/qsort/queens/superloop/tak）仍在跑。**结论：§7.4 的修复在 3 拍下确实零影响。**
+其余 6 个（bulgarian/magic/qsort/queens/superloop/tak）跑到 `bulgarian` 时**按用户指示停止后台作业**
+（`bulgarian|` 后无结果）—— 即**已确认 2/8，余 6 个未测**。结论：§7.4 的修复在已测的两个重型程序上
+确实零影响（这与"3 拍下全部程序 `block rs=0`、该门不可能生效"的推断一致）。
 
 **注意**：这批结果全部是 `MEM_LATENCY=3` 下的。按 description.md，性能档要求内存延迟 20 拍 ——
 换到 20 拍后立刻炸出**第三个独立缺陷**（§7.4），说明"功能配置下全过"并不等于"性能配置下可用"。
@@ -491,7 +493,9 @@ PERF: tak cycles=200000 commit=x ipc=x.00x flush=29 branch=51          (lat=20, 
 
 **`tak` 在 `inf=4` 与 `inf=16` 下都出 X** ⇒ 与 `MEM_INFLIGHT` 无关，只跟 `MEM_LATENCY=20` 有关。
 （`MEM_INFLIGHT` 是**本设计的**参数、非评测规定；它被排除后，嫌疑集中在延迟相关的时序假设上。）
-`queens` / `tak` 在 3 拍的复现腿仍在跑 —— **在拿到 3 拍对照前不下结论**。
+
+**复现状态：已按用户指示停止后台作业，3 拍对照腿未跑完**（queens/tak 的 3 拍 PASS 结论来自 §7.3
+的既有记录，本轮**未复验**）。故本节只有"20 拍下出错"这一侧是实测的；**根因未定，结论待补**。
 
 **为什么值得优先**：这是**正确性**问题，而用户的口径是"先确保程序正确性，再谈优化"。
 且它只在性能配置下暴露 → 若性能档评测（`MEM_LATENCY=20`）下算错，IPC 再高也无意义。
@@ -509,8 +513,8 @@ PERF: tak cycles=200000 commit=x ipc=x.00x flush=29 branch=51          (lat=20, 
 ### 9. Benchmark 接入（真正的 IPC 评测口径）
 
 **用户已把评测仓库放入 `CPU-2026-Benchmark/`**（`ACMClassCourse-2025/CPU-2026-Benchmark`，自带
-`.git`，是嵌套仓库 → 需决定入库方式：`.gitignore` 还是 submodule）。6 个 workload：
-`median` / `multiply` / `qsort` / `rsort` / `towers` / `vvadd`。
+`.git` 的克隆）。**入库方式已定：不入库、只留本地**（已加进 `.gitignore`；评测口径引用的是上游仓库，
+本地副本仅作编译输入）。6 个 workload：`median` / `multiply` / `qsort` / `rsort` / `towers` / `vvadd`。
 
 **必须分清两个集合**：本仓库 `tb/top/prog/` 的 18 个 CPU-Simulator 程序是**功能验证集**（有确定的
 `ret` 期望值，能判对错）；`CPU-2026-Benchmark` 才是 **IPC 评测口径**（description.md 指定）。
