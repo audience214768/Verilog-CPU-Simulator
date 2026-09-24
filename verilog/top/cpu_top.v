@@ -24,6 +24,7 @@ module cpu_top #(
     output [ISSUE_WIDTH * 32 - 1 : 0] imem_addr,
     input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
     input                             imem_valid,
+    input                             imem_hit,        // 本拍 imem_addr 地址在存储中已可取 (固定 1 拍存储恒 1)
     // load: 发起 ≤1/周期, 完成 ≤1/周期 (idx 由完成脉冲回传)
     output                            ld_start_valid,
     output [31 : 0]                   ld_start_addr,
@@ -52,6 +53,7 @@ module cpu_top #(
     localparam RA  = $clog2(RAS_SIZE);
     localparam TERM_RAW  = 32'h0FF06013;   // ori x0, x0, 255      (手写程序约定)
     localparam TERM_RAW2 = 32'h0FF00513;   // addi a0, x0, 255     (编译测试程序约定, 见 decode)
+    localparam MMIO_EXIT_ADDR = 32'h8000_0000;   // 官方停机判据地址 (docs/description.md:131)
 
     // ---- 预声明 (iverilog: 实例端口表达式与 generate 内引用须先声明) ----
     wire [RA - 1 : 0]                  misp_ras_w;
@@ -96,7 +98,7 @@ module cpu_top #(
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
         .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
-        .inst_data(inst_data), .imem_valid(imem_valid), .stall(fetch_stall),
+        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit), .stall(fetch_stall),
         .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
     );
     wire [ISSUE_WIDTH * 7 - 1 : 0]  d_opcode, d_func7;
@@ -605,6 +607,11 @@ module cpu_top #(
     end
 
     // ---- halt / ret_val 锁存 ----
+    // 官方停机: 向 MMIO 0x80000000 做一次 32 位 store。sw_width==2'b10 ⇔ wstrb==4'hf,
+    // 与从机判据 (sim.cpp:91-92) 一致。sw_valid 已由 sw_ready 门控 (见第 5 节) ⇒ 该 store
+    // 必已被 store 队列收下, 一定会发上总线; 写别的地址/别的宽度都只是普通写, 不停机。
+    // 手写程序走的 TERM marker 与本路径 OR 并存: 0x80000000 远超 TB 的 MEM_SIZE, 不会误命中。
+    wire mmio_exit = sw_valid && sw_ready && (sw_addr == MMIO_EXIT_ADDR) && (sw_width == 2'b10);
     assign ret_sample = halt_q_r && rob_empty && !ret_latched_r;
     always @(posedge clk) begin
         if (!rst_n) begin
@@ -612,7 +619,7 @@ module cpu_top #(
             ret_latched_r <= 1'b0;
             ret_val_r <= 8'd0;
         end else begin
-            if (marker_commit) halt_q_r <= 1'b1;
+            if (marker_commit || mmio_exit) halt_q_r <= 1'b1;
             if (ret_sample) begin
                 ret_latched_r <= 1'b1;
                 ret_val_r <= prf_d1[0 * 32 +: 32] & 8'hFF;

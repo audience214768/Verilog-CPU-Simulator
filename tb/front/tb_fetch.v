@@ -5,9 +5,11 @@
 // 握手契约 (verilog/front/fetch.v): 到达数据读自上一拍锁存进 memory 的地址 imem_addr_d,
 //        该地址 == 期望交付地址 exp_pc_r 且批寄存器可接收 (空 或 本拍批被发射) 时接收;
 //        接收拍推进 exp_pc (批内有预测跳转则推进到跳转目标, 否则 +4*W);
-//        redirect 清批并把 PC 与 exp_pc 都置为 redirect_pc; halt/stall 拍 PC 不写 → 地址重复读出
+//        redirect 清批并把 PC 与 exp_pc 都置为 redirect_pc; halt 冻结 (redirect 例外)
+// pc 语义 (与 exp_pc 恒差 0 或一个批): 批被接收或已落后一个批时前进一步, 其余一律退回请求 exp_pc
+//        —— 存储只交付"上一拍请求的地址"的数据, pc 停在别处就会把待交付批丢掉
 // TB 自带 256 字 imem 模拟同步读: 本拍 inst_data = 上一拍取指地址的字 → 与 DUT 的 imem_addr_d 同址;
-//        imem_valid=0 则模拟数据迟到 (总线上摆陈旧 jal x1, 见 STALE): 该拍不接收且 pc 冻结
+//        imem_valid=0 则模拟数据迟到 (总线上摆陈旧 jal x1, 见 STALE): 该拍不接收, pc 退回请求 exp_pc
 `timescale 1ns/1ps
 module tb_fetch;
     localparam IW  = 4;
@@ -35,6 +37,10 @@ module tb_fetch;
     reg                 stall, redirect_valid, halt;
     reg  [31 : 0]         redirect_pc;
     reg                 imem_valid;      // 本拍 inst_data 是否有效 (默认 1 = 固定 1 拍存储; F15 拉低模拟变长延迟)
+    // imem_hit: 本拍 imem_addr 地址在存储中已可取。本 TB 的 imem 是"同步读 1 拍"的模型: 数据没回来
+    //   (imem_valid=0) 就等价于"该地址还取不到" ⇒ 直接跟随 imem_valid。固定 1 拍存储下恒 1,
+    //   DUT 的 pc_lead_w 于是恒成立, 与改动前的"每拍顺序推进"逐拍一致。
+    wire                imem_hit = imem_valid;
 
     fetch #(.ISSUE_WIDTH(IW), .BHT_SIZE(BHT), .RAS_SIZE(RAS)) dut (
         .clk(clk), .rst_n(rst_n),
@@ -43,14 +49,13 @@ module tb_fetch;
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(bht_upd_req), .bht_upd_idx(bht_upd_idx), .bht_upd_taken(bht_upd_taken),
         .ras_restore_valid(ras_restore_valid), .ras_restore_head(ras_restore_head),
-        .inst_data(inst_data), .imem_valid(imem_valid), .stall(stall),
+        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit), .stall(stall),
         .redirect_valid(redirect_valid), .redirect_pc(redirect_pc), .halt(halt)
     );
 
     integer errors = 0;
     integer i, j, k;
     reg [31 : 0] saved_pc, saved_pcr;   // F3/F5 保持性检查用
-    reg [31 : 0] saved_addr;            // F15 保持性检查用
     reg [RA - 1 : 0] saved_ras;         // F15: 迟到拍不得误 push RAS
 
     // ---- 指令编码辅助 ----
@@ -205,6 +210,8 @@ module tb_fetch;
     task model_step;
         integer li;
         reg pt;
+        reg [31 : 0] exp_p;                 // 上一拍 (未推进) 的 exp_pc: A3 的 pc 判定用的是它
+        reg          m_lead;                // A3: 期望批已可取 ⇒ 本拍把请求预先推到下一批
         begin
             // ---- A) posedge 生效的时序更新 ----
             // A1) 批寄存器: redirect 清 > 接收 > 已发射清 > 保持
@@ -226,18 +233,27 @@ module tb_fetch;
                 m_fvalid = {IW{1'b0}};                  // 本拍批已发射
             end
             // A2) exp_pc 推进
+            exp_p = m_exp;
             if (redirect_valid)   m_exp = redirect_pc;
             else if (m_cap)       m_exp = m_ptc ? m_flow : (m_exp + 32'd4 * IW);
             // A3) PC 推进 + 地址延迟 (m_pc_prev 更新后 imem 数据随之切换到本拍地址)
             //     预测目标优先于 stall 保持: 到达批被接收时 exp_pc 已跳到其目标, pc 必须跟随,
             //     否则 pc 之后只顺序推进, 到达流再也追不上 exp_pc = 永久失步 (F14)
             m_pc_prev = m_pc;
-            // 数据没回来 → 不推进 pc (DUT 的 hold_w); redirect 不受此约束 (重定向必须随时能改 pc)
-            m_pc = (!imem_valid && !redirect_valid && !halt) ? m_pc
-                 : redirect_valid ? redirect_pc
-                 : m_rew ? m_exp                    // 满批丢弃 → 回退到待交付批重取
+            // pc 语义 = "下拍要向存储请求的批地址" (DUT 的 pc_next):
+            //   redirect > 满批丢弃回退 > 预测目标 > halt 冻结 > 批被接收 (+1 批)
+            //   > 落后一个批且期望批已可取 (imem_hit, 补发下一批请求) > 退回请求 exp_pc
+            // 末支是变长延迟存储下的硬要求: 数据迟到时若 pc 停在 exp_pc + 4W, 存储下拍就去准备
+            //   那个地址的数据, exp_pc 的数据再也不交付 ⇒ arr_ok 恒 0 ⇒ 永久失步 (F15 覆盖)
+            // 补发支必须带 imem_hit: 期望批还没取到时超前 = 请求地址每拍翻转, 预取流永远重启 (死锁)
+            m_lead = (m_pc == exp_p) && !stall && imem_hit;
+            m_pc = redirect_valid ? redirect_pc
+                 : m_rew ? exp_p                    // 满批丢弃 → 回退到待交付批重取
                  : (m_predok && m_ptc) ? m_flow
-                 : (stall || halt) ? m_pc : (m_pc + 32'd4 * IW);
+                 : halt ? m_pc
+                 : m_cap ? (m_pc + 32'd4 * IW)
+                 : m_lead ? (m_pc + 32'd4 * IW)
+                 : exp_p;
             // A4) ras: restore > 本拍 ops (ops 为上一拍门控后的结果)
             if (ras_restore_valid) begin
                 m_head = ras_restore_head;
@@ -724,7 +740,8 @@ module tb_fetch;
         end else begin
             $display("PASS: F14b target batch delivered after stall capture");
         end
-        // F15 变长取指延迟 (imem_valid): 数据没回来的拍 pc/exp_pc/地址/批输出必须全冻结,
+        // F15 变长取指延迟 (imem_valid): 数据没回来的拍 exp_pc/批输出必须冻结, pc 只允许在
+        //   { exp_pc, exp_pc + 4W } 内摆动 (至多一个批的"在途请求", 超出一个批即为跑飞死锁);
         //   且总线上那条陈旧指令 (STALE) 不得改写 pc、不得误 push RAS、不得被当成到达批接收。
         //   固定 1 拍存储下 imem_valid 恒 1, 上面所有用例都碰不到这条路径。
         //   场景刻意做成"地址已对上、数据仍是旧的": 重定向到 0x300 后全程不给数据, 于是 imem_addr_d
@@ -742,15 +759,17 @@ module tb_fetch;
         end else begin
             $display("PASS: F15a redirect takes effect while imem data is late");
         end
-        saved_pc = dut.pc_r; saved_pcr = dut.exp_pc_r;
-        saved_addr = imem_addr[31 : 0]; saved_ras = dut.u_ras.head_r;
+        saved_pcr = dut.exp_pc_r;
+        saved_ras = dut.u_ras.head_r;
         for (k = 0; k < 3; k = k + 1) begin
-            tick();                                    // 迟到拍: 不接收/不推进/不回退/不动 RAS
-            if ((dut.pc_r !== saved_pc) || (dut.exp_pc_r !== saved_pcr)
-             || (imem_addr[31 : 0] !== saved_addr) || (f2i_valid !== {IW{1'b0}})
+            tick();                                    // 迟到拍: 不接收/exp 不动/不误 push RAS
+            // pc 只能落在"期望批"或"期望批 + 一个批"(在途请求)上; 落后一支补发后下拍即退回请求
+            //   期望批 (存储只交付上一拍请求的地址) —— 故 pc 在两者间摆动, 绝不越界跑飞
+            if (((dut.pc_r !== saved_pcr) && (dut.pc_r !== (saved_pcr + 32'd4 * IW)))
+             || (dut.exp_pc_r !== saved_pcr) || (f2i_valid !== {IW{1'b0}})
              || (dut.u_ras.head_r !== saved_ras)) begin
-                $display("FAIL: F15b moved while imem_valid=0 (pc=%h exp=%h addr=%h valid=%b ras=%0d)",
-                         dut.pc_r, dut.exp_pc_r, imem_addr[31 : 0], f2i_valid, dut.u_ras.head_r);
+                $display("FAIL: F15b pc beyond one batch while imem_valid=0 (pc=%h exp=%h valid=%b ras=%0d)",
+                         dut.pc_r, dut.exp_pc_r, f2i_valid, dut.u_ras.head_r);
                 errors = errors + 1;
             end
         end
@@ -758,7 +777,7 @@ module tb_fetch;
             $display("FAIL: F15 case not exercising stale-data path (arr_ok=%b)", dut.arr_ok_w);
             errors = errors + 1;
         end else begin
-            $display("PASS: F15b frozen while data late (arr_ok=1, stale word on bus)");
+            $display("PASS: F15b pc kept within one batch while data late (arr_ok=1, stale word on bus)");
         end
         imem_valid = 1'b1;                             // 数据回来: 地址已对上, 下一拍即交付
         tick();

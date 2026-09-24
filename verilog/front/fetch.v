@@ -1,13 +1,15 @@
-// 取指: PC → imem (同步读 1 拍) → 寄存批 f2i_*; BHT/JAL/RAS 预测随指令流动
+// 取指: PC → imem (同步读语义: 本拍地址, 下拍数据) → 寄存批 f2i_*; BHT/JAL/RAS 预测随指令流动
 // 内部实例化 bht + ras; 每批 RAS 操作在接收拍一次性应用 (接收拍之外 ops=0)
-// 握手: 只有"pc 被写入"的拍才发起新取指请求; 到达数据读自上一拍锁存进 memory 的地址 imem_addr_d,
-//       该地址 == 期望交付地址 exp_pc_r 且批寄存器可接收时接收; redirect 清批并改 PC; halt 冻结取指
-// 满批丢弃 (rewind): 稳态下 pc_r 领先 exp_pc 一个批 (请求在途), 若此时到达的正是 exp_pc 而批
+// 握手: pc_r ≡ "本拍要向存储请求的批地址"; 到达数据读自上一拍锁存进存储的地址 imem_addr_d,
+//       该地址 == 期望交付地址 exp_pc_r 且 imem_valid (数据确实回来了) 且批寄存器可接收时接收;
+//       redirect 清批并改 PC; halt 冻结取指 (重定向例外)
+// 请求回退 (rewind): 稳态下 pc_r 领先 exp_pc 一个批 (请求在途), 若此时到达的正是 exp_pc 而批
 //       寄存器满 (后端 stall), 该批会被丢弃且 pc 已越过它 → 永远不再交付。故丢弃拍把 pc 回退到
-//       exp_pc 重取; 回退后 memory 每拍重复读出 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
-// 失步防护: pc 是"下一次请求地址", exp_pc 是"下一批交付地址", 两者必须同步推进 (pc 领先恰好一个
-//       批)。到达批被接收时若其内有预测跳转, exp_pc 跳到该目标, pc 必须同拍跳到同一目标——
-//       故预测跳转优先于 stall 保持 (见 pc_next 注释), 否则两者永久失步, 取指跑飞
+//       exp_pc 重取; 回退后存储每拍重复交付 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
+// 失步防护: pc_r 与 exp_pc_r 恒差 0 或一个批。到达批被接收时若其内有预测跳转, exp_pc 跳到该目标,
+//       pc 必须同拍跳到同一目标 —— 故预测跳转优先于一切保持分支 (见 pc_next 注释), 否则两者永久失步。
+//       存储带延迟时 (imem_hit=0: 期望批尚未取到) pc 只停在 exp_pc_r 上重复请求它, 绝不超前 ——
+//       超前会让请求地址每拍翻转, 预取流永远重启, 一个字也取不回来 (见 pc_lead_w 注释)
 module fetch #(
     parameter ISSUE_WIDTH = 1,
     parameter BHT_SIZE    = 32,
@@ -31,6 +33,8 @@ module fetch #(
     input  [$clog2(RAS_SIZE) - 1 : 0]              ras_restore_head,
     input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,       // 存储读出 (固定 1 拍, 或变长延迟)
     input                 imem_valid,            // 本拍 inst_data 确实读自 imem_addr_d (变长延迟时可能为 0)
+    input                 imem_hit,              // 本拍 imem_addr 上的地址在存储中已可取 (可带延迟的缓冲存储;
+                                                 //   固定 1 拍存储恒 1) —— 用来判"能否预先发出下一批请求"
     input                 stall,                 // 保持 PC 与输出
     input                 redirect_valid,
     input  [31 : 0]         redirect_pc,
@@ -72,7 +76,7 @@ module fetch #(
     // imem_valid: 存储可含延迟, 未就绪时 inst_data 仍是上一次的值 (地址已对但数据是旧的),
     //   故"接收/回退"都必须以它为前提 —— 单看 arr_ok_w 会把旧数据当成新到达
     //   (负向用例实测: cap_w 这一项是硬要求 (删掉立刻把旧指令当到达批收下);
-    //    rewind_w 这一项被 hold_w 覆盖 —— 迟到拍 pc 本就不写, 单删不报错, 保留为使本条自身完整)
+    //    rewind_w 这一项被 pc_next 的默认分支 (退回 exp_pc_r) 覆盖 —— 单删不报错, 保留为使本条自身完整)
     wire cap_w     = arr_ok_w && cap_ok_w && !halt && imem_valid; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
     wire rewind_w  = arr_ok_w && !cap_ok_w && !halt && imem_valid; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
     // 预测可信条件: 到达数据正是期望批。否则到达的是错路/重复读出的陈旧指令
@@ -145,30 +149,40 @@ module fetch #(
                                                             : (exp_pc_r + 32'd4 * ISSUE_WIDTH);
     end
 
-    // ---- PC 推进 (redirect > 满批丢弃回退 > 预测目标 > stall/halt 保持 > 顺序推进) ----
-    // 预测目标只在 pred_ok_w (到达批属于本流) 时采用, 见 pred_ok_w 注释
-    // 预测目标优先于 stall 保持: 到达批被接收 (cap_w) 时 exp_pc 已推进到其跳转目标,
-    //   若因 stall (cpu_top 冲刷期 flushing_r 使然) 而让 pc 停在原地, pc 之后只做顺序推进,
-    //   到达地址流再也追不上 exp_pc → 取指永久跑飞 (pc 每拍 +4*W 走进未映射区, commit 冻结)。
-    //   带预测跳转的到达批必然是"被接收"的 (arr_ok && !rewind ⇒ cap_ok), 故 pc 与 exp_pc 同步跳
-    // 注: stall 且到达批无预测跳转时仍保持 pc——exp_pc 只 +4*W, 到达流下一拍即与之重合, 不失步
+    // ---- PC 推进 (redirect > 满批丢弃回退 > 预测目标 > 批被接收 > 落后补发 > 退回请求 exp_pc) ----
+    // pc_r 的语义 ≡ "本拍要向存储请求的地址" (存储契约: imem_addr 上的地址, 下拍交付其数据)。
+    //   与 exp_pc_r (下一批要交付的地址) 的关系恒为 pc_r ∈ { exp_pc_r, exp_pc_r + 4W }:
+    //     相等 = "期望批尚未取到, 正在请求它"; 差一个批 = "已有一批在途" (稳态流水)。
+    // 预测目标优先于一切保持分支: 到达批被接收 (cap_w) 时 exp_pc 已推进到其跳转目标,
+    //   若因 stall (cpu_top 冲刷期 flushing_r 使然) 而让 pc 停在原地, 到达地址流再也追不上
+    //   exp_pc → 取指永久跑飞。带预测跳转的到达批必然是"被接收"的 (arr_ok && !rewind ⇒ cap_ok),
+    //   故 pc 与 exp_pc 同步跳
+    // ★ 末支"退回请求 exp_pc_r"是变长延迟存储下的**硬要求**(1 拍存储下不可复现):
+    //   期望批的数据迟到时若 pc 仍停在 exp_pc_r + 4W, 存储下拍就去准备 exp_pc_r + 4W 的数据,
+    //   exp_pc_r 的数据再也不会被交付 ⇒ arr_ok_w 恒 0 ⇒ 取指永久失步。实测 (官方 add_to_100):
+    //   t=108 起 0x44 的数据迟到 4 拍 (imem_valid=0, pc 被回退前的旧写法冻在 0x48); t=112 数据回来,
+    //   但存储此刻查找的是 0x48 (它只认"上一拍请求的地址"), imem_valid=1 而 arr_ok_w=0 ——
+    //   旧写法 `!stall` 分支照推进 ⇒ pc 一路 +4 跑到 0x4c8c, exp_pc_r 冻在 0x44, rob 排空后
+    //   全机死锁 (commit 恒 9)。退回请求 exp_pc_r 后, 存储查找地址即为 exp_pc_r, 数据一到即接收。
+    //   (1 拍存储下 V 恒 1 ⇒ cap 每拍成立, 本支不可达 ⇒ 行为与改动前逐拍一致)
+    // halt 冻结 (redirect 例外, 重定向必须随时能改 pc); stall 时停在 exp_pc_r 等它 —— 存储每拍
+    //   重复读出该地址, 一旦批寄存器空出即可立即接收 (无额外气泡)
     wire pc_jmp_w = pred_ok_w && pt_c[ISSUE_WIDTH];
+    wire pc_behind_w = (pc_r == exp_pc_r);      // 尚未发出下一批请求 (重定向/回退/命中恢复之后)
+    // 落后补发: 期望批本身已在存储中可取 (imem_hit) 时, 才可把请求预先推到下一批 —— 它只花一个在途
+    //   请求的代价换来"到达流与 exp_pc 同拍对齐"。若不加 imem_hit, 数据未回的拍会盲目超前 →
+    //   下一拍到达的不是期望批 → 退回 → 再超前 → 请求地址每拍翻转, 预取流永远重启, 一个字也取不回来
+    //   (实测: 官方 add_to_100 尾部 pc 在 0x2c/0x30 间抖动, imem_valid 恒 0, commit 冻在 414)
+    wire pc_lead_w = pc_behind_w && imem_hit && !stall;
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
-                          : rewind_w ? exp_pc_r
-                          : pc_jmp_w ? flow_c[ISSUE_WIDTH * 32 +: 32]
-                          : (stall || halt) ? pc_r
-                          : (pc_r + 32'd4 * ISSUE_WIDTH);
-    // pc_jmp_w 必须在写使能里 (否则 stall 拍 pc_wr_w=0, 上面选的跳转目标根本写不进去)
-    // ★ hold_w: 存储数据未就绪时**不推进 pc**。pc_r 一旦超前 exp_pc_r 超过一个批, imem_addr_d
-    //   就再也追不上 exp_pc_r ⇒ arr_ok_w 恒 0 ⇒ 取指永久失步 (即头注释所述死锁)。固定 1 拍
-    //   存储下 imem_valid 恒 1、hold_w 恒 0, 行为与改动前逐拍一致。
-    //   不可把该条件并进 stall: stall 同时决定 batch_taken/cap_ok_w, 在"本拍批已发射"时把它
-    //   拉高, 会造成批寄存器不释放而 cpu_top 已把同一批压入 rob/rs ⇒ 同一批被重复发射。
-    //   redirect 不受 hold 约束 (重定向必须随时能改 pc); rewind_w / pc_jmp_w 已各自含 imem_valid,
-    //   故 hold_w 实际只在"纯顺序推进"这一支生效。
-    //   (负向用例实测: 删掉 hold_w 后迟到拍 pc 一路 0x300→0x310→0x320 跑飞, 即头注释那条死锁)
-    wire hold_w  = !imem_valid && !redirect_valid && !halt;
-    wire pc_wr_w = rst_n && !hold_w && (redirect_valid || rewind_w || pc_jmp_w || (!stall && !halt));
+                          : rewind_w       ? exp_pc_r
+                          : pc_jmp_w       ? flow_c[ISSUE_WIDTH * 32 +: 32]
+                          : halt           ? pc_r
+                          : cap_w          ? (pc_r + 32'd4 * ISSUE_WIDTH)
+                          : pc_lead_w      ? (pc_r + 32'd4 * ISSUE_WIDTH)
+                          : exp_pc_r;
+    // redirect/rewind/pc_jmp/落后补发 都必须能写进 pc, 故写使能只看"下一值是否与当前不同"
+    wire pc_wr_w = rst_n && (pc_next != pc_r);
     always @(posedge clk) begin
         if (!rst_n)       pc_r <= 32'd0;
         else if (pc_wr_w) pc_r <= pc_next;

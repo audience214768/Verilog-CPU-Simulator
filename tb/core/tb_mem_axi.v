@@ -50,7 +50,7 @@ module tb_mem_axi;
     reg  [1:0]  ld_start_width;
     reg  [LIW-1:0] ld_start_idx;
     wire [ISSUE_WIDTH*32-1:0] inst_data;
-    wire imem_valid, ld_done_valid, ld_busy, sw_ready;
+    wire imem_valid, imem_hit, ld_done_valid, ld_busy, sw_ready;
     wire [31:0] ld_done_data;
     wire [LIW-1:0] ld_done_idx;
     reg  sw_valid;
@@ -73,6 +73,7 @@ module tb_mem_axi;
     ) dut (
         .clk(clk), .rst_n(rst_n),
         .inst_data(inst_data), .imem_addr(imem_addr), .imem_valid(imem_valid),
+        .imem_hit(imem_hit),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx),
@@ -616,12 +617,18 @@ module tb_mem_axi;
             ld_wait(80);
             commit_cyc = commit_t; done_cyc = done_t;
             if (commit_cyc == done_cyc) same_cycle_hit = 1'b1;
-            // 提交不晚于完成 ⇒ 必须看到 store 的值; 晚于完成 ⇒ 该 store 尚未进入队列, 应读到旧值
-            if (commit_cyc <= done_cyc)
+            // 交付口径 (本模块只兜"已提交进队列"的 store, 入队在提交握手那一拍的 posedge):
+            //   提交**早于**完成 ⇒ 完成拍的队列里已有它 ⇒ 必须看到 store 的值;
+            //   提交**同拍**完成 ⇒ 本模块不并入 —— 该 store 此刻还在上层 LSQ 里 (失效在 posedge), 且必然
+            //     比完成的 load 老, 由 lsq.v 的 `(j - hd) < dd` 合并兜住; TB 无 LSQ, 故读到从机旧值。
+            //     本模块若并入就造出零延迟组合环 (sw_valid → ld_m0 → LSQ → execute_slot → misp_det
+            //     → cpu_top.ce_w → sw_valid, 实测 Verilator UNOPTFLAT), 见 sq_merge_byte_f 注释;
+            //   提交晚于完成 ⇒ 更年轻的 store 不得追溯改写已完成的 load。
+            if (commit_cyc < done_cyc)
                 expect(cap_ld_data === race_val, "T5 committed store must be visible to the load");
             else
                 expect(cap_ld_data === exp_ld(RA_BASE + 32'd4 * k, 2'b10),
-                       "T5 younger store must not retro-activate an already completed load");
+                       "T5 not-yet-enqueued store must not shadow the bus value");
             tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
             for (n = 0; n < 4; n = n + 1) tick();
         end
@@ -637,7 +644,7 @@ module tb_mem_axi;
         sq_drain(120);
         expect(mem_word(RA_BASE + 32'd4 * 32) === 32'hFEED_F00D, "T5 store landed after B");
         expect(dut.sq_wr_p === dut.sq_ret_p, "T5 queue retired after B");
-        $display("PASS: T5 store->load visibility race (sweep %0d offsets, same-cycle covered)", 32);
+        $display("PASS: T5 store->load visibility race (sweep 32 offsets; same-cycle commit pinned to bus value)");
 
         // ---- T6 复位打断 ----
         do_reset();

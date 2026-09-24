@@ -3,7 +3,8 @@
 //
 // 【为什么不能简单直连】fetch.v 的隐含契约是"地址 A 上总线, 下一拍 inst_data 就是 A 处指令"
 // (memory.v 的同步读), 而 AXI 读要 ~12 拍。故必须有窗口: 回包按地址存下, 只在**地址对得上**的
-// 那拍才交付 (imem_valid=1), 对不上/未回则 imem_valid=0, fetch 自会冻结 pc (见 fetch.v 的 hold_w)。
+// 那拍才交付 (imem_valid=1), 对不上/未回则 imem_valid=0, fetch 自会把请求停在期望批上等它
+// (见 fetch.v 的 pc_next 末支与 imem_hit)。
 // 地址比对用本模块自建的 imem_addr_q (imem_addr 延迟一拍, 复位值逐槽 4*g), 与 fetch.v:184-192 的
 // imem_addr_d 逐槽一致 ⇒ 两者恒等, 交付时机与 fetch 完全同步。
 //
@@ -33,7 +34,8 @@
 //     1) 合并层次 memory < store_queue < LSQ (LSQ 那层在 lsq.v 内, 作用于本模块输出的 ld_done_data)
 //     2) 队列里任一条恒比"当前正在完成的 load"更老: 它已退休 ⇒ 程序序在前; 而该 load 尚未完成 ⇒
 //        尚未退休; 退休是程序序 ⇒ 不可能有更年轻的指令先退休。故可无条件并入该 load 的结果。
-//     3) 本拍刚提交的 store 同理可并入, 且它最年轻 ⇒ 优先级最高 (漏掉它会丢"同拍提交+完成"那一拍)
+//     3) "提交与完成同拍"那一拍由**上层 LSQ** 兜: 该 store 此刻仍在 LSQ 里 (失效在 posedge), 且必然
+//        比完成的 load 老 ⇒ 命中 lsq.v 的 `(j - hd) < dd` 合并。本模块**不**重复并入 (并入即组合环)
 //     4) 退休条件比 B 握手更严: B 已握手 **且** 该 B 到达时已发出的 load 都已完成 —— 那些 load 的读
 //        可能在该 store 落到从机之前就被服务了; 之后发出的 load 必在落盘之后才被服务, 无需再兜
 //
@@ -55,6 +57,7 @@ module mem_subsystem #(
     output [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
     input  [ISSUE_WIDTH * 32 - 1 : 0] imem_addr,
     output                            imem_valid,   // 本拍 inst_data 确实是对应地址上的指令
+    output                            imem_hit,     // 本拍 imem_addr 上的数据已在窗口里 (供 fetch 判能否预先发下一批请求)
 
     // ---- CPU 侧: load (发起 ≤1/周期, 完成 ≤1/周期) ----
     input                             ld_start_valid,
@@ -85,7 +88,7 @@ module mem_subsystem #(
     output          awvalid,
     input           awready,
     output [31 : 0] wdata,
-    input  [3 : 0]  wstrb,
+    output [3 : 0]  wstrb,
     output          wvalid,
     input           wready,
     input  [1 : 0]  bresp,
@@ -257,6 +260,12 @@ module mem_subsystem #(
         end
     endgenerate
     assign imem_valid = &slot_hit;
+    // 本拍 imem_addr 的命中: 与上面同款比对, 但用**当前**请求地址 (非延迟一拍的 imem_addr_q)。
+    //   fetch 用它判断"能否把请求预先推到下一批" —— 只有期望批已在窗口里才允许超前,
+    //   否则请求地址会随数据未回而乱翻, 预取流再也填不满 (见 fetch.v 的 pc_lead_w 注释)。
+    //   这里比的是批的首字 (槽 0), 与预取流控用的 demand 同一口径。
+    assign imem_hit = pf_valid_r[imem_addr[2 +: PF_IW]]
+                   && (pf_tag_r[imem_addr[2 +: PF_IW] * 32 +: 32] == imem_addr[0 * 32 +: 32]);
 
     // ==================== 4. 已提交 store 队列 ====================
     reg [SQ_DEPTH * 32 - 1 : 0] sq_addr_r, sq_data_r;
@@ -279,13 +288,19 @@ module mem_subsystem #(
         end
     endgenerate
 
-    // 字节地址 pos 的最终值: 扫队列 (由老到新, 后者覆盖前者 ⇒ 最年轻胜) → 本拍提交的 store → AXI 原始字节
+    // 字节地址 pos 的最终值: 扫队列 (由老到新, 后者覆盖前者 ⇒ 最年轻胜) → AXI 原始字节
     // 状态一律作为参数传入 (iverilog 连续赋值中的函数不建立对模块级信号的事件依赖, 见 lsq.v 同款注释)
+    //
+    // ★ 这里**只**合并"已提交进队列"的 store, 不含本拍正在提交的那条。本拍提交的 store 由上层
+    //   lsq.v 的合并兜住: 该 store 此刻仍在 LSQ 里 (失效发生在 posedge), 且它必然比正在完成的那个
+    //   load 老 (提交前提 rob_ready ⇒ 它的数据早到一拍, 而完成的 load 数据本拍才到) ⇒ 命中 lsq.v:257
+    //   的 `(j - hd) < dd` 分支 (dd = 完成 load 距 head 的距离, 比 dd 小 = 更老)。
+    //   把本拍提交并进来曾写成 `sv` 参数 (S4), 结果造出一条零延迟组合环, 实测 Verilator 报
+    //   UNOPTFLAT: sw_valid → ld_m0 → lsq.mem_done_data → lsq.mb0 → execute_slot → misp_det
+    //   → cpu_top.ce_w → sw_valid。环上两处都不可动 (ce_w 的 misp 项是防提交副作用重复的硬要求,
+    //   见 cpu_top.v 第 4/5 节), 而这一项本就冗余 ⇒ 删掉, 环随之消失。
     function [7 : 0] sq_merge_byte_f;
         input [31 : 0]                pos;
-        input                         sv;             // 本拍提交的 store (比队列里所有条目都年轻)
-        input [31 : 0]                sw_a, sw_d;
-        input [1 : 0]                 sw_w;
         input [SQ_DEPTH * 32 - 1 : 0] q_a, q_d;
         input [SQ_DEPTH * 2 - 1 : 0]  q_w;
         input [SQ_DEPTH - 1 : 0]      q_v;
@@ -300,19 +315,17 @@ module mem_subsystem #(
                 if (q_v[m] && (pos >= q_addr) && (pos < (q_addr + wd_bytes(q_w[m * 2 +: 2]))))
                     val = q_d[m * 32 + (pos - q_addr) * 8 +: 8];
             end
-            if (sv && (pos >= sw_a) && (pos < (sw_a + wd_bytes(sw_w))))
-                val = sw_d[(pos - sw_a) * 8 +: 8];
             sq_merge_byte_f = val;
         end
     endfunction
 
-    wire [7 : 0] ld_m0 = sq_merge_byte_f(ld_a_w + 32'd0, sw_valid, sw_addr, sw_data, sw_width,
+    wire [7 : 0] ld_m0 = sq_merge_byte_f(ld_a_w + 32'd0,
                                          sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[7 : 0]);
-    wire [7 : 0] ld_m1 = sq_merge_byte_f(ld_a_w + 32'd1, sw_valid, sw_addr, sw_data, sw_width,
+    wire [7 : 0] ld_m1 = sq_merge_byte_f(ld_a_w + 32'd1,
                                          sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[15 : 8]);
-    wire [7 : 0] ld_m2 = sq_merge_byte_f(ld_a_w + 32'd2, sw_valid, sw_addr, sw_data, sw_width,
+    wire [7 : 0] ld_m2 = sq_merge_byte_f(ld_a_w + 32'd2,
                                          sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[23 : 16]);
-    wire [7 : 0] ld_m3 = sq_merge_byte_f(ld_a_w + 32'd3, sw_valid, sw_addr, sw_data, sw_width,
+    wire [7 : 0] ld_m3 = sq_merge_byte_f(ld_a_w + 32'd3,
                                          sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[31 : 24]);
 
     // 零扩展 (符号由 lsq.v:291-297 按 is_unsigned_r 做)
