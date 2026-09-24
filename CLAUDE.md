@@ -23,6 +23,9 @@ verilog/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块�
 ##   verilog/filelist.f = RTL 源文件列表 (路径相对 verilog/), 新增/删除源文件必须同步;
 ##   config.mk 保持官方原样; 本机工具链路径写进 gitignore 的 config.local.mk,
 ##     用 make CONFIG=config.local.mk <target> 生效 (APPIMAGE 禁用以走 native 工具)
+##   make synth (面积/频率口径, 需 OpenSTA) 本机跑不通 → 走 OrbStack 容器镜像 cpu2026:local,
+##     容器内用官方 config.mk 全默认即可 (ASAP7 在 /opt/asap7/lib, 是 r28; 宿主那套是 r27, 数字不可混用);
+##     构建/冒烟细节见 docs/plan.md §13.5
 ### 模块清单: 
 top=cpu_top (现状) + student_top (官方要求的顶层, AXI4-Lite 端口, 待实现); front=fetch,decode,bht,ras;
 core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory; exec=adder32,mul,alu,branch
@@ -40,7 +43,11 @@ core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory; exec=adder32,mul,alu,b
 - 宽度: 所有端口/信号显式声明向量宽度, 不用裸 1-bit 混用; 多槽打包信号按 [N*32-1:0] 定宽,
   槽内用位段 [s*PW +: PW] 存取; 拼接复制用 {N{1'b0}} 语法
 - 表达式: 优先 ?: 嵌套避免漏情况; 较复杂处允许 if/case 保清晰; 位宽对齐后再比较, 避免隐式截断
-- 时序: 状态仅写在 always @(posedge clk) 内, 同步低有效复位 rst_n; 组合逻辑一律 assign/?: (不写 always @*)
+- 时序: 状态仅写在 always @(posedge clk) 内, 低有效复位 rst_n; 组合逻辑一律 assign/?: (不写 always @*)
+  复位风格以代码现状为准 —— 多数模块是**异步** `always @(posedge clk or negedge rst_n)`
+  (rob ×2、rs、rat、ready_table), 少数是**同步** `always @(posedge clk)` + `if (!rst_n)`
+  (prf、lsq、free_list、ras、bht); 新增代码**优先异步** ——
+  ASAP7 r28 库里**没有**同步复位触发器, 同步复位会被拆成软逻辑, 更贵 (见 docs/area_budget.md §2 注)
 - 常数: 魔法数用 localparam 命名 (如 TERM_RAW = 32'h0FF06093)
 - 注释: 模块头注释说明功能/握手/写优先级; 中文注释; 不写逐行流水账
 

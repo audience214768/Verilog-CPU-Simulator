@@ -220,7 +220,8 @@ qsort / rsort / towers / vvadd），IPC = `metrics.json` 的 `dynamic_instructio
 | C5 | **`store_queue` + `tb_store_queue`**（架构 C.6 的时序洞专项） | 专项 TB：提交-失效-写生效三事件交错下 load 不读到旧值 |
 | C6 | **`dcache`（MSHR/合并/装行）→ `icache`（`inst_valid`/`imem_stall`/跨行）** | 两级都过 `make test`；`IC_SIZE=0/DC_SIZE=0` 与缓存档**判词一致**（回退二分手段） |
 | C7 | **清掉 `core/memory.v`** 出 `verilog/filelist.f`（留作本地回归后端） | 官方流程不再引用它；本地 12 个 TB 仍全绿 |
-| C8 | **面积/频率/IPC 基线**：`make synth`（需 OpenSTA）+ `make perf` | 拿到官方口径的总面积（含 SRAM）、`F_max`、6 个 perf 点的几何平均 IPC |
+| C8a | **工具链就位 + 冒烟**：在 OrbStack 容器内跑通官方 `make synth`（Yosys+ABC+OpenSTA+ASAP7 r28） | **已完成 2026-09-24**：镜像构建成功（`cpu2026:local`），冒烟 `student_top{mul,adder32}` 九条判据全过（见 §13.5）。**此时仍拿不到真核数字** —— 见 C8b 的两条阻塞 |
+| C8b | **真核面积/频率基线**：对真核 `student_top` 跑 `make synth` + `make perf` | 拿到官方口径的总面积（含 SRAM）、`F_max`、6 个 perf 点的几何平均 IPC。**依赖 C2（顶层）+ C7（清掉 `core/memory.v`）** —— 后者不落地则 `memory.v` 的 64KB 阵列会被 Yosys 降成触发器，面积数字无意义 |
 
 **纪律**：每步 **双门禁** —— `make -f Makefile.tb run`（12 个单元 TB）+ `make test`（19 个官方正确性点）；
 C2 之后本地 `tb_cpu_prog` 的 18 个镜像**仍应全绿**（它们走 `LEGACY_TERM=1` 的旧终止通路）。
@@ -233,7 +234,7 @@ C2 之后本地 `tb_cpu_prog` 的 18 个镜像**仍应全绿**（它们走 `LEGA
 | `make build` | `FILELIST=verilog/filelist.f` → `build/sim`（Verilator） | `JOBS=4`；本机需 `CONFIG=config.local.mk` |
 | `make run` | **必须给 `EXPECTED=`**（否则退出码 2）；`PROGRAM=`（默认 `program.bin`）、`WAVE=`、`LOG=` | 走 argv 协议，stdout 打 `PASS/FAIL cycles=…` |
 | `make test` / `make perf` | 走 **OJ 协议**（stdin），`TESTCASES=` 默认 `<仓库>/testcases`；`Case=` 单跑一个 | `MAX_CYCLES=1000000`、`LATENCY=10` 是默认值 |
-| `make synth` | `MODE=opt\|diagnose`、`CLOCK_PERIOD_NS=2.0` → `build/synth/<MODE>/` | 本机缺 `sta` ⇒ 暂时跑不通 |
+| `make synth` | `MODE=opt\|diagnose`、`CLOCK_PERIOD_NS=2.0` → `build/synth/<MODE>/` | 宿主缺 `sta` ⇒ **走容器**；链路已跑通，见 §13.5 |
 | `SIM=/path/to/prebuilt/sim` | 跳过 `build`，复用已编译的 `sim` | **迭代 RTL 时省一次 Verilator 编译**（约数十秒） |
 | `BLACKBOXES=...` | **已被框架移除**，一给就 `$(error)` | 对应的正确做法是例化 `sram_fakeram` |
 
@@ -1198,7 +1199,7 @@ Verilator 让功能回归从 2.6 小时降到分钟级，但**正确性签署仍
 Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make synth` 当场重跑
 （`build/` 在 `.gitignore` 里，**残留文件是陈旧产物，不能当基线**）。
 
-### 13. 官方框架接入（2026-09-24）—— 口径换版 + 布局迁移
+### 13. 官方框架接入（2026-09-24）—— 口径换版 + 布局迁移 + 综合链路打通
 
 **背景**：用户把 `docs/description.md` 整体换成官方模板 README（**最终版**，只由用户手动修改）。
 评测口径**全面变化**，四份文档（`plan.md`/`architecture.md`/`area_budget.md`/`CLAUDE.md`）全部还是旧口径，
@@ -1244,12 +1245,14 @@ Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make syn
 | 工具 | 状态 |
 |---|---|
 | `verilator` 5.051 / `iverilog` / `yosys` 0.68 / `yosys-abc` | ✅ 在 PATH |
-| ASAP7 RVT TT 五个 `.lib` | ✅ `/Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/`（该目录下恰好 5 个 `*.lib`，符合 `synth.py` 的校验） |
+| ASAP7 RVT TT 五个 `.lib` | ⚠️ `/Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/`（该目录下恰好 5 个 `*.lib`，符合 `synth.py` 的校验）—— 但这是 **r27 `_201020`**，官方容器是 **r28**，**数字不可比**（见 §13.5） |
 | `riscv64-unknown-elf-gcc` 8.3.0（rv32im/ilp32 multilib） | ✅ |
-| **OpenSTA（`sta`）** | ❌ **缺失** ⇒ 官方 `make synth` 跑不通（`synth.py` 硬性要求） |
-| 课程 AppImage | ❌ Linux x86-64，macOS 不可用；Docker/OrbStack 守护进程当前未运行 |
+| **OpenSTA（`sta`）** | ❌ 宿主缺失；**改走容器**（容器内 3.1.0）⇒ 见 §13.5 |
+| 课程 AppImage | ❌ Linux x86-64，macOS 不可用 |
+| **OrbStack + `cpu2026:local` 镜像** | ✅ **已构建（2026-09-24）** ⇒ 官方 `make synth` 可在容器内跑通，见 §13.5 |
 
-⇒ **`make synth` 的拦路石只有 OpenSTA**：装上（或起 Docker 走方案 B）即可闭合 §12.4 的频率缺口。
+⇒ **`make synth` 已不再是拦路石**（走容器）。但注意：**即便在宿主装上 OpenSTA 也不该用它出数** ——
+宿主库是 r27、容器是 r28，revision 不同 ⇒ 数字与官方口径不可比。
 
 #### 13.4 与官方测试集对照后的三个发现（**都不是本次改动引入的**）
 
@@ -1266,6 +1269,141 @@ Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make syn
 > `testcases/`（预编译镜像 + `expected.txt` + `metrics.json`）。
 > **后续凡是"判据/期望值"类结论，一律以 `testcases/` 为准。**
 
+#### 13.5 官方综合链路（OrbStack 容器）—— 已跑通 + 冒烟实测
+
+**为什么走容器**：官方 `make synth` 硬性依赖 OpenSTA（`synth.py` 缺 `sta` 直接报错），宿主缺失。
+`docs/description.md` 的「方案 B：使用 Docker 容器」就是官方给的路径；**全仓库/上游都没有预构建镜像可拉**，
+必须本地 `docker build`。Dockerfile 把四个依赖全部 pin 到 commit，镜像内 `PATH` 已铺好，
+**不需要 AppImage、不需要改 `config.mk`**（实测 `config.mk` 全默认即可：`ASAP7_LIB` 空 ⇒ 容器内 `/opt/asap7/lib`；
+`APPIMAGE` 指向的文件不存在 ⇒ `toolchain.py:22-30` 静默 no-op 退回 PATH）。
+
+**溯源戳（可复现）**：
+
+| 项 | 值 |
+|---|---|
+| 上游 commit | `54fc150ffc290f52aa024209ffb9a29d43856f6d` |
+| `Dockerfile` git-blob | `f0bd0fffb01b542121e81870655a06b55d62724e` |
+| `Dockerfile` sha256 | `20ad4d62cc91e358458b95efb0fce570b07adacf56e7124d924b1cd922d3cf8b` |
+| 构建上下文 | 框架根副本（含 `scripts/`），**放在仓库外** |
+| 镜像 | `cpu2026:local`（`5ee20bd4624a`，963 MB） |
+| 平台 / 参数 | `linux/arm64` **原生**；`BUILD_JOBS=2`（OrbStack VM 仅 3.9 GiB 内存，Dockerfile 默认 8） |
+| 构建日期 | 2026-09-24 |
+
+```sh
+docker build -t cpu2026:local <框架根副本>          # 约 20–40 min @ arm64/-j2
+docker run --rm -v "$PWD":/work -w /work cpu2026:local \
+  make synth FILELIST=… SYNTH_OUT=… MODE=opt        # MODE=opt|diagnose
+```
+
+> **注意**：容器只 `COPY scripts/` 到 `/opt/cpu2026/` 并做 `/usr/local/bin/synth` 符号链接；
+> 但 `Makefile` 的 `FRAMEWORK_DIR` 取自 Makefile 自身位置 ⇒ `make synth` 在 `/work` 下实际跑的是
+> **挂载进来的本仓库 `scripts/synth.py`**，不是镜像里那份。两者同源，但"镜像提供了脚本"这个说法是错的。
+
+**环境事实（与官方文档不同，必须记录）**：
+
+1. **Docker Hub 在本机不可达**（`auth.docker.io` 连接重置）。镜像改为**单独拉取后本地打官方 tag**
+   （`ubuntu:24.04`、`docker/dockerfile:1` 各一份）。**未改动 `~/.orbstack/config/docker.json`**
+   （仍为 `{}`，即**没有**配置任何 daemon 级 registry mirror）。构建期只访问 GitHub（可达）与 apt 源。
+2. 容器内 `verilator` 是 **apt 版 5.020**，本机是 **5.051** ⇒ **IPC 数字跨环境不可直接比**（见文末待办）。
+
+**镜像自检**（每次用前必查，任一不过即停）：
+
+| 检查 | 实测 |
+|---|---|
+| `/opt/versions.txt` | Yosys 0.63 `70a11c6b…` / ASAP7 **r28** `f970bd3c…` / OpenSTA `f89887b5…` / CUDD `f54f5333…` |
+| `/opt/asap7/lib` | **恰好 5 个 `*.lib`**，含 `_SEQ_`（`_211120` / `_220122` / `_220123`） |
+| 工具版本 | `yosys 0.63`、`sta 3.1.0`、`verilator 5.020`、`python 3.12.3` |
+
+五个库的 sha256（供 `report.json.libraries[].sha256` 对账）：
+
+```
+b1ece108c0a2acd8d01c05cee6daee2834425037b1d9aad625d6f1dd640f1940  AO_RVT_TT_211120
+a4ceb32e418e1aac8667e28fbd8e9e46baf520180be4db075598a4d7c681a56e  INVBUF_RVT_TT_220122
+6529c6c72465cd133dfbfb03952327ab2774bb6aa4be866d78fd7bc6c58c9f6f  OA_RVT_TT_211120
+57a0b403485b99ebd676942af4673ac086b86c7c75fbdc3e5c0038501dd22ba3  SEQ_RVT_TT_220123
+fa92e6ab1481810602811b1eea54bc016a341f11fb5188d7512c026599adf038  SIMPLE_RVT_TT_211120
+```
+
+**r28 的触发器常数**（`dfflibmap -info` + 逐 cell 读 `area`）—— **这条推翻了旧文档的表述**：
+
+| cell | 面积 (µm²) | 对应 Yosys | 复位 |
+|---|---:|---|---|
+| `DFFHQNx1_ASAP7_75t_R` | **0.2916** | `$_DFF_P_` | **无复位**，只有 `QN` 输出 |
+| `DFFLQNx1_ASAP7_75t_R` | 0.2916 | `$_DFF_N_` | 无复位 |
+| `DFFASRHQNx1_ASAP7_75t_R` | **0.37908**（+30.0%） | `$_DFFSR_PNN_` | 异步 set/reset |
+
+⇒ **库中不存在同步复位触发器** —— `$_DFF_PN0_` / `$_DFF_PP0_` 等**全部 `unmapped`**。
+`dfflegalize` 给出的合法集合只有 `$_DFFSR_PNN_` / `$_DFF_N_` / `$_DFF_P_` 三个。
+**故"同步低有效复位"这个写法在本流程下会被拆成软逻辑（更贵）**；RTL 实际用的是
+`always @(posedge clk or negedge rst_n)`（异步），**方向是对的**（`CLAUDE.md` 的措辞已同步修正）。
+
+**冒烟（2026-09-24）**：被测对象 = `student_top{mul, adder32}` 包一层 ——
+`mul` 是全核最大的单块组合逻辑、且**没有时钟端口**（`student_top` 必须有），
+故包层给输入 66 位 + 输出 64 位**各打一拍**（共 130 个无复位触发器），把"面积数字能不能信"变成**可证伪**。
+
+| 运行 | 总面积 | 组合 | 时序 | SRAM | F_max | 最小周期 | 最差建立裕量 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `MODE=opt` | **460.436** | 422.528 | **37.908** | 0 | **478.95 MHz** | 2.0879 ns | −0.0870 ns |
+| `MODE=diagnose` | 527.738 | 489.830 | 37.908 | 0 | 421.57 MHz | 2.3721 ns | −0.3718 ns |
+| `MODE=opt` + `sram_fakeram(256×32, 粒度 32)` | 815.284 | 424.059 | 47.239 | **343.985** | 488.32 MHz | 2.0479 ns | −0.0475 ns |
+
+**九条判据全过**（`opt` 档）：
+
+| # | 判据 | 实测 |
+|---|---|---|
+| 1 | 退出码 0 | ✅ |
+| 2 | `minimum_period_ns` / `estimated_fmax_mhz` **非 null** | 2.0879 / 478.95（为 null 说明 STA 等于没跑） |
+| 3 | `constraints.sdc` 含时钟与 IO 约束 | `create_clock -name core_clock -period 2.0000` + 逐端口 `set_input_delay/set_output_delay` |
+| 4 | `clock_checks.rpt` 非空且无 `VIOLATED` | 非空，`0.9719 (MET)` |
+| 5 | `timing.rpt` 含单元名与逐级延时 | 580 行、460 处 `_ASAP7_75t_R`；关键路径穿 `MAJI/XNOR/XOR`（Wallace 压缩器） |
+| 6 | `report.json.tools` 非空 | `yosys 0.63 (70a11c6bf)` / `opensta 3.1.0` |
+| 7 | `libraries[].sha256` == 容器 r28 | **5/5 全等**（证明没误用宿主 r27） |
+| 8 | `mapped.v` 无 `$_` 内部单元 | 0 处 |
+| 9 | `sequential_area_um2 == 130 × 0.2916` | **37.908** ✅（同时证明 `dfflibmap`、`stat -json` 面积对账、sequential 拆分三件事） |
+
+另两条独立对账也精确成立：加 `sram` 后 `sequential = 47.239 = 162 × 0.2916`（130 + `rdata_r` 32 位）；
+`组合 + 时序 + SRAM == area_um2` 逐位相等；`sram_area = 256 × 32 × 0.0419904 = 343.985357`
+与 `ram/manifest.json` 的 `macros.fakeram_asap7_256x32.area_um2` 一致。
+
+`MODE=diagnose` 的层次树为 `student_top → u_mul → {t1…t6 (tree_level ×6), fin (adder32)}`，
+与 `docs/area_budget.md` §1 的乘法器分解（Booth 编码 + 部分积生成 / 6 层 Wallace 树 / 64 位加法器）**形状对应**。
+
+> **允许存在的"同步可接受项"**：三档的最差建立裕量均为负、最小周期均 > 2.0 ns。
+> 32×32 Booth+Wallace **打不进 2 ns 是预期结果**，判据是"有限且自洽"，不是"收敛"。
+
+**⚠ 口径声明（不得混用）**：本次冒烟的被测对象是 `student_top{mul, adder32}` + 130 触发器包层，
+**不是全核，也没跑 IPC**。它与旧流程的 `mul = 554.6 µm²` **仅数量级可比**，差异来源至少有四层：
+① 库 revision 不同（r27 vs r28）；② 旧流程的库是**手拼的 comb-only 单文件**（剔了 TIE、避开了
+`Scl_LibertyFindMatch` 断言）；③ **ABC 脚本不同**（旧 `map -a` 面积导向 vs 官方 `abc -D 2000` 延时导向）；
+④ 顶层不同（多了 130 个触发器）+ 面积口径不同（旧 `stat -liberty` 含 `$paramod` 重复计 vs 官方逐实例叶子求和）。
+**真核基线是 C8b，不是本节。**
+
+**🔴 本节最重要的架构发现 —— 乘法器是 500 MHz 的单点硬瓶颈**：
+
+`mul` 的**自身**触发器到触发器延时（= `minimum_period_ns`）= **2.0879 ns**。
+拆开看：clk-to-Q **0.0808** + 纯组合 **1.9472** + 时钟不确定度 0.05 + 建立 0.009（四项相加 = 2.087，
+与报告值自洽）。把它放到三档频率下：
+
+| 目标频率 | 周期 | `mul` 触发器到触发器占比 | 仅其**组合**部分占比 |
+|---:|---:|---:|---:|
+| 500 MHz | 2.0 ns | **104.4%**（**超了**） | 97.4% |
+| 400 MHz | 2.5 ns | 83.5% | 77.9% |
+| 300 MHz | 3.333 ns | 62.6% | 58.4% |
+
+⇒ **单周期 `mul` 在 500 MHz 档下不可能成立**（乘法器一项就超出整个周期）；
+400 MHz 档下它吃掉 83.5%，留给"RS 读口 → 旁路 → CDB 写回"的余量只剩 16.5%（0.41 ns）—— 同样不现实。
+这**比 §12.4 的预期更严峻** —— §12.4 只预警了"除法器的 32 级借位链可能成为新关键路径"，
+实测是**已经在用的乘法器**先撞线。Phase C 若要把 500 MHz 作为目标，
+`mul` 必须做**流水化/多周期化**（在 execute 级插寄存器），或把频率目标定在 300 MHz（硬性前提）先保住。
+
+**待办**：
+
+- **C8b（真核基线）**：需先落 `student_top`（C2）并清掉 `core/memory.v`（C7）——
+  后者不落地则 64 KB 阵列被 Yosys 降成触发器，面积数字无意义。
+  `synth.py:83/:104/:121` **硬编码** `hierarchy -top student_top`，顶层不到位就跑不了。
+- **IPC 的跨环境可比性**：容器内 Verilator 是 **5.020**、本机 **5.051**。
+  `make perf` 的 IPC 若在容器里跑，须与宿主结果**分开记录**，不得混在同一张表里取几何平均。
+
 ## 消融 + 综合（报告素材）
 
 - 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × **PRF{64,96,128}** × LSQ{8,16,32} × BHT{16,32,128} ×
@@ -1280,7 +1418,8 @@ Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make syn
       没有任何可分配的 preg，重命名失效。PRF 档位须 > 32。
   - 其余已验可展开：`RS_SIZE=4`、`ROB_SIZE=8`、`LSQ_SIZE=4`、`BHT_SIZE=16`、`RAS_SIZE=4/32`、`PRF_SIZE=96/128`。
     注意 `ROB_SIZE < 32` 时 `tb_cpu_prog.v:38` 的 `wire [$clog2(32)-1:0] rob_head` 宽度写死会触发 padding 警告（仅 TB 侧，不影响 DUT）。
-- **官方口径实测：暂无数据**（`make synth` 需 OpenSTA，本机缺失；且顶层要先换成 `student_top`）。
+- **官方口径实测：链路已通，真核仍无数据**（综合走容器，§13.5 已有冒烟：`mul` 包层 460.436 µm² / 478.95 MHz；
+  真核基线是 **C8b**，阻塞在 `student_top` 与 `core/memory.v`）。
   旧流程的数字：全核 **7768.5 µm²**（memory 黑盒、**不计 SRAM 估算面积**、**无时序约束**），mul 554.6；
   详见 `docs/area_budget.md`（已标注口径与待办）
   - 达标口径（description.md §评分标准与时间安排 · 2）：**面积上限与最低 IPC 同时满足** ——
