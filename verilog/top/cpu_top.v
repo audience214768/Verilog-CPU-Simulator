@@ -1,7 +1,7 @@
 // 顶层: RV32IM 乱序多发射 Tomasulo CPU 总流水线
 // 三阶段结构 (与 C++ 参考 tick() 同构): 读端口 → 组合 assign → posedge 锁存
 // 组合块: B2 发射(全批 or 不批) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
-//         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → rtl/exec/execute_slot.v
+//         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → verilog/exec/execute_slot.v
 //         误预测汇出链(最老优先)与 fetch 重定向/rob 截断/ras 恢复在此
 module cpu_top #(
     parameter ISSUE_WIDTH  = 1,

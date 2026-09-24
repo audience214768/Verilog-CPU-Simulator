@@ -1,12 +1,33 @@
 # RV32IM 乱序多发射 CPU — 计划与实现记录
 
 > 本文件是**过程文档**：当前状态、阶段计划、实施过程记录（含 debug 台账）、消融矩阵与待办。
-> 设计规格（设计决策 / 参数表 / 时序约定 / 模块接口 / 握手协议 / 陷阱清单）见 `docs/architecture.md`；
-> 评测口径一律以 `docs/description.md` 为准（该文件只由用户手动修改）。
+> 设计规格（设计决策 / 参数表 / 时序约定 / 模块接口 / 握手协议 / 陷阱清单，**含 Phase C 的目标架构**）
+> 见 `docs/architecture.md`；评测口径一律以 `docs/description.md` 为准（该文件只由用户手动修改）。
+>
+> **目录已迁到官方框架布局**：`rtl/` → `verilog/`；根 `Makefile`/`config.mk`/`scripts/` 属官方（勿改），
+> 自建 iverilog 流程在 **`Makefile.tb`**（`make -f Makefile.tb run/wave/bench`）。
+> **本文档里 `rtl/…` 的写法凡出现在历史台账中都是当时的真实路径，未作改写**（避免篡改证据）。
 
 ## 当前状态
 
-### 正确性 · 功能配置（`MEM_LATENCY=3`）—— description.md 的"仿真程序"阶段（85 分）
+> **口径声明（2026-09-24）**：`docs/description.md` 已换成官方最终版，评测口径**全面变化**。
+> 本节以下内容记录的是**旧口径下**已完成的工作与证据 —— 它证明"乱序核本身功能正确"，
+> 但**不等于**官方评测已通过（两者的测试集、终止方式、内存模型、延迟都不同）。差异清单见 §13。
+
+### 收口：三条对官方评测最要紧的差距（**尚未解决**，详见 §13）
+
+| # | 差距 | 后果 | 证据 |
+|---|---|---|---|
+| 1 | **顶层不是 `student_top`、没有 AXI4-Lite 端口** | 官方 `make build` 直接报 `--top-module 'student_top' was not found`；官方 `make test/perf/synth` 全部不可用 | 实测：19 个源文件全部读入成功，仅缺顶层 |
+| 2 | **DIV/DIVU/REM/REMU 未实现（静默 NOP）** | 官方 19 个编译正确性程序里 **18 个**用到 `remu`（`course_put_result` 的 `% 253`）⇒ **每一个都算错** | `testcases/correctness_*/program.S`；缺口本体见 §12.3(乙) |
+| 3 | **LB/LBU/LH/LHU 未实现** | 最终版 ISA 免除清单里已**删除**这四条（上一版是免除的）⇒ 现在是必答题 | description.md §架构要求与设计规范 · 1 |
+
+> 另有一条**容易被忽略但会白干**的：官方 `testcases/correctness_*` 与我们 `tb/top/prog/*.data`
+> **不是同一批二进制** —— 19 个程序里 **7 个**期望值不同（naive 97/94、expr 136/58、hanoi 184/20、
+> magic 216/106、queens 144/171、qsort 81/105、pi 112/137，格式为`官方/本地`）。
+> **本仓库 18 个程序的 PASS 证据不能平移到官方评测**，两边要分别看待。
+
+### 正确性 · 功能配置（`MEM_LATENCY=3`，**旧口径**）—— 对应 description.md 的"仿真程序"阶段
 
 `tb/top/prog/` 有 20 个镜像，其中 **18 个带 `ret` 期望值**（TB 的 `exp_ret_f` 表）；
 另 2 个 `loopjal`/`loopld` 无终止指令，只配 `+PERF` 用作性能微负载，不参与判对错。
@@ -36,7 +57,12 @@ RV32IM 无除法指令，GCC 调用 `__divsi3`/`__modsi3`（`pi.dump` 中可见�
 基础程序阶段（75 分门槛）已过：`p1_sum` ret=86 / `p2_vecadd` ret=96 / `p3_vecmul` ret=72，
 拍数 **417 / 213 / 181**（`tb_cpu_top`，本轮实测；早期文档记的 224/192 拍是 §8.2 修复**之前**的数）。
 
-### 正确性 · 性能配置（`MEM_LATENCY=20`）—— 本轮搁置（用户决定：先不考虑性能）
+### 正确性 · 性能配置（`MEM_LATENCY=20`，**该口径已作废**）—— 当时搁置
+
+> **口径变更**：最终版 description.md **只有 10 拍一个延迟**（框架 `LATENCY` 默认），
+> 旧版的"功能 3 拍 / 性能档 20 拍"两分法**已不存在**。本节保留是因为
+> **§7.4 与 §8.2 的三个缺陷正是被 20 拍配置逼出来的** —— 它们的修复是当前代码的基础，
+> 而非因为 20 拍本身还有意义。
 
 该配置曾暴露三个缺陷，**均已修复**：§7.4（rs push 被静默丢弃 → 死锁）、
 §8.2 缺陷 A（LSQ load 重复发起）与缺陷 B（槽位复用 → 陈旧完成写坏目的寄存器）。
@@ -51,12 +77,17 @@ RV32IM 无除法指令，GCC 调用 `__divsi3`/`__modsi3`（`pi.dump` 中可见�
 
 ### 面积与 IPC
 
-**面积**：默认参数单发射全核 **7768.5 µm²**（memory 黑盒另计），落在第 1 档上限 10000 内（余量 ≈22%）
-→ **瓶颈是 IPC 不是面积**。详见 `docs/area_budget.md`。
+**面积**：默认参数单发射全核 **7768.5 µm²**（**旧流程**：`synth/cpu.ys` 直跑 Yosys、memory 当黑盒、
+**无时序约束**、**不计 SRAM 估算面积**）。旧上限 10000 下的"余量 ≈22%"已作废；
+按**新**上限 9000 算是 **86.3%（余量 13.7% / 1231.5 µm²）**，而且新口径还要**加上 SRAM 估算面积**
+（`sram_fakeram` 约 0.042 µm²/bit）⇒ **真实余量未知，官方口径基线待重测**（见 `docs/area_budget.md`）。
+
+**新档位**（面积上限 µm², 最低 IPC）= **(9000, 0.6000) / (18000, 0.8450) / (36000, 1.0985)**。
+注意"档位按 IPC ×1.3 ↔ 面积 ×2"**只有 2→3 档成立**；1→2 档面积翻倍但 IPC 倍数是 **1.4083**。
 
 **IPC（内部对照，非评测口径）**：`+PERF` 定拍窗口（首 20 万拍，20 拍 / `MEM_INFLIGHT=16`）——
 superloop 0.732 / basicopt1 0.634 / qsort 0.550 / bulgarian 0.192 / magic 0.180 / hanoi 0.128
-（三档门槛 0.6000 / 0.7800 / 1.0140，单发射上限即 1.0；数值与出处见 §8 的表）。
+（单发射上限即 1.0；数值与出处见 §8 的表。**这组数字的延迟口径 20 拍已作废**，仅作纵向对照）。
 `tak` 修复后在同窗口 `commit=95850` ⇒ IPC ≈ **0.479**；**其余程序未量**（不跑 lat=20）。
 hanoi 的停滞归因已定位到 free_list 容量（空闲池余量 **0** 个 preg）——见 §8。
 
@@ -97,28 +128,41 @@ hanoi 的停滞归因已定位到 free_list 容量（空闲池余量 **0** 个 p
 
 **本轮不做优化**（用户决定）。
 
-**IPC 口径**：description.md 指定的测试点是 `CPU-2026-Benchmark`（6 个 workload：
-median / multiply / qsort / rsort / towers / vvadd），已由用户放入仓库根目录、**不入库**（见 `.gitignore`）。
+**IPC 口径**：官方测试点是 **`testcases/perf_*`**（submodule，6 个 workload：median / multiply /
+qsort / rsort / towers / vvadd），IPC = `metrics.json` 的 `dynamic_instructions` ÷ 实际运行周期数，
+**6 个点取几何平均**；动态指令数**由课程提供**，不由本 CPU 统计。
 `tb/top/prog/` 的 18 个程序是**功能验证集**（能判对错），**不是** IPC 口径；
-`+PERF` 在它们身上量出的 IPC 只是内部对照，报告中须写明这层差异。接入障碍与计划见 §9。
+`+PERF` 在它们身上量出的 IPC 只是内部对照，报告中须写明这层差异。
+
+**正确性判据**：每个 case 的 `expected.txt` 与 MMIO 退出值比较（如 `correctness_naive` → 97）。
+注意它**不是**我们本地镜像的 94（见上文"不是同一批二进制"）。
 
 ### 下一步
 
-1. **接入 benchmark（§9）** —— 那 6 个 workload 是**全新的正确性面**（从未在本 CPU 上跑过），
-   需自写 crt0（原版用 `CSR*`，本 ISA 不含）、改链接脚本到 `0x1000`、写 ELF→`.data` 转换脚本，
-   并处理 `rsort` 的 `__sync_fetch_and_add`（A 扩展）。
-2. 之后再谈性能（候选已在 §8 列全，且已标注面积代价与风险）。
+按依赖序（详细规格见 `docs/architecture.md` 的「目标架构」）：
+
+1. **补 ISA 缺口**：DIV/DIVU/REM/REMU（§12.3 乙已记录改法）与 LB/LBU/LH/LHU 解码 ——
+   这是**正确性的必要条件**，且不依赖框架迁移，可以并行开工（官方 18/19 个程序要 `remu`）。
+2. **`student_top` 包层 + AXI4-Lite 适配层**：让官方 `make build/test` 第一次能跑通。
+   验收判据 = `make test` 的 19 个 `correctness_*` 全过（`expected.txt` 逐条相符）。
+3. **MMIO 终止**：去掉 `TERM_RAW`/`ret_val` 通路，改由提交级 store 地址 + `WDATA` 判定（§13.2）。
+4. **Cache**（`sram_fakeram` 阵列）+ MSHR：IPC 的主要杠杆。
+5. 最后才是性能调优（候选已在 §8/§12.5 列全，且已标注面积代价与风险）。
+
+> **原来的"接入 benchmark"计划（§9）作废**：官方 `testcases/perf_*` 直接提供**预编译好的
+> `program.data` 镜像**（装载地址 0），不需要自写 crt0、不需要链接脚本、不需要 ELF→`.data` 转换，
+> 也不再有 `__sync_fetch_and_add` 问题（那是 `CPU-2026-Benchmark` 源码树特有的）。
 
 ## 实施计划（两阶段，用户已确认）
 
-### Phase A — 接口冻结 + cpu_top 总流水线（骨架）【进行中】
+### Phase A — 接口冻结 + cpu_top 总流水线（骨架）【已完成】
 
 目标：**尽早冻结全部接口契约**，让工程先可编译、可综合检查。
 
 1. ✅ 16 个模块全部按本规格写出**完整参数表 + 端口声明**，内部为可综合空壳（输出定值，标注 `// TODO(Phase B)`）
    （`docs/architecture.md` 的模块接口规格覆盖 16 个：exec 的 alu/branch、front 的 bht/ras/fetch/decode、
    core 的 rat/free_list/rob/rs/ready_table/prf/cdb/lsq/memory、top 的 cpu_top。
-   当前 `rtl/` 实为 **19 个 `.v`** = 上述 16 个 + 既有 `adder32`/`mul` + 实现期新增的 `exec/execute_slot.v`）
+   `verilog/` 现为 **19 个 `.v`** = 上述 16 个 + 既有 `adder32`/`mul` + 实现期新增的 `exec/execute_slot.v`）
 2. ⏳ **cpu_top 总流水线完整实现**：全部模块实例化 + 胶水 B1–B6 按接口契约写全（详见文件头注释）
 3. ⏳ 验证（仅编译/综合级，无功能测试）：
    - 任意现有 TB（tb_mul）经 `make run` 编译全部 RTL → 语法 + 端口连接检查
@@ -156,7 +200,47 @@ median / multiply / qsort / rsort / towers / vvadd），已由用户放入仓库
 
 **整机程序**（tb_cpu_top）：手写汇编 hex 优先（仅需 addi/add/sub/mul/lw/sw/beq/jal/jalr/li 约 10 种形式）——向量乘（16 元素点乘循环）、向量加（求和）、0-100 累加；结尾 `ori x0,x0,255` 标记；TB 断言 ret_val 与参考 C++ 模拟器输出一致（参考工程可直接跑对照）。**工具链升级**：`riscv64-unknown-elf-gcc -march=rv32im -mabi=ilp32`（multilib 已确认存在）编译 C → objcopy 转 hex → 经 init 口 $readmemh。
 
-**进度**：步 1–8 模块内部已全部实现，全部单元 TB（除按用户要求不跑的 `tb_mul`）与 `tb_cpu_top`（p1_sum 417 拍 / p2_vecadd 224 / p3_vecmul 192）退出码 0。整机编译程序验证链路已打通（§5）：`naive` ret=94、`gcd` ret=178（726 拍 / 364 提交 / 60 冲刷）；过程中抓出 2 个严重取指缺陷（见 §4）。当前阻塞：整机 TB 仿真速度（§6 调查中）—— 长程序（pi/queens/superloop 可能 10^5~10^6 拍）必须先解决，否则跑不完 18 个程序与消融矩阵。
+**进度（截至 2026-09-24）**：Phase A/B **全部完成** —— 19 个模块实现完毕，
+`make -f Makefile.tb run` 的 **12 个 TB 全 `ALL TESTS PASSED`、退出码 0**；
+18 个编译程序在 `MEM_LATENCY=3` 下**判词全对**（§10 + §11.4）；
+§6 的仿真速度问题已由 Verilator 链路解决（§11，`pi` 从 36 小时降到 183 秒）。
+**当前阻塞已换**：不再是内部缺陷，而是**与官方框架的对接尚未开始**（Phase C，见下）。
+
+### Phase C — 官方框架对接【下一步】
+
+**目标**：让官方 `make build / test / perf / synth` 四条命令**第一次真正可用**，
+并使 ISA 补齐到最终版要求的全 RV32IM。规格见 `docs/architecture.md` 的「目标架构」（C.1–C.8）。
+
+| 步 | 内容 | 验收判据 |
+|---|---|---|
+| C1 | **ISA 补齐**：DIV/DIVU/REM/REMU（改法见 §12.3 乙）+ LB/LBU/LH/LHU 解码与访存 | `tb_lsq`/`tb_alu` 加对应用例全过；自造 div/rem 汇编程序 ret 对（**现有 18 个镜像 div/rem 命中 0 条，没有现成的题**） |
+| C2 | **`student_top` 包层**（复位取反 + 端口对接），`verilog/filelist.f` 顶层指向它 | `make build` 编译通过；`make run PROGRAM=testcases/correctness_naive/program.data EXPECTED=97` 出 PASS |
+| C3 | **`axi_lite_master` + `mem_subsystem`（旁路档 `IC_SIZE=DC_SIZE=0`）** | `make test` → **19 个 `correctness_*` 全过**（`expected.txt` 逐条相符）；这是"总线路径功能正确"的独立证据 |
+| C4 | **MMIO 终止**（提交级 store 地址判定 + `exit_value`，删 `TERM_RAW`/`ret_val`） | C3 的判据即可覆盖（`expected.txt` 就是靠 MMIO 退出值判的） |
+| C5 | **`store_queue` + `tb_store_queue`**（架构 C.6 的时序洞专项） | 专项 TB：提交-失效-写生效三事件交错下 load 不读到旧值 |
+| C6 | **`dcache`（MSHR/合并/装行）→ `icache`（`inst_valid`/`imem_stall`/跨行）** | 两级都过 `make test`；`IC_SIZE=0/DC_SIZE=0` 与缓存档**判词一致**（回退二分手段） |
+| C7 | **清掉 `core/memory.v`** 出 `verilog/filelist.f`（留作本地回归后端） | 官方流程不再引用它；本地 12 个 TB 仍全绿 |
+| C8 | **面积/频率/IPC 基线**：`make synth`（需 OpenSTA）+ `make perf` | 拿到官方口径的总面积（含 SRAM）、`F_max`、6 个 perf 点的几何平均 IPC |
+
+**纪律**：每步 **双门禁** —— `make -f Makefile.tb run`（12 个单元 TB）+ `make test`（19 个官方正确性点）；
+C2 之后本地 `tb_cpu_prog` 的 18 个镜像**仍应全绿**（它们走 `LEGACY_TERM=1` 的旧终止通路）。
+
+#### 官方入口速查（**已实测**，读 `Makefile` + `scripts/*.py`；写 Phase C 时按此调用）
+
+| 命令 | 语义 / 必填 | 备注 |
+|---|---|---|
+| `make` / `make code`（**默认目标**） | `make build` 后 `cp build/sim code` | **OJ 提交物就是 `./code`**（要跟着 `verilog/` 一起交） |
+| `make build` | `FILELIST=verilog/filelist.f` → `build/sim`（Verilator） | `JOBS=4`；本机需 `CONFIG=config.local.mk` |
+| `make run` | **必须给 `EXPECTED=`**（否则退出码 2）；`PROGRAM=`（默认 `program.bin`）、`WAVE=`、`LOG=` | 走 argv 协议，stdout 打 `PASS/FAIL cycles=…` |
+| `make test` / `make perf` | 走 **OJ 协议**（stdin），`TESTCASES=` 默认 `<仓库>/testcases`；`Case=` 单跑一个 | `MAX_CYCLES=1000000`、`LATENCY=10` 是默认值 |
+| `make synth` | `MODE=opt\|diagnose`、`CLOCK_PERIOD_NS=2.0` → `build/synth/<MODE>/` | 本机缺 `sta` ⇒ 暂时跑不通 |
+| `SIM=/path/to/prebuilt/sim` | 跳过 `build`，复用已编译的 `sim` | **迭代 RTL 时省一次 Verilator 编译**（约数十秒） |
+| `BLACKBOXES=...` | **已被框架移除**，一给就 `$(error)` | 对应的正确做法是例化 `sram_fakeram` |
+
+> 终止序列已在官方题面里**证实**：19 个 `correctness_*` 的反汇编里，每个都有一条
+> `sw a0,0(t0)`，其中 `t0 = lui 0x80000`（= `0x80000000`），另有 `sw` 到 `# 2d0 <N>` / `# 5c4 <seed>`
+> 这类**数据符号**（地址在代码段之上）。⇒ C4 的 MMIO 判定与"子字 store 不终止"两条都有真实用例兜底。
+> 另注意 `--max-cycles` 默认 **1e6**：任何 `correctness_*` 跑到 1e6 拍未终止即判 `FAIL: timeout`。
 
 ## 实现过程记录（供"架构设计探索"报告取材）
 
@@ -506,7 +590,9 @@ lat=4 与 lat=20（`MEM_INFLIGHT` 4/8/16/20/32）下 multiarray / statement_test
 | magic | 36044 | 0.180 | 1652 | 6710 |
 | hanoi | 25799 | 0.128 | 2801 | 3449 |
 
-三档门槛 0.6000 / 0.7800 / 1.0140（单发射上限即 1.0）。**三个在线下，hanoi 差 4.7 倍。**
+三档门槛（**当时的口径** 0.6000 / 0.7800 / 1.0140；现行档 2/档 3 已改为 0.8450 / 1.0985，
+档 1 未变。单发射上限即 1.0）。**三个在线下，hanoi 差 4.7 倍。**
+> 这组数字的量测延迟是 20 拍（**已作废的口径**），仅作纵向对照，**不能当作评测基线**。
 
 **延迟敏感度（3 拍 vs 20 拍）**。有全程序 3 拍数据的两个程序：
 
@@ -763,7 +849,14 @@ oracle。它复现了 20 个程序中 **19 个**的 TB 期望 `ret`，但在 `ex
 
 **计划**：① 自写 crt0 + 链接脚本 → ② ELF→`.data` 转换脚本 → ③ TB/Makefile 接入 →
 ④ 先在 `MEM_LATENCY=3` 下跑通 6 个 workload 并判对错 → ⑤ 再在 20 拍下量 IPC。
-**注意 ④ 是新增的正确性面**（这 6 个程序从未在本 CPU 上跑过）。
+
+> ### ⚠ 本节整节**已作废**（2026-09-24，口径换官方最终版之后）
+> 官方 `testcases/perf_*` 直接提供**预编译好的 `program.data` 镜像**（装载地址 0），
+> 于是：crt0/链接脚本/ELF→`.data` 转换脚本**都不需要写**（①②），TB 侧也不再是"接入自建镜像"
+> 而是走框架的 `make perf`（③）；`rsort` 的 `__sync_fetch_and_add` 也不再是障碍
+> —— 那是 `CPU-2026-Benchmark` **源码树**特有的（官方镜像已完成编译）。
+> 延迟也不再分 3/20 拍两档（④⑤ 的二分法消失）。
+> **本节保留的价值**是 §12.1 里那批"上游构建系统已损坏"的勘察结论 —— 它解释了**为什么当初以为要自建**。
 
 ### 10. lat=3 全量回归：18 个程序的完整判词（2026-09-19）
 
@@ -829,7 +922,7 @@ tak ≈1950 s**，其余重型程序 288~824 s。全量串行 ≈2.6 h。用 `xa
 
 ### 11. Verilator 仿真链路接入（2026-09-19）—— 解决 `pi` 跑不完
 
-**动机**：`docs/description.md:30` 规定「**IPC：使用 Verilator 对 Verilog RTL 进行仿真统计**」，
+**动机**：`docs/description.md` §评分标准与时间安排 · 2. 性能 规定「**IPC：使用 Verilator 仿真测量实际运行周期**」，
 但本仓库此前**只有 Icarus（`iverilog`/`vvp`）一条链路**，Verilator 从未接入。
 后果有两层：① `pi` 因 Icarus 太慢（≈0.845 ms/拍 × 1.547 亿拍 = **36 小时**）取不到判词；
 ② §9 的 benchmark 接入（IPC 正赛口径）**没有测量手段**。
@@ -927,9 +1020,9 @@ lat=20 的正确性、以及任何 X 相关排查，一律回到 Icarus。
 **状态**：用户接到通知，**benchmark 部分待定** ⇒ 本轮**不执行**，只存档勘察结论与计划。
 本节是勘察结论的**存档**，下面每条都有出处；benchmark 定型后直接照此执行，**不要重查**。
 
-**为什么"先接 benchmark 再优化"**：`description.md:42` 规定 IPC 评测点是 `CPU-2026-Benchmark`，
-`:64` 规定性能档内存延迟 **20 拍**。而我们目前唯一的全程序 IPC 是 `pi` 在 **lat=3** 下的 0.6037
-—— 既不是评测集、也不是评测延迟。**"档 1 是否已经达到"目前是未验证状态。**
+**为什么"先接 benchmark 再优化"**：description.md §评分标准与时间安排 · 2. 性能 规定 IPC 评测点是
+`testcases/perf_*`。而我们目前唯一的全程序 IPC 是 `pi` 在 **lat=3** 下的 0.6037 —— **既不是评测集、
+也不是评测延迟**（评测延迟现为 **10 拍**）。**"档 1 是否已经达到"至今仍是未验证状态。**
 
 更关键的是 **lat=20 下瓶颈画像与 lat=3 相反**（§8 实测）：
 
@@ -939,14 +1032,15 @@ lat=20 的正确性、以及任何 X 相关排查，一律回到 Icarus。
 | 主因 | 前端：`nobatch` 23.8% | 后端：free_list 空闲池枯竭 |
 
 ⇒ **不能拿 lat=3 的画像指导优化**。用户已确认范围：**先接 benchmark 拿真口径**，
-且**先把档 1（IPC 0.6000 / 面积 10000）坐稳，能往上够多少算多少**（不预设冲档 2/档 3）。
+且**先把档 1（IPC 0.6000 / 面积 9000 —— 旧文档写的 10000 是上一版上限）坐稳，
+能往上够多少算多少**（不预设冲档 2/档 3）。
 
 #### 12.1 Benchmark 接入：勘察结论（**纠正 §9 的两处判断**）
 
 **① 工具链可用**：`/Users/audience/opt/riscv64-unknown-elf-gcc/bin/`，GCC 8.3.0，
 `rv32im/ilp32` multilib 实测存在，`as/ld/objcopy/objdump/readelf/nm` 齐全。
 
-**② §9 说 rsort「需单线程等价替换**或确认 libatomic 可用**」—— 后一条**被实测证伪**：
+**② §9 说 rsort「需单线程等价替换或确认 libatomic 可用」—— 后一条被实测证伪**：
 rv32im/ilp32 的 `libgcc.a` 里 **`atomic.o` 一个符号都没有**（连 `_1`/`_2` 都没有），
 全工具链无 libatomic，`size_t` 是 4 字节 ⇒ 必然 `__sync_fetch_and_add_4` undefined reference。
 而 `-march=rv32imac` 会生成 `lr.w/sc.w/amoadd.w`，被 `decode.v` 当 NOP **静默算错**（比链接失败更危险）。
@@ -1035,10 +1129,11 @@ rv32im/ilp32 的 `libgcc.a` 里 **`atomic.o` 一个符号都没有**（连 `_1`/
 
 - `rtl/exec/alu.v:34-47` 只用到 `op 0..13`；`decode.v:50` 的 `mul_f3_ok = f3 ∈ {0..3}`，
   `:63-66` 的 `r_ok` 也只放 `f7=0000000`/`0100000,f3∈{0,5}` ⇒ **div/rem 编码静默变 NOP**
-  （不报错、不陷入，还照占一个 ROB 条目）。**`description.md:6,10` 要求 RV32IM（含 div/rem）
+  （不报错、不陷入，还照占一个 ROB 条目）。**description.md §架构要求与设计规范 · 1. 指令集 要求 RV32IM（含 div/rem）
   ⇒ 这是功能空缺，不只是性能问题。**
-- **本轮不阻塞**（12.1 ⑤ 已确认 6 个 workload 不产生 div/rem），但**是评测集换一批数据就可能
-  触发的静默算错**，必须记录在案。
+- **当时的判断"不阻塞"已作废**：12.1 ⑤ 只看过 `CPU-2026-Benchmark` 的 6 个 workload；
+  官方 `testcases/correctness_*` 的**每一个编译程序**都在 `course_put_result` 里用 `remu`（`% 253`）
+  ⇒ 缺口从"可能触发"变成"**必然触发**"，**C1 步必须先修**（Phase C）。
 - **若日后要修**（记录结论，省得重查）：
   - op 空间 `14..31` 空闲，可用 14=DIV/15=DIVU/16=REM/17=REMU。
   - ⚠ **只放开 `decode.v:50` 而不动 `execute_slot.v` 会更糟**：`execute_slot.v:82` 的
@@ -1046,57 +1141,153 @@ rv32im/ilp32 的 `libgcc.a` 里 **`atomic.o` 一个符号都没有**（连 `_1`/
     ⇒ **DIV 会被当成 MULHU 执行**。
   - 全设计**唯一的 in-flight 机制是访存的飞行槽**（`memory.v:65-69`）；ROB/RS **没有**"占用执行槽 N 拍"
     的机制（RS 条目选中当拍即清，`rs.v:239-241`）⇒ 多周期除法器只能照抄访存那套协议。
-    单周期组合除法器代码省（~150-250 行 / 4-5 文件），但 **32 级借位链很可能成为关键路径、威胁 300 MHz**，
-    面积 +500~1500 µm²（档 1 余量只有 2231）。
-  - 现有 18 个 `.data` 镜像里 **div/rem 命中 0 条** ⇒ 修了也**没有现成的题可测**，得自造测试。
+    单周期组合除法器代码省（~150-250 行 / 4-5 文件），但 **32 级借位链很可能成为关键路径**，
+    威胁 ≥300 MHz 的硬性前提（综合默认 `CLOCK_PERIOD_NS=2.0`，即 500 MHz 目标）。
+    面积 +500~1500 µm²，而档 1 余量（**新上限 9000 下是 1231.5 µm²**，且还要减去 SRAM 估算面积）
+    很可能不够 ⇒ **倾向多周期除法器**。
+  - 本仓库 18 个 `.data` 镜像里 **div/rem 命中 0 条** ⇒ 用它们**没有现成的题可测**；
+    但官方 `testcases/correctness_*` 里遍地是 `remu`，修完直接拿官方点验收即可（Phase C 的 C1）。
 
-#### 12.4 一个尚未验证的达标项：**300 MHz**
+#### 12.4 一个尚未验证的达标项：**频率**
 
 `synth/cpu.ys` **全篇没有任何时序约束**（无 `create_clock`、无 `abc -D`、无 `.sdc`），
 `synth/mul.ys:12` 明文写"时序: 暂不约束; 面积导向用 `map -a`"。
-⇒ **7768.5 µm² 是无时序约束的面积最优解，不代表能跑 300 MHz。**
-`description.md:31` 的频率要求目前**处于不可验证状态**。
-**本轮应对**：优先选**不加长关键路径**的改动（改容量而非改结构），并在报告中如实标注这条缺口。
+⇒ **7768.5 µm² 是无时序约束的面积最优解，不代表能满足频率要求。**
+
+**官方口径（最终版）**：频率 **≥300 MHz 是硬性前提**（不是加分项），达标后另有加分：
+
+| 最低频率（MHz） | 加分 |
+|---:|---:|
+| 300 | +0 |
+| 400 | +2 |
+| 500 | +4 |
+
+综合与 STA 的时钟基准是 `CLOCK_PERIOD_NS`，**默认 2.0 ns**（= 500 MHz 目标）；
+框架会把该周期传给 ABC 做时序驱动映射（`abc -D 2000`，单位 ps）并用 OpenSTA 检查建立时间。
+⇒ 官方流程**自带**我们旧 `synth/cpu.ys` 缺的那一环，**这条缺口在 Phase C 迁移后自动闭合**，
+但要重新用官方口径测一遍（`make synth CLOCK_PERIOD_NS=2.0`）。
+**本阶段的应对**：优先选**不加长关键路径**的改动（改容量而非改结构）——
+尤其 §12.3(乙) 的除法器如果是单周期组合实现，32 级借位链会成为新的关键路径。
 
 #### 12.5 待执行的计划（benchmark 定型后照此走）
 
-**Phase 0 — 接入**：按 12.1 的 4 件新写 + `rsort` 源码替换 + `bm_` 前缀 + `.gitignore`；
-`Makefile` 加 `bench-progs`（出镜像）与 `PVAL`（透传 `-pvalue+<参数>=<值>`，打通 lat=20 参数扫描）。
-**先在 lat=3 下 6 个 workload 全 PASS**（**全新正确性面**，失败即正确性缺陷，优化暂停），
-再在 **lat=20** 下取 IPC 与 STALL/JUMP 画像。
+**Phase 0 — 接入**【**已作废**，2026-09-24】：原计划按 12.1 的 4 件新写 + `rsort` 源码替换 +
+`bm_` 前缀 + `.gitignore` + 自建 Makefile 目标。**实际做法改为直接接官方框架**（§13）：
+`testcases/perf_*` 自带预编译镜像，`make perf` 直接给 IPC 表格与几何平均；
+延迟口径也统一成 10 拍（不再有 lat=3/lat=20 两轮）。
+下面 Phase 1 的**候选清单与性价比排序仍然有效**，只是"面积余量"的数字要按新上限重算。
 
-**Phase 1 — 按性价比优化**（面积余量 2231 µm² 内，**一次只改一个参数**，改前后各记 IPC+面积+全量回归）：
+**Phase 1 — 按性价比优化**（**一次只改一个参数**，改前后各记 IPC + 面积 + 全量回归）：
 
 | 优先级 | 候选 | 为什么 | 面积 |
 |---|---|---|---|
-| 1 | **MEM_INFLIGHT 4→16** | lat=20 下 MLP 上限只有 4/20 = **0.2 loads/cycle**，是**硬结构性天花板**。§8 量 lat=20 时本就是手工调到 16 的 | **0** |
+| 1 | **MEM_INFLIGHT 4→16** | MLP 上限 = `MEM_INFLIGHT / LATENCY`；10 拍下 4/10 = **0.4 loads/cycle** 是**硬结构性天花板**（旧 20 拍口径下只有 0.2）。Phase C 后等价物是 AXI 侧未完成读槽/MSHR 数 | **0**（旧流程）/ MSHR 寄存器（新流程） |
 | 2 | **RAS_SIZE 8→32** | 有效深度只有 `RAS_SIZE-1 = 7`；`ret` 误预测率 **99.95%**（`pi`：845,019 条里错 844,588） | +313 |
 | 3 | **BHT_SIZE 32→128** | 条件分支类占 `pi` 全部误预测的 **86.2%**（`bxx` 59.2% / `beq` 16.6% / `bne` 10.4%） | +107 |
 | 4 | **PRF_SIZE 64→96** | free_list 池 `FREE_NUM = PRF_SIZE-32 = 32` **恰好等于** `ROB_SIZE=32`，**余量 0**。lat=20 下 hanoi 被它挡了 **44%** 的拍 | +804 |
 | 5 | ROB_SIZE 32→64 | 但会**同时**要求 free_list 池更大，否则第 4 项的正反馈更严重 | +797 |
 | 6 | RAT 快照 walker | lat=3 下 `flushcyc` 占 15%（hanoi）；属中等改造 | 中 |
-| 7 | I-cache / D-cache | `description.md:63` 明确允许；lat=20 是评测口径 ⇒ cache 是结构性手段。改动大、面积未知 | 大 |
+| 7 | I-cache / D-cache | **升格为必需项**：description.md §架构要求与设计规范 · 2 把"Cache 容量与相联度"列为**必须参数化**的项；10 拍外部延迟下 cache 是 IPC 的主要杠杆。面积代价现在**有官方公式可算**（≈0.042 µm²/bit，见 architecture.md C.6） | 大，但可预估 |
 | 8 | 双发射 W=2 | IPC>1 的唯一途径（档 3 需要）。解锁只要 12.3（甲）的 **2 行**，但**验证成本是大头** | **无实测数据** |
 
 **stretch goal**：把 12.3（甲）的 2 行修掉 + `tb_cpu_prog.v:41` 参数化，使 W=2 至少**能跑**。
 验收标准是"**W=1 逐位不回归**"，不是"W=2 更快" —— W=2 的性能调优另开一轮。
 
-**纪律**：每项优化后 **`make bench` 跑 18 个功能程序 + `make` 跑 12 个单元 TB** 双门禁。
+**纪律**：每项优化后 **`make perf` + `make test`（官方两档）+ `make -f Makefile.tb run`（12 个单元 TB）** 三门禁。
 Verilator 让功能回归从 2.6 小时降到分钟级，但**正确性签署仍以 Icarus 为准** ——
-Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make synth-cpu` 当场重跑
-（`synth/out/` 在 `.gitignore` 里，**残留文件是陈旧产物，不能当基线**）。
+Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make synth` 当场重跑
+（`build/` 在 `.gitignore` 里，**残留文件是陈旧产物，不能当基线**）。
+
+### 13. 官方框架接入（2026-09-24）—— 口径换版 + 布局迁移
+
+**背景**：用户把 `docs/description.md` 整体换成官方模板 README（**最终版**，只由用户手动修改）。
+评测口径**全面变化**，四份文档（`plan.md`/`architecture.md`/`area_budget.md`/`CLAUDE.md`）全部还是旧口径，
+且若干处**显式引用旧文件的 行号**（如 `description.md:42`）⇒ 换文件后指针全部失效。
+本次范围（用户已定）：**文档对齐 + 框架布局迁移**；RTL 的 `student_top`/AXI4-Lite 移植写成 Phase C 方案，**本次不动 RTL**。
+
+#### 13.1 口径对照表（旧 → 新）——所有文档改动的唯一依据
+
+| 项 | 旧 | 新（最终版） |
+|---|---|---|
+| ISA 免除清单 | CSR\*/ECALL/EBREAK、FENCE/FENCE.I、**LH/LHU/LB/LBU** | 仅 CSR\*/FENCE(.I)/ECALL/EBREAK ⇒ **LB/LBU/LH/LHU 转为必须实现** |
+| 面积 / IPC 档位 | (10000, 0.6000) / (20000, 0.7800) / (40000, 1.0140) | **(9000, 0.6000) / (18000, 0.8450) / (36000, 1.0985)** |
+| 频率 | ≥300 MHz，无加分 | ≥300 MHz **硬性前提**；400 MHz +2、500 MHz +4；`CLOCK_PERIOD_NS` 默认 **2.0 ns** |
+| 内存延迟 | 功能 **3 拍** / 性能档 **20 拍** | 框架 `LATENCY` 默认 **10 拍**，`--latency` 可调；**只有这一个口径** |
+| 内存 | 统一内存；不综合、不计面积 | 外部 **256 MiB AXI4-Lite 从机**；`sram_fakeram` 的**估算面积计入**总面积；仍禁止寄存器组当内存 |
+| 顶层 | 未规定（本仓库自定 `cpu_top`） | 必须叫 **`student_top`**，AXI4-Lite 端口模板，**`reset` 高有效**（初始化保持 5 拍） |
+| 终止约定 | 未规定（本仓库自定 `ori x0,x0,255` + `ret_val=a0[7:0]`） | 向 MMIO **`0x80000000`** 做 32 位 store（`WSTRB=4'hf`），退出值 = **`WDATA[31:0]`** |
+| 参数化 | 发射宽度、PRF、ROB | 追加 **发射队列深度**、**Cache 容量与相联度** |
+| IPC 口径 | Verilator 统计；测试点 = `CPU-2026-Benchmark` | `动态指令数 / 运行周期数`；`testcases/perf_*` 的**几何平均**；分子取自 `metrics.json` |
+| 正确性集 | "CPU Simulator 中的程序" | `testcases/correctness_*`（submodule） |
+| 框架 | 无 | `config.mk` / `Makefile` / `verilog/filelist.f` / `scripts/`（勿改）/ `testcases/`(submodule) |
+
+#### 13.2 布局迁移结果（已完成并回归）
+
+- `rtl/` → **`verilog/`**（19 个源文件，`top/front/core/exec` 四域不变）；
+  新增 **`verilog/filelist.f`**（路径相对 `verilog/`，官方 `build.py` 就是这么解析的）
+- 根 `Makefile` 换成**官方框架版**（`build/test/perf/synth/run/clean`）；
+  自建 iverilog 流程改名 **`Makefile.tb`**：`make -f Makefile.tb run/wave/bench TB=...`
+- 官方 `config.mk` **原样保留**（机器相关路径不入库）；本机路径写 `config.local.mk`（已 gitignore），
+  用 `make CONFIG=config.local.mk <target>`
+- `scripts/`（12 个文件 + `ram/sram_fakeram.sv`）、`docs/{axi4-lite,sram}.md` 原样引入；
+  `packaging/` **不引入**（description.md 说可删，且本机是 macOS）
+- `testcases` 加为 **submodule**（`ACMClassCourse-2025/RISC-V-CPU-2026-Testcases`）；
+  本地 `CPU-2026-Benchmark/`（C 源码参考，已 gitignore）保留，两者关系：**同一批 workload，
+  官方那份带预编译镜像**
+- **回归证据**：`make -f Makefile.tb run` → **12 个 TB 全 `ALL TESTS PASSED`、退出码 0**；
+  抽检 `naive`(94) / `expr`(58) / `hanoi`(20) / `magic`(106) 判词与期望一致
+- **已知过渡态**：官方 `make build` 现在会报 `--top-module 'student_top' was not found in design`。
+  这是**预期失败**（缺 Phase C 的顶层），不是配置错误 —— 已验证 19 个源文件都被成功读入
+
+#### 13.3 本机工具链实测
+
+| 工具 | 状态 |
+|---|---|
+| `verilator` 5.051 / `iverilog` / `yosys` 0.68 / `yosys-abc` | ✅ 在 PATH |
+| ASAP7 RVT TT 五个 `.lib` | ✅ `/Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/`（该目录下恰好 5 个 `*.lib`，符合 `synth.py` 的校验） |
+| `riscv64-unknown-elf-gcc` 8.3.0（rv32im/ilp32 multilib） | ✅ |
+| **OpenSTA（`sta`）** | ❌ **缺失** ⇒ 官方 `make synth` 跑不通（`synth.py` 硬性要求） |
+| 课程 AppImage | ❌ Linux x86-64，macOS 不可用；Docker/OrbStack 守护进程当前未运行 |
+
+⇒ **`make synth` 的拦路石只有 OpenSTA**：装上（或起 Docker 走方案 B）即可闭合 §12.4 的频率缺口。
+
+#### 13.4 与官方测试集对照后的三个发现（**都不是本次改动引入的**）
+
+1. **官方正确性集是另一批二进制**：19 个 `correctness_*` 与我们 `tb/top/prog/*.data` 里
+   **7 个期望值不同**（naive 97/94、expr 136/58、hanoi 184/20、magic 216/106、queens 144/171、
+   qsort 81/105、pi 112/137，格式`官方/本地`）⇒ **本地 18 个 PASS 的证据不能平移到官方评测**。
+2. **DIV/REM 是必答题**：官方每个编译程序都在 `course_put_result` 里用 `remu`（`% 253`）——
+   我们的 `decode.v` 把 M 扩展 funct3 4–7 静默当 NOP ⇒ **19 个里 18 个会算错**（见 §12.3 乙）。
+3. **§9 的接入计划作废**：官方 `testcases/*/program.data` 是**预编译镜像**（装载地址 0），
+   不需要 crt0 / 链接脚本 / ELF→`.data` 脚本 / `rsort` 源码替换（详见 §9 的作废说明）。
+
+> **教训（值得写进报告）**：这三条都是"文档口径与实际交付物不一致"造成的 ——
+> 旧文档把 `CPU-2026-Benchmark`（源码树）当成了评测集，而真正的评测集是
+> `testcases/`（预编译镜像 + `expected.txt` + `metrics.json`）。
+> **后续凡是"判据/期望值"类结论，一律以 `testcases/` 为准。**
 
 ## 消融 + 综合（报告素材）
 
-- 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × **PRF{64,96,128}** × LSQ{8,16,32} × MEM_LATENCY{3,20} × BHT{16,32,128} × **RAS{4,8,32}**，3 程序各跑一遍，记录 IPC/提交/冲刷统计（cpu_top 调试输出）
-  - MEM_LATENCY 必须含 **20 拍**：description.md 规定性能阶段的内存延迟为 20 拍（功能仿真 3 拍），评估性能档要用 20
+- 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × **PRF{64,96,128}** × LSQ{8,16,32} × BHT{16,32,128} ×
+  **RAS{4,8,32}** × **Cache 容量{0,1K,2K,4K} × 相联度{1,2,4}**，跑**官方 `testcases/perf_*`**
+  （6 个点取几何平均），记录 IPC / 提交 / 冲刷统计
+  - **不再扫 MEM_LATENCY**：最终版 description.md 只有 **10 拍**一个延迟（框架 `LATENCY` 默认）。
+    旧矩阵里的 `{3,20}` 两档已作废；延迟由框架侧给出，**不是本设计的参数**
+  - **Cache 是新增的必扫维度**（官方明列的参数化项），且 `{0}` 档（旁路）是功能回退的安全网
   - **档位合法性已实测（iverilog 展开）**，两处必须避开：
     - **`RAS_SIZE = 0` 无法展开** —— `cpu_top.v:417` 报 "Indexed part select width must be an integral constants greater than zero"（`RA = $clog2(0) = 0` → 零宽位选）。最小可用档是 4。
     - **`PRF_SIZE = 32` 能展开但是退化配置** —— `free_list.v` 的 `BASE = 32` ⇒ 池容量 `FREE_NUM = PRF_SIZE - 32 = 0`，
       没有任何可分配的 preg，重命名失效。PRF 档位须 > 32。
   - 其余已验可展开：`RS_SIZE=4`、`ROB_SIZE=8`、`LSQ_SIZE=4`、`BHT_SIZE=16`、`RAS_SIZE=4/32`、`PRF_SIZE=96/128`。
     注意 `ROB_SIZE < 32` 时 `tb_cpu_prog.v:38` 的 `wire [$clog2(32)-1:0] rob_head` 宽度写死会触发 padding 警告（仅 TB 侧，不影响 DUT）。
-- YoSys + ASAP7 实测（默认参数、单发射、当前代码）：全核 **7768.5 µm²**（memory 黑盒另计），mul 554.6；详见 `docs/area_budget.md`
-  - 达标口径（description.md）：**面积上限与最低 IPC 同时满足** —— (10000, 0.6000) / (20000, 0.7800) / (40000, 1.0140)；默认配置面积已在第 1 档内，瓶颈是 IPC
-  - IPC 评测口径是 **Verilator 跑 CPU-2026-Benchmark**，本仓库的 `+PERF=N` 只是内部对照，报告中须说明两者口径差异
-- 可选消融点（报告素材）：RAT 快照恢复 vs walker、值捕获 RS vs 状态式、无延迟内存 vs MEM_LATENCY
+- **官方口径实测：暂无数据**（`make synth` 需 OpenSTA，本机缺失；且顶层要先换成 `student_top`）。
+  旧流程的数字：全核 **7768.5 µm²**（memory 黑盒、**不计 SRAM 估算面积**、**无时序约束**），mul 554.6；
+  详见 `docs/area_budget.md`（已标注口径与待办）
+  - 达标口径（description.md §评分标准与时间安排 · 2）：**面积上限与最低 IPC 同时满足** ——
+    **(9000, 0.6000) / (18000, 0.8450) / (36000, 1.0985)**；另有频率加分（400 MHz +2 / 500 MHz +4）
+  - 旧数字相对新档 1 上限是 **86.3%（余量 1231.5 µm²）**，且**未计 SRAM** ⇒
+    "面积不是瓶颈"这个旧结论**在新口径下未经验证**
+  - IPC 评测口径是 **Verilator 跑 `testcases/perf_*` 的几何平均**（分子取 `metrics.json`），
+    本仓库的 `+PERF=N` 只是内部对照，报告中须说明两者口径差异
+- 可选消融点（报告素材）：RAT 快照恢复 vs walker、值捕获 RS vs 状态式、
+  I/D 分离 vs 统一 L1、写直达+不写分配 vs 写回、MSHR 数 vs 行大小
