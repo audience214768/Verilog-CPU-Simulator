@@ -10,11 +10,7 @@ module cpu_top #(
     parameter PRF_SIZE     = 64,
     parameter LSQ_SIZE     = 16,
     parameter BHT_SIZE     = 32,
-    parameter RAS_SIZE     = 8,
-    parameter MEM_SIZE     = 65536,
-    parameter MEM_LATENCY  = 3,
-    parameter MEM_INFLIGHT = 4,
-    parameter INIT_FILE    = ""
+    parameter RAS_SIZE     = 8
 ) (
     input  clk,
     input  rst_n,
@@ -22,7 +18,25 @@ module cpu_top #(
     output [7 : 0]       ret_val,
     output [31 : 0]      commit_count, flush_count, branch_count,
     output [$clog2(ROB_SIZE) - 1 : 0] rob_head,
-    output             rob_ready_head
+    output             rob_ready_head,
+    // ---- 存储接口 (原内部 u_mem 提升为端口; 端口名/位宽与 core/memory.v 逐一对位) ----
+    // 取指: 同步读 (地址寄存一拍后数据返回)
+    output [ISSUE_WIDTH * 32 - 1 : 0] imem_addr,
+    input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
+    // load: 发起 ≤1/周期, 完成 ≤1/周期 (idx 由完成脉冲回传)
+    output                            ld_start_valid,
+    output [31 : 0]                   ld_start_addr,
+    output [1 : 0]                    ld_start_width,
+    output [$clog2(LSQ_SIZE) - 1 : 0] ld_start_idx,
+    input                             ld_done_valid,
+    input  [$clog2(LSQ_SIZE) - 1 : 0] ld_done_idx,
+    input  [31 : 0]                   ld_done_data,
+    input                             ld_busy,
+    // store: 提交级直写 ≤1/周期
+    output                            sw_valid,
+    output [31 : 0]                   sw_addr,
+    output [31 : 0]                   sw_data,
+    output [1 : 0]                    sw_width
 );
     localparam PW  = $clog2(PRF_SIZE);
     localparam RW  = $clog2(ROB_SIZE);
@@ -43,9 +57,6 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  cdb_tag_w;
     wire [ISSUE_WIDTH : 0]           cdb_slot_valid_w;
     wire [ROB_SIZE - 1 : 0]            rob_ready_set_w;
-    wire                           sw_valid;
-    wire [31 : 0]                    sw_addr, sw_data;
-    wire [1 : 0]                     sw_width;
     wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  old_map_chain;
     wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0]   mem_cnt_chain;
     reg                            halt_q_r, ret_latched_r;
@@ -67,7 +78,7 @@ module cpu_top #(
 
     // ---- fetch / decode ----
     wire [ISSUE_WIDTH - 1 : 0]    f2i_valid;
-    wire [ISSUE_WIDTH * 32 - 1 : 0] f2i_raw, f2i_pc, f2i_pred_target, imem_addr_w, inst_data;
+    wire [ISSUE_WIDTH * 32 - 1 : 0] f2i_raw, f2i_pc, f2i_pred_target;
     wire [ISSUE_WIDTH - 1 : 0]    f2i_pred_taken;
     wire [ISSUE_WIDTH * RA - 1 : 0] f2i_ras_snap;
     wire fetch_stall;
@@ -80,7 +91,7 @@ module cpu_top #(
         .clk(clk), .rst_n(rst_n),
         .f2i_valid(f2i_valid), .f2i_raw(f2i_raw), .f2i_pc(f2i_pc),
         .f2i_pred_taken(f2i_pred_taken), .f2i_pred_target(f2i_pred_target),
-        .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr_w),
+        .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
         .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
         .inst_data(inst_data), .stall(fetch_stall),
@@ -265,13 +276,6 @@ module cpu_top #(
     wire [ISSUE_WIDTH * LW - 1 : 0] set_addr_idx, set_data_idx;
     wire [ISSUE_WIDTH * 32 - 1 : 0] set_addr_val, set_data_val;
     wire [LSQ_SIZE - 1 : 0] lsq_flush_mask, lsq_invalidate;
-    wire ld_start_valid, ld_busy;
-    wire [31 : 0] ld_start_addr;
-    wire [1 : 0]  ld_start_width;
-    wire [LW - 1 : 0] ld_start_idx;
-    wire mem_done_valid;
-    wire [LW - 1 : 0] mem_done_idx;
-    wire [31 : 0] mem_done_data;
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
         .clk(clk), .rst_n(rst_n),
         .head(lsq_head_w), .last(lsq_last_w), .full(lsq_full), .free_count(lsq_free_w),
@@ -286,24 +290,14 @@ module cpu_top #(
         .set_addr_req(set_addr_req), .set_addr_idx(set_addr_idx), .set_addr_val(set_addr_val),
         .set_data_req(set_data_req), .set_data_idx(set_data_idx), .set_data_val(set_data_val),
         .flush_mask(lsq_flush_mask), .invalidate(lsq_invalidate),
-        .mem_done_valid(mem_done_valid), .mem_done_idx(mem_done_idx), .mem_done_data(mem_done_data),
+        .mem_done_valid(ld_done_valid), .mem_done_idx(ld_done_idx), .mem_done_data(ld_done_data),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx), .ld_busy(ld_busy),
         .load_cdb_valid(load_cdb_valid), .load_cdb_prd(load_cdb_prd),
         .load_cdb_result(load_cdb_result), .load_cdb_rob_tag(load_cdb_rob_tag),
         .load_cdb_rob_wr(load_cdb_rob_wr)
     );
-    memory #(.ISSUE_WIDTH(ISSUE_WIDTH), .MEM_SIZE(MEM_SIZE), .MEM_LATENCY(MEM_LATENCY),
-             .MEM_INFLIGHT(MEM_INFLIGHT), .LSQ_SIZE(LSQ_SIZE), .INIT_FILE(INIT_FILE)) u_mem (
-        .clk(clk), .rst_n(rst_n),
-        .inst_data(inst_data), .imem_addr(imem_addr_w),
-        .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
-        .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
-        .ld_done_valid(mem_done_valid), .ld_done_idx(mem_done_idx), .ld_done_data(mem_done_data),
-        .ld_busy(ld_busy),
-        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width),
-        .init_valid(1'b0), .init_addr(32'd0), .init_data(8'd0)
-    );
+    // 存储由外部提供 (TB 例化 core/memory.v, student_top 例化 core/mem_subsystem.v)
 
     // ==================== 2. B5 walker 状态与回滚组合 ====================
     genvar s, j, jj, mm, c, e;

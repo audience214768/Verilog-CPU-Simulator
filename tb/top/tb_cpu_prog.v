@@ -1,6 +1,6 @@
 // 编译程序整机验证 (CPU Simulator 测试集): 每次运行一个程序
 //   镜像 tb/top/prog/<name>.data 与参考模拟器 (RISC-V-Tomasulo-CPU-Simulator) 同格式:
-//     "@地址" 行 + 每行 16 个 2 位 hex 字节 (little-endian) → 直接 $readmemh 进 dut.u_mem.mem
+//     "@地址" 行 + 每行 16 个 2 位 hex 字节 (little-endian) → 直接 $readmemh 进 u_mem.mem
 //   程序结尾 addi a0,x0,255 (0x0FF00513) 提交 → halt; decode 把它视作写 x0, 故 a0 保留
 //   main 的返回值 → ret_val (a0 低 8 位) 与参考 C++ 模拟器输出对照
 //   用法: make run TB=top/tb_cpu_prog ARGS="+PROG=gcd"; 缺省跑 naive
@@ -38,15 +38,43 @@ module tb_cpu_prog;
     wire [$clog2(32) - 1 : 0] rob_head;
     wire        rob_ready_head;
 
-    cpu_top #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE),
-              .MEM_LATENCY(MEM_LATENCY_TB), .MEM_INFLIGHT(MEM_INFLIGHT_TB),
+    // ---- 存储接口 (cpu_top 已不再内建 u_mem, 由本 TB 例化 core/memory.v) ----
+    // 消融旋钮 MEM_* 随之下移到 memory 实例 (cpu_top 不再拥有存储)
+    localparam LW = $clog2(LSQ_SIZE_TB);
+
+    wire [31 : 0] imem_addr, inst_data;
+    wire          ld_start_valid, ld_busy, ld_done_valid, sw_valid;
+    wire [31 : 0] ld_start_addr, ld_done_data, sw_addr, sw_data;
+    wire [1 : 0]  ld_start_width, sw_width;
+    wire [LW - 1 : 0] ld_start_idx, ld_done_idx;
+
+    cpu_top #(.ISSUE_WIDTH(1),
               .ROB_SIZE(ROB_SIZE_TB), .RS_SIZE(RS_SIZE_TB), .PRF_SIZE(PRF_SIZE_TB),
               .LSQ_SIZE(LSQ_SIZE_TB), .BHT_SIZE(BHT_SIZE_TB), .RAS_SIZE(RAS_SIZE_TB)) dut (
         .clk(clk), .rst_n(rst_n),
         .halt(halt), .ret_val(ret_val),
         .commit_count(commit_count), .flush_count(flush_count),
         .branch_count(branch_count),
-        .rob_head(rob_head), .rob_ready_head(rob_ready_head)
+        .rob_head(rob_head), .rob_ready_head(rob_ready_head),
+        .imem_addr(imem_addr), .inst_data(inst_data),
+        .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
+        .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
+        .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
+        .ld_busy(ld_busy),
+        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width)
+    );
+
+    memory #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE),
+             .MEM_LATENCY(MEM_LATENCY_TB), .MEM_INFLIGHT(MEM_INFLIGHT_TB),
+             .LSQ_SIZE(LSQ_SIZE_TB)) u_mem (
+        .clk(clk), .rst_n(rst_n),
+        .inst_data(inst_data), .imem_addr(imem_addr),
+        .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
+        .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
+        .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
+        .ld_busy(ld_busy),
+        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width),
+        .init_valid(1'b0), .init_addr(32'd0), .init_data(8'd0)
     );
 
     integer errors = 0;
@@ -198,8 +226,8 @@ module tb_cpu_prog;
             $display("== %0s (exp=%0d, file=%0s)", nm, exp,
                      $sformatf("tb/top/prog/%0s.data", nm));
             for (mi = 0; mi < MEM_SIZE; mi = mi + 1)
-                dut.u_mem.mem[mi] = 8'h00;          // 清零 (镜像只覆盖部分地址)
-            $readmemh($sformatf("tb/top/prog/%0s.data", nm), dut.u_mem.mem);
+                u_mem.mem[mi] = 8'h00;          // 清零 (镜像只覆盖部分地址)
+            $readmemh($sformatf("tb/top/prog/%0s.data", nm), u_mem.mem);
             rst_n = 1'b0;
             #1; #8; #1;
             rst_n = 1'b1;

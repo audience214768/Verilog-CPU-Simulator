@@ -11,12 +11,43 @@ module tb_cpu_top;
     wire [$clog2(32) - 1 : 0] rob_head;
     wire               rob_ready_head;
 
+    // ---- 存储接口 (cpu_top 已不再内建 u_mem, 由本 TB 例化 core/memory.v) ----
+    localparam MEM_SIZE     = 65536;
+    localparam MEM_LATENCY  = 3;
+    localparam MEM_INFLIGHT = 4;
+    localparam LSQ_SIZE     = 16;
+    localparam LW           = $clog2(LSQ_SIZE);
+
+    wire [31 : 0] imem_addr, inst_data;
+    wire          ld_start_valid, ld_busy, ld_done_valid, sw_valid;
+    wire [31 : 0] ld_start_addr, ld_done_data, sw_addr, sw_data;
+    wire [1 : 0]  ld_start_width, sw_width;
+    wire [LW - 1 : 0] ld_start_idx, ld_done_idx;
+
     cpu_top dut (
         .clk(clk), .rst_n(rst_n),
         .halt(halt), .ret_val(ret_val),
         .commit_count(commit_count), .flush_count(flush_count),
         .branch_count(branch_count),
-        .rob_head(rob_head), .rob_ready_head(rob_ready_head)
+        .rob_head(rob_head), .rob_ready_head(rob_ready_head),
+        .imem_addr(imem_addr), .inst_data(inst_data),
+        .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
+        .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
+        .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
+        .ld_busy(ld_busy),
+        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width)
+    );
+
+    memory #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE), .MEM_LATENCY(MEM_LATENCY),
+             .MEM_INFLIGHT(MEM_INFLIGHT), .LSQ_SIZE(LSQ_SIZE)) u_mem (
+        .clk(clk), .rst_n(rst_n),
+        .inst_data(inst_data), .imem_addr(imem_addr),
+        .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
+        .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
+        .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
+        .ld_busy(ld_busy),
+        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width),
+        .init_valid(1'b0), .init_addr(32'd0), .init_data(8'd0)
     );
 
     integer errors = 0;
@@ -26,7 +57,7 @@ module tb_cpu_top;
     always @(negedge clk) begin
         if (rst_n)
             $fwrite(progfd, "F t=%0t pc=%h imem=%h dly=%h inst=%h f2v=%b f2raw=%h f2pc=%h stall=%b ie=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d sp=%0d rsf=%0d exp=%h aok=%b\n",
-                    $time, dut.u_fetch.pc_r, dut.imem_addr_w, dut.u_fetch.imem_addr_d,
+                    $time, dut.u_fetch.pc_r, dut.imem_addr, dut.u_fetch.imem_addr_d,
                     dut.inst_data, dut.f2i_valid, dut.f2i_raw, dut.f2i_pc,
                     dut.fetch_stall, dut.issue_en, dut.have_batch, dut.misp_valid,
                     dut.flushing_r, dut.halt_q_r,
@@ -127,9 +158,9 @@ module tb_cpu_top;
                              dut.u_rs.prd_r[e], dut.u_rs.rob_r[e], dut.u_rs.lsq_r[e]);
             $display("  MEM ld_busy=%b ld_start_v=%b ld_start_idx=%0d ld_start_addr=%h slots v=%b cnt=%b idx=%0d/%0d/%0d/%0d",
                      dut.ld_busy, dut.ld_start_valid, dut.ld_start_idx, dut.ld_start_addr,
-                     dut.u_mem.slot_valid, dut.u_mem.slot_cnt,
-                     dut.u_mem.slot_idx[0 * 4 +: 4], dut.u_mem.slot_idx[1 * 4 +: 4],
-                     dut.u_mem.slot_idx[2 * 4 +: 4], dut.u_mem.slot_idx[3 * 4 +: 4]);
+                     u_mem.slot_valid, u_mem.slot_cnt,
+                     u_mem.slot_idx[0 * 4 +: 4], u_mem.slot_idx[1 * 4 +: 4],
+                     u_mem.slot_idx[2 * 4 +: 4], u_mem.slot_idx[3 * 4 +: 4]);
             for (e = 0; e < 16; e = e + 1)
                 $display("  LSQ[%0d] v=%b ld=%b ar=%b dr=%b dn=%b rob=%0d prd=%0d addr=%h data=%h",
                          e, dut.u_lsq.valid_r[e], dut.u_lsq.is_load_r[e], dut.u_lsq.addr_ready_r[e],
@@ -150,7 +181,7 @@ module tb_cpu_top;
         input [7 : 0]   exp;
         integer cyc;
         begin
-            $readmemh($sformatf("tb/top/%0s.hex", fname), dut.u_mem.mem);
+            $readmemh($sformatf("tb/top/%0s.hex", fname), u_mem.mem);
             rst_n = 0;
             #1; #8; #1;
             rst_n = 1;
