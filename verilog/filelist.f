@@ -1,9 +1,9 @@
 # RTL 源文件列表 —— 路径相对本文件所在目录 (verilog/)
 # 顶层模块必须命名为 student_top (见 scripts/build.py 的 --top-module)
 #
-# 现状 (2026-09-24): 顶层仍是 cpu_top (仅 clk/rst_n + 调试口), 官方要求的
-# student_top + AXI4-Lite 包层尚未落地 ⇒ 官方 `make build` 暂时跑不通,
-# 属已知过渡态, 见 docs/plan.md 的「Phase C — 官方框架对接」。
+# 现状 (2026-09-24): student_top (AXI4-Lite 包层) 已落地, 官方 `make build` 可跑通。
+# core/memory.v 保留在列表里供 TB 复用: student_top 不再例化它, Yosys 的
+# hierarchy -top 会剪掉, Verilator 按可达性展开 ⇒ 不影响综合与仿真。
 #
 # 顺序: 叶子在前 (exec → front → core → top), 与 synth/cpu.ys 的读入顺序一致。
 
@@ -30,6 +30,9 @@ core/prf.v
 core/lsq.v
 core/cdb.v
 core/memory.v
+core/axi_lite_master.v
+core/mem_subsystem.v
 
 # --- top ---
 top/cpu_top.v
+top/student_top.v
