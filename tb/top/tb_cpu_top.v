@@ -100,7 +100,7 @@ module tb_cpu_top;
     // ---- 体系结构寄存器影子 (提交时按 rd 采样 prf 值, 用于观察程序语义) ----
     reg [31 : 0] arch [0 : 31];
     integer ai;
-    localparam TPW = 6;      // = $clog2(PRF_SIZE=64), 与 rtl/top/cpu_top.v 保持一致
+    localparam TPW = 6;      // = $clog2(PRF_SIZE=64), 与 verilog/top/cpu_top.v 保持一致
     always @(posedge clk) begin
         if (rst_n && dut.set_head_valid) begin
             if (dut.rob_rd_w[dut.rob_head_w * 5 +: 5] != 5'd0)

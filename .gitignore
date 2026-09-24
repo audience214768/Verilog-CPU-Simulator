@@ -1,16 +1,38 @@
-# 仿真产物 (make clean 会删除, 勿提交)
+# ---- 官方框架条目 (原样保留, 便于与上游 diff) ----
+build/
+obj_dir/
+code
+*.o
+*.a
+*.elf
+*.vcd
+*.fst
+# Ignore root crash dumps without hiding RTL or source directories named core.
+/core
+!/core/
+/core.[0-9]*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+
+# Downloaded course hardware tools.
+*.AppImage
+
+# ---- 本仓库条目 ----
+# 自建 Icarus/Verilator 流程的产物 (Makefile.tb)
 sim/
 
-# 综合产物 (YoSys)
+# 自建综合产物 (YoSys)
 synth/out/
+
+# 本机工具链路径 (官方要求: 机器相关绝对路径不进提交物)
+config.local.mk
 
 # Claude Code 本地设置
 .claude/settings.local.json
-
-# 系统 / 编辑器
-.DS_Store
 .vscode/
 
-# IPC 评测集 (ACMClassCourse-2025/CPU-2026-Benchmark, 自带 .git 的克隆)
-# 用户决定: 不入库, 只留本地。评测口径引用的是上游仓库, 本地副本仅作编译输入
+# 评测集本地副本 (ACMClassCourse-2025/CPU-2026-Benchmark, 自带 .git 的克隆)
+# 用户决定: 不入库, 只留本地。正式评测集走 testcases/ submodule
 CPU-2026-Benchmark/

@@ -2,7 +2,7 @@
 //        BHT 弱不取判定+饱和更新+强取/call-push ret-pop 链/满 push 丢 空 pop 忽略/
 //        RAS restore/同索引 BHT 高槽 (更年轻) 覆盖);
 //        段 2 随机模型对照 (300 拍, PC/批输出/预测/counters/head_snap 逐拍断言)
-// 握手契约 (rtl/front/fetch.v): 到达数据读自上一拍锁存进 memory 的地址 imem_addr_d,
+// 握手契约 (verilog/front/fetch.v): 到达数据读自上一拍锁存进 memory 的地址 imem_addr_d,
 //        该地址 == 期望交付地址 exp_pc_r 且批寄存器可接收 (空 或 本拍批被发射) 时接收;
 //        接收拍推进 exp_pc (批内有预测跳转则推进到跳转目标, 否则 +4*W);
 //        redirect 清批并把 PC 与 exp_pc 都置为 redirect_pc; halt/stall 拍 PC 不写 → 地址重复读出

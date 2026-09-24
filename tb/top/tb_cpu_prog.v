@@ -18,7 +18,7 @@ module tb_cpu_prog;
     // ---- 消融可调参数 (默认 = 现状, 行为不变) ----
     // iverilog -P 只作用于 root 模块, 故参数须声明在 TB 层再下传 DUT; 覆盖示例:
     //   iverilog -g2005 -s tb_cpu_prog -P tb_cpu_prog.MEM_LATENCY_TB=20 \
-    //            -P tb_cpu_prog.MEM_INFLIGHT_TB=16 -o /tmp/x.vvp $(ls rtl/*/*.v) tb/top/tb_cpu_prog.v
+    //            -P tb_cpu_prog.MEM_INFLIGHT_TB=16 -o /tmp/x.vvp $(ls verilog/*/*.v) tb/top/tb_cpu_prog.v
     // (注意: make 不会因 IV/-P 变化而重建 .vvp, 消融一律直接 iverilog + vvp 建到 /tmp)
     parameter MEM_LATENCY_TB  = 3;      // 性能档要求 20 (docs/description.md)
     parameter MEM_INFLIGHT_TB = 4;

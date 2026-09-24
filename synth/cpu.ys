@@ -12,11 +12,11 @@ read_liberty -lib synth/out/asap7_comb.lib
 read_liberty -lib /Users/audience/opt/asap7sc7p5t_27/LIB/NLDM/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib
 
 # memory 黑盒 (SRAM 宏, 综合面积另计); 其余 RTL 全部读入
-read_verilog -lib rtl/core/memory.v
-read_verilog rtl/top/cpu_top.v rtl/front/fetch.v rtl/front/decode.v rtl/front/bht.v rtl/front/ras.v \
-             rtl/core/rat.v rtl/core/free_list.v rtl/core/rob.v rtl/core/rs.v rtl/core/ready_table.v \
-             rtl/core/prf.v rtl/core/lsq.v rtl/core/cdb.v \
-             rtl/exec/adder32.v rtl/exec/mul.v rtl/exec/alu.v rtl/exec/branch.v rtl/exec/execute_slot.v
+read_verilog -lib verilog/core/memory.v
+read_verilog verilog/top/cpu_top.v verilog/front/fetch.v verilog/front/decode.v verilog/front/bht.v verilog/front/ras.v \
+             verilog/core/rat.v verilog/core/free_list.v verilog/core/rob.v verilog/core/rs.v verilog/core/ready_table.v \
+             verilog/core/prf.v verilog/core/lsq.v verilog/core/cdb.v \
+             verilog/exec/adder32.v verilog/exec/mul.v verilog/exec/alu.v verilog/exec/branch.v verilog/exec/execute_slot.v
 hierarchy -top cpu_top
 proc; opt; memory; opt; fsm; opt
 techmap; opt

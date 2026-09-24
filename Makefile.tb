@@ -1,25 +1,30 @@
 # ============================================================
-# 仿真 Makefile (iverilog + vvp + surfer)
+# 自建仿真 Makefile (iverilog + vvp + surfer)
+#
+# 根目录的 Makefile 是**官方框架**的 (build/test/perf/synth/run/clean), 本文件是
+# 本仓库自建的单元/整机 TB 流程, 两者并存、互不干扰。用法:
+#   make -f Makefile.tb run                跑全部 TB
+#   make -f Makefile.tb run TB=top/tb_cpu_prog ARGS="+PROG=gcd"
+#   make -f Makefile.tb wave TB=exec/tb_alu
 #
 # 目录约定:
-#   * RTL        : rtl/<子系统>/<模块>.v  (Verilog-2005, 可仿真可综合)
+#   * RTL        : verilog/<子系统>/<模块>.v  (Verilog-2005, 可仿真可综合)
 #   * testbench  : tb/<子系统>/tb_<模块>.v (模块名必须与文件名一致)
 #   * 产物/波形   : sim/<子系统>/tb_<模块>.vvp / .vcd (镜像 tb 目录)
-#   * 自动发现    : 新增 rtl/tb 文件无需修改本 Makefile
+#   * 自动发现    : 新增 verilog/tb 文件无需修改本 Makefile
 #   * 失败检测    : tb 失败路径调 $stop; 本 Makefile 以 "vvp -N" 运行,
 #                   -N 使 $stop 相当于 $finish 且退出码为 1
 #                   ($finish(n) 的参数只是诊断级别, 不改变退出码, 勿用)
 #
-#   make sim/exec/tb_x.vvp  仅编译单个
-#   make wave TB=exec/tb_x  运行单个并打开 surfer 波形
-#   make bench ARGS="+P"    Verilator 快速仿真整机程序 (IPC 测量口径, 见 docs/plan.md)
-#   make clean              删除 sim/
+#   make -f Makefile.tb sim/exec/tb_x.vvp  仅编译单个
+#   make -f Makefile.tb bench ARGS="+P"    Verilator 快速仿真整机程序
+#   make -f Makefile.tb clean              删除 sim/ 与 synth/out/
 # ============================================================
 SIM := sim
 IV  ?= iverilog
 VP  ?= vvp
 
-SRCS := $(wildcard rtl/*.v) $(wildcard rtl/*/*.v)
+SRCS := $(wildcard verilog/*.v) $(wildcard verilog/*/*.v)
 TBS  := $(wildcard tb/*.v)  $(wildcard tb/*/*.v)
 VVPS := $(patsubst tb/%.v,$(SIM)/%.vvp,$(TBS))
 
@@ -100,7 +105,7 @@ $(COMBLIB): synth/merge_liberty.py \
 	@mkdir -p $(SYNTH)
 	python3 synth/merge_liberty.py $@ $^
 
-$(SYNTH)/mul_stat.txt: synth/mul.ys $(COMBLIB) rtl/exec/mul.v rtl/exec/adder32.v
+$(SYNTH)/mul_stat.txt: synth/mul.ys $(COMBLIB) verilog/exec/mul.v verilog/exec/adder32.v
 	@mkdir -p $(SYNTH)
 	$(YS) -ql $(SYNTH)/mul_synth.log synth/mul.ys
 	grep -E "Chip area|Number of cells" $(SYNTH)/mul_synth.log > $@
@@ -108,7 +113,7 @@ $(SYNTH)/mul_stat.txt: synth/mul.ys $(COMBLIB) rtl/exec/mul.v rtl/exec/adder32.v
 
 $(SYNTH)/cpu_stat.txt: synth/cpu.ys $(COMBLIB) \
 		$(NLDM)/asap7sc7p5t_SEQ_RVT_TT_nldm_201020.lib \
-		$(wildcard rtl/top/*.v rtl/front/*.v rtl/core/*.v rtl/exec/*.v)
+		$(wildcard verilog/top/*.v verilog/front/*.v verilog/core/*.v verilog/exec/*.v)
 	@mkdir -p $(SYNTH)
 	$(YS) -ql $(SYNTH)/cpu_synth.log synth/cpu.ys
 	grep -E "Chip area|Number of cells" $(SYNTH)/cpu_synth.log > $@

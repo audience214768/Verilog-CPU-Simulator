@@ -14,7 +14,7 @@
 
 read_liberty -lib synth/out/asap7_comb.lib
 
-read_verilog rtl/exec/mul.v rtl/exec/adder32.v
+read_verilog verilog/exec/mul.v verilog/exec/adder32.v
 hierarchy -top mul
 proc; opt; memory; opt; fsm; opt
 techmap; opt
