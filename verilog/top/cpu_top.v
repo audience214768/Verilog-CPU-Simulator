@@ -33,11 +33,12 @@ module cpu_top #(
     input  [$clog2(LSQ_SIZE) - 1 : 0] ld_done_idx,
     input  [31 : 0]                   ld_done_data,
     input                             ld_busy,
-    // store: 提交级直写 ≤1/周期
+    // store: 提交级直写 ≤1/周期 (sw_ready=0 表示下游队列满, 该 store 本拍不提交)
     output                            sw_valid,
     output [31 : 0]                   sw_addr,
     output [31 : 0]                   sw_data,
-    output [1 : 0]                    sw_width
+    output [1 : 0]                    sw_width,
+    input                             sw_ready
 );
     localparam PW  = $clog2(PRF_SIZE);
     localparam RW  = $clog2(ROB_SIZE);
@@ -530,12 +531,17 @@ module cpu_top #(
             wire [RW - 1 : 0] eidx = rob_head_w + c;                    // 回绕
             assign is_store_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h23);
             assign is_memop_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h03) || is_store_w[c];
+            // store 提交需下游队列有空位 (sw_ready=0 ⇒ 该槽不提交, 整批到此截断, 不产生任何副作用);
+            // store 截断批 ⇒ 一批至多一个 store ⇒ 这条门控等价于"整批是否被压住"
+            wire sw_ok_w = sw_ready || !is_store_w[c];
             if (c == 0) begin : ce0
                 // misp 拍禁提交: rob 内 set_last 优先于 set_head (head 不前进), 但提交副作用
                 // (free_list 回收 / RAT arch / 计数) 已发生 → 同一条目会再提交一次, free_list 出重
-                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && rob_ready_w[rob_head_w];
+                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && rob_ready_w[rob_head_w]
+                                 && sw_ok_w;
             end else begin : cen
-                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && rob_ready_w[eidx];  // store 截断批
+                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && rob_ready_w[eidx]  // store 截断批
+                                 && sw_ok_w;
             end
             assign com_acc[(c + 1) * 3 +: 3] = com_acc[c * 3 +: 3] + ce_w[c];
             // free_list 回收: new_pnum!=0 才 push old_pnum

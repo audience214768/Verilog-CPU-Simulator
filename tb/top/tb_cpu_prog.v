@@ -61,7 +61,8 @@ module tb_cpu_prog;
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
         .ld_busy(ld_busy),
-        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width)
+        .sw_valid(sw_valid), .sw_addr(sw_addr), .sw_data(sw_data), .sw_width(sw_width),
+        .sw_ready(1'b1)                      // 本 TB 用 memory.v (无下游队列) ⇒ 恒可收
     );
 
     memory #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE),
