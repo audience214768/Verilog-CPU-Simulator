@@ -14,10 +14,15 @@
 > §5 的**最后五行**才是官方口径（2026-09-24），但**只有冒烟、没有真核**。
 >
 > **待办（真核基线仍无数据）**：官方综合链路**已跑通**（OpenSTA 走 OrbStack 容器，
-> 冒烟实测见 `docs/plan.md` §13.5），但**真核面积/频率基线**仍缺 —— 两条硬阻塞：
-> ① `scripts/synth.py:83/:104/:121` **硬编码** `hierarchy -top student_top`，该顶层未落地；
-> ② `verilog/core/memory.v` 的 64 KB 阵列会被 Yosys 降成触发器 ⇒ 面积数字无意义
-> （旧流程正是把它当黑盒排除的）。对应 `docs/plan.md` 的 **C8b**。
+> 冒烟实测见 `docs/plan.md` §13.5），但**真核面积/频率基线**仍缺 —— 两条原阻塞的现状：
+> ① **已解除**：`student_top` 已落地（`docs/plan.md` §14），`make build` 首次通过 ⇒
+>    `synth.py:83/:104/:121` 硬编码的 `hierarchy -top student_top` 现在有顶层可指；
+> ② **仍阻塞**：`verilog/core/memory.v` 的 64 KB 阵列会被 Yosys 降成触发器 ⇒ 面积数字无意义
+>    （旧流程正是把它当黑盒排除的）。`student_top` 已不例化它，但 `filelist.f` 里还在（TB 要用）
+>    ⇒ 跑 `make synth` 前须确认 `hierarchy -top` 把它剪干净。对应 `docs/plan.md` 的 **C8b / C7**。
+> ③ **新增未知量**：本轮的 `axi_lite_master` + `mem_subsystem`（含 16 字预取窗口与 store 队列）
+>    尚未进过任何综合，对面积/频率的影响**无数据**；`mem_subsystem` 还引入了跨模块长路径
+>    （见 `docs/plan.md` §14.3 缺陷 2 的组合环教训），F_max 需重测后才能与 300 MHz 前提对照。
 > 文中凡涉及"是否落在某档内"的判断仍均标注为**旧流程下的结论**。
 >
 > **触发器成本（已按官方 r28 库更正）**：`DFFHQNx1_ASAP7_75t_R` = **0.2916 µm²/bit**，
@@ -144,7 +149,7 @@ ready_table 34.0、adder32 21.5、cdb 15.4、decode 12.8、branch 12.7。
 | 2026-09-24 | **官方口径冒烟** `make synth MODE=opt` | **460.436** | 被测对象 = `student_top{mul,adder32}` + 130 触发器（**非全核**）；组合 422.528 / 时序 **37.908** / SRAM 0；**F_max 478.95 MHz**（最小周期 2.0879 ns，裕量 −0.0870）。判据 1–9 全过，见 `docs/plan.md` §13.5 |
 | 2026-09-24 | 同上 `MODE=diagnose` | 527.738 | 保留层次；组合 489.830 / 时序 37.908；F_max 421.57 MHz。层次树与 §1 的乘法器分解形状对应 |
 | 2026-09-24 | 同上 + `sram_fakeram(256×32)` | 815.284 | **SRAM 343.985** = 256×32×0.0419904，与 `ram/manifest.json` 的 `macros.fakeram_asap7_256x32.area_um2` 一致；时序 47.239 = 162×0.2916 |
-| （待补） | **真核官方口径基线** | **无数据** | 链路**已通**，阻塞改为：`student_top` 未落地（`synth.py` 硬编码）+ `core/memory.v` 64KB 阵列会被降成触发器 ⇒ `docs/plan.md` **C8b** |
+| （待补） | **真核官方口径基线** | **无数据** | 链路**已通**；`student_top` 已落地（`docs/plan.md` §14）⇒ 阻塞只剩 `core/memory.v` 的 64KB 阵列会被降成触发器（**C7**）+ 新模块未综合过 ⇒ `docs/plan.md` **C8b** |
 
 > **前三行之外**的全部数字来自 `synth/cpu.ys`/`synth/mul.ys` 直跑 Yosys 的**旧流程**（无 STA、内存当黑盒）。
 > 官方 `make synth` 的产物口径不同（含 SRAM 估算面积、有 `CLOCK_PERIOD_NS=2.0` 时序约束），

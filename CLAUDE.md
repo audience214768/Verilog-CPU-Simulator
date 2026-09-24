@@ -27,8 +27,18 @@ verilog/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块�
 ##     容器内用官方 config.mk 全默认即可 (ASAP7 在 /opt/asap7/lib, 是 r28; 宿主那套是 r27, 数字不可混用);
 ##     构建/冒烟细节见 docs/plan.md §13.5
 ### 模块清单: 
-top=cpu_top (现状) + student_top (官方要求的顶层, AXI4-Lite 端口, 待实现); front=fetch,decode,bht,ras;
-core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory; exec=adder32,mul,alu,branch
+top=student_top (官方顶层: AXI4-Lite 端口, 例化下面两个) + cpu_top (乱序流水线, 存储接口已外露为端口);
+front=fetch,decode,bht,ras;
+core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,axi_lite_master (纯 AXI 协议), mem_subsystem (取指预取窗口 +
+load 适配 + 已提交 store 队列), memory (仅 TB 用的固定 1 拍存储, student_top 不再例化);
+exec=adder32,mul,alu,branch
+### cpu_top ↔ 存储的握手契约 (新写存储器/换存储必须照此实现, 细节见各文件头注释):
+- `imem_addr` = **本拍要向存储请求的批地址** (需求, 不是"上一拍发过的"); 存储必须在下一拍把**上一拍地址**
+  的数据摆上 `inst_data`, 并用 `imem_valid` 说明"这拍 inst_data 属于它"; `imem_hit` = 本拍 imem_addr 上的
+  地址**已可取** (固定 1 拍存储恒 1) —— fetch 用它判断能否把请求提前到下一批, 变长延迟存储必须真实实现
+- `ld_busy==0` 是**必须当场兑现**的承诺 (LSQ 收到即置 issued) ⇒ 反悔即全机死锁; 每个被接受的 load
+  恰好回一个 `ld_done_valid` (rresp 不门控); `ld_done_data` 只做**零扩展**, 符号扩展在 lsq.v 内
+- `sw_valid` 是提交级 1 拍脉冲; 已提交 store 必须在队列里留到 **B 已握手 且 该 B 之前发出的 load 都已回**
 ### 参考: 
 /Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator
 这是我用C++仿照verilog编写的CPU，已经通过了正确性测试，在编写时可以参考;并且其中含有测试数据的源程序.c以及汇编代码.dump和数据布局.data

@@ -1,14 +1,17 @@
 # RV32IM 乱序多发射 CPU — 架构设计文档
 
 > 本文件是**设计规格**：设计决策、参数表、时序约定、模块接口、握手协议、正确性陷阱清单，
-> 以及**面向官方框架的目标架构**（`student_top` / AXI4-Lite / Cache / MMIO 终止，Phase C 待实现）。
+> 以及**面向官方框架的目标架构**（`student_top` / AXI4-Lite / Cache / MMIO 终止 —— 其中
+> `student_top` + AXI4-Lite + MMIO 终止**已实现**（`docs/plan.md` §14），Cache 与 DIV/REM 仍待实现）。
 > 改 RTL 前先对照本文；RTL 与本文不一致时以本文为基准并同步更新。
 > 过程记录 / 阶段计划 / debug 台账 / 消融矩阵在 `docs/plan.md`；
 > 评测口径一律以 `docs/description.md` 为准（该文件只由用户手动修改）。
 
 ## 背景 (Context)
 
-verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**19 个模块已全部实现**（单发射 `ISSUE_WIDTH=1` 配置下 18 个编译程序 + 12 个单元 TB 全绿，见 `docs/plan.md`）。本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
+verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**19 个模块已全部实现**，且**官方链路已打通**（`student_top` + AXI4-Lite，`make build` 通过、
+`correctness_add_to_100` 官方镜像 PASS；单元 TB 14 个全绿）。仍未实现的是 DIV/REM 与 LB/LBU/LH/LHU
+（⇒ 官方 19 个正确性程序里 17 个失败，归因见 `docs/plan.md` §14.4）。本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
 
 需求（**以 `docs/description.md` 为准**，该文件只由用户手动修改；本节及全文的指标口径随其更新）。
 以下按 description.md 的**章节名**索引（旧文档用的行号指针已随该文件改版全部失效）：
@@ -61,13 +64,19 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `LSQ_SIZE` | 16 | LSQ 条目数（2 的幂） | lsq, cpu_top |
 | `BHT_SIZE` | 32 | 2-bit 饱和计数器数 | bht, fetch |
 | `RAS_SIZE` | 8 | 返回地址栈深度 | ras, fetch |
-| `MEM_SIZE` | 65536 | **现状**（片上 `memory.v`）：字节寻址 RAM 容量。**官方口径下不存在** —— 内存是外部 256 MiB AXI4-Lite 从机，本参数随 `memory.v` 一起在 Phase C 退役 | memory |
-| `MEM_LATENCY` | 3 | **现状**：片上 memory 的 load 倒计时。**官方口径只有 10 拍一个值**（框架 `LATENCY` 默认），Phase C 后由总线从机产生，不再由本设计参数化 | memory |
-| `MEM_INFLIGHT` | 4 | **现状**：片上 memory 的飞行 load 槽数。Phase C 后等价物是 AXI 侧的未完成读槽/MSHR 数，是 MLP 的结构上限 | memory |
+| `MEM_SIZE` | 65536 | **已退役**（仅 TB 的 `memory.v` 还在用）：字节寻址 RAM 容量。官方口径下内存是外部 256 MiB AXI4-Lite 从机 | memory |
+| `MEM_LATENCY` | 3 | **已退役**（仅 TB）：片上 memory 的 load 倒计时。**官方口径只有 10 拍一个值**（框架 `LATENCY` 默认），由总线从机产生 | memory |
+| `MEM_INFLIGHT` | 4 | **已退役**（仅 TB）：片上 memory 的飞行 load 槽数。等价物是 AXI 侧的未完成读数（`mem_subsystem` 的 `LD_INFLIGHT`），是 MLP 的结构上限 | memory |
 | `INIT_FILE` | "" | **现状**：非空时仿真初始化 $readmemh（每行 8 位 hex，支持 @地址） | memory |
 | 派生 | | `PW=$clog2(PRF_SIZE)=6, RW=$clog2(ROB_SIZE)=5, LW=$clog2(LSQ_SIZE)=4, BW=$clog2(BHT_SIZE), RA=$clog2(RAS_SIZE), SRW=$clog2(RS_SIZE), CSW=$clog2(RS_SIZE+1), RCW=$clog2(ROB_SIZE+1), LCW=$clog2(LSQ_SIZE+1), PCW=$clog2(PRF_SIZE+1)` | |
 
-**Phase C 新增参数**（详见下文「目标架构」的 C.6）：`IC_SIZE` / `IC_WAYS` / `IC_BLOCK` / `IC_MSHR` /
+**Phase C 已落地的新参数**（存储子系统，见「目标架构」C.2）：`mem_subsystem` 的
+`PF_DEPTH`（预取窗口字数，默认 16）/ `PF_WIN`（预取流超前 demand 的字数上限，默认 8 ——
+**这是取指/load 的带宽分配旋钮**）/ `LD_INFLIGHT`（在飞 load 上限，默认 8）/
+`SQ_DEPTH`（已提交未可见 store 队列深度，默认 8）/ `RD_DEPTH`、`WR_DEPTH`（AXI 事务 FIFO 深度，默认 8）。
+`PF_DEPTH` 与从机 AR FIFO 同深（16）为宜，更大可能压垮从机队列。
+
+**Phase C 待实现的新参数**（详见下文「目标架构」的 C.6）：`IC_SIZE` / `IC_WAYS` / `IC_BLOCK` / `IC_MSHR` /
 `IC_PREFETCH` / `DC_SIZE` / `DC_WAYS` / `DC_BLOCK` / `DC_MSHR` / `SB_DEPTH` / `RD_SLOTS` / `USE_FAKERAM`。
 其中 `IC_SIZE` / `DC_SIZE` / `IC_WAYS` / `DC_WAYS` 是**官方明列的参数化项**（§架构要求与设计规范 · 2），
 消融矩阵必须覆盖；`IC_SIZE = DC_SIZE = 0`（旁路直连总线）是合法的退化档，也是把"IPC 不达标"与
@@ -75,10 +84,16 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 ## 时序约定（全部模块）
 
-- 全部模块 `always @(posedge clk)`，**同步低有效复位 `rst_n`**；每个握手信号 = 1 拍脉冲、**单一写者**；输出 = 当前状态组合
+- 端口一律**低有效复位 `rst_n`**；每个握手信号 = 1 拍脉冲、**单一写者**；输出 = 当前状态组合。
+  **复位风格现存两种（新代码优先异步）**：`rob`(×2)/`rs`/`rat`/`ready_table` 与新增的
+  `axi_lite_master`/`mem_subsystem` 用**异步** `always @(posedge clk or negedge rst_n)`；
+  `prf`/`lsq`/`free_list`/`ras`/`bht`/`fetch` 用**同步** `always @(posedge clk)` + `if (!rst_n)`。
+  新增模块里纯数据阵列（FIFO 载荷）的写口是 `always @(posedge clk)` **无复位**分支 —— 阵列内容不需要复位，
+  也省面积。原因见 `docs/area_budget.md` §2 注：ASAP7 r28 库里**没有**同步复位触发器，
+  同步复位会被拆成软逻辑（更贵）。
 - **复位极性的内外差异**：内部一律 `rst_n`（低有效）；官方 `student_top` 的 `reset` 是**高有效**（保持 5 拍）。
   取反放在 `student_top` 包层（`wire rst_n = ~reset;`），**不给各模块加极性参数** ——
-  后者会让 12 个 TB 与 19 个源文件全部改动，而包层取反只是一行。
+  后者会让全部 TB 与源文件改动，而包层取反只是一行。
   注意 `reset` 是**异步断言、同步释放**的用法：框架在 5 拍后直接拉低，包层不需要同步器（那 5 拍远长于一个周期）
 - **CDB 无寄存器**：执行/load 结果当拍组合到达 → 当拍旁路（同拍背靠背依赖执行）+ 当拍 posedge 写 PRF/置 ready；PRF 索引读下拍可见，但旁路已覆盖同拍需求（每个 preg 恰好写一次，D1 保证正确）
 - ROB ready 置位唯一写者 = CDB 槽的 `rob_wr` 标志（分支/store/load/终止全部走 CDB）
@@ -146,22 +161,32 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `f2i_pred_taken[W-1:0]` | out | W | 同上 | BHT 预测（随指令流动） |
 | `f2i_pred_target[W-1:0]` | out | 32×W | 同上 | jal=pc+imm；ret=ras.top；其他 jalr=pc+4 |
 | `f2i_ras_snap[W*RA-1:0]` | out | RA×W | 同上 | 取指时 ras head（仅 branch/jalr 有意义） |
-| `imem_addr[W*32-1:0]` | out | 32×W | memory | 取指地址（pc 基址 + 4i） |
-| `inst_data[W*32-1:0]` | in | 32×W | memory | 同步读（1 拍延迟） |
+| `imem_addr[W*32-1:0]` | out | 32×W | 存储 | **本拍要请求的批地址**（= 需求地址，不是"上次请求的地址"） |
+| `inst_data[W*32-1:0]` | in | 32×W | 存储 | 上一拍 `imem_addr` 处的指令（可带任意延迟） |
+| `imem_valid` | in | 1 | 存储 | `inst_data` 确实是取自 `imem_addr_d` 的新数据（延迟未到时为 0，此时 `inst_data` 是旧值） |
+| `imem_hit` | in | 1 | 存储 | 本拍 `imem_addr` 上的地址**已可取**（用于判断能否把请求提前一批；固定 1 拍存储恒为 1） |
 | `stall` | in | 1 | cpu_top | 队列满 / walker / halt → 不发起新请求（PC 最多回退到 exp_pc） |
 | `redirect_valid, redirect_pc` | in | 1/32 | cpu_top | 误预测 → 下拍从 redirect_pc 取，清空当前批 |
 | `halt` | in | 1 | cpu_top | 锁存停止取指 |
 
 内部：PC 寄存器 → imem 地址；预测：BHT 查 `(pc>>2)%BHT_SIZE`，jal 恒 taken，ret（rd=0&&rs1=1）→ ras.top+pop，call（rd=1）→ push pc+4；branch/jal 的预测目标需要 B 型/J 型 imm 符号扩展（与 decode 重复 ~6 行，注释注明保持同步——参考同款做法）。fetch 级 = 1 拍（PC 在 T 拍、指令 T+1 拍到达，含流水寄存器）。
 
-**取指握手（实现后定稿，取代"请求标签"方案）**：只用**地址比对**判到达，不用 tag/计数器。
-- `imem_addr_d` = 上一拍锁存的地址 = 本拍 `inst_data` 所属地址（memory 同步读 1 拍，两者天然同址）
+**取指握手（变长延迟版定稿，取代"请求标签"方案）**：只用**地址比对**判到达，不用 tag/计数器。
+- `imem_addr_d` = 上一拍锁存的地址 = 本拍 `inst_data` 所属地址；`imem_valid` 区分"数据真回来了"与"仍是旧值"
 - `exp_pc_r` = 下一条要交付给 decode 的批地址；`arr_ok = (imem_addr_d[0] == exp_pc_r)` 才算"这一批是想要的"
-- 接收条件 `cap_w = arr_ok && cap_ok && !halt`，`cap_ok = 批寄存器空 || 本拍批被发射`（`batch_taken = |f2i_valid && !stall`）
-- PC 只在"写 pc"的拍推进：`pc_wr_w = rst_n && (redirect || rewind || (!stall && !halt))`
-- 好处：stall 保持 PC 造成的重复读出、预测跳转/redirect 拍的在途错路读出，全部被地址比对自动丢弃，无需任何作废信号（省 4 个寄存器与计数对齐逻辑）；反之若到达的正是期望地址（例如 redirect 目标恰在途）也照收不误
+- 接收条件 `cap_w = arr_ok && cap_ok && !halt && imem_valid`，`cap_ok = 批寄存器空 || 本拍批被发射`（`batch_taken = |f2i_valid && !stall`）
+- **核心抽象：`imem_addr` 是"本拍要请求的批地址"（需求地址）**，不是"上一拍请求过的地址"。数据没到就把请求
+  **停在 `exp_pc_r` 上重复请求它**，于是存储查找的地址恒等于期望地址，数据一到即接收。
+  只有 `imem_hit`（期望批本身已在存储中可取）成立时，才允许把请求**提前一批**：
+  `pc_lead_w = (pc_r == exp_pc_r) && imem_hit && !stall`。
+  不加 `imem_hit` 门控而"无条件落后就补发"会致命：数据未回的拍盲目超前 → 下一拍到达的不是期望批 → 退回 →
+  再超前 → **请求地址每拍翻转、预取流永远重启、一条 AR 也发不出去**（实测见 `docs/plan.md` §14.3 缺陷 1）
+- 不变量：**`pc_r ∈ { exp_pc_r, exp_pc_r + 4W }`**（相等 = 下一批请求还没发出；差一批 = 已有一条在飞）
+- 好处：stall 保持 PC 造成的重复请求、预测跳转/redirect 拍的在途错路读出，全部被地址比对自动丢弃，无需任何作废信号（省 4 个寄存器与计数对齐逻辑）；反之若到达的正是期望地址（例如 redirect 目标恰在途）也照收不误
 - **稳态时序**：`pc_r = exp_pc_r + 4W`（请求领先 1 批），每拍交付 1 批；一次预测跳转 = 1 拍气泡（在途的顺序批被丢弃）
-- **满批丢弃回退（rewind）**：stall 期间到达的正是 `exp_pc` 批却因批寄存器满被丢弃 → 该批若不管就永久丢失（PC 已越过它）。故丢弃拍把 PC **回退到 `exp_pc_r`** 重取；回退后 memory 每拍重复读出 `exp_pc`，`exp_pc` 不变，stall 一解除即接收（无额外气泡，代价只是 stall 期间不预取）
+- **满批丢弃回退（rewind）**：stall 期间到达的正是 `exp_pc` 批却因批寄存器满被丢弃 → 该批若不管就永久丢失。故丢弃拍把 PC **回退到 `exp_pc_r`** 重取（该分支被 `pc_next` 的默认分支覆盖，单独删掉不报错——保留为使本条自身完整）
+- **`pred_ok_w` 也必须含 `imem_valid`**：它只看地址，而 `imem_valid==0` 时 `inst_data` 是旧的，用陈旧指令的预测目标改 PC 就是被垃圾指令劫持 PC
+- 固定 1 拍存储（`core/memory.v`）下 `imem_hit` 恒 1 ⇒ 上述规则与旧规则**逐拍等价**（`tb_fetch` 逐拍比对过）
 - **halt 冻结**：`cap_w` 含 `!halt`，halt 期不接收、`exp_pc` 不动（保持 `pc_r >= exp_pc` 不变量；halt 为终止态，无恢复语义）
 - **RAS 操作只对"取指路径上的前缀"驱动**：`ras_ops_w[g] = fetch_ok && !pt_c[g] ? ... : 0`，`pt_c[g]` = 槽 g 之前已有预测跳转。截断后的槽属错误路径（稍后从跳转目标重新取），若也 push/pop 会污染 RAS（实测会把 head 弹错、并让 ret 读到未写过的栈项）
 - **PC/exp 跟随"首个预测跳转"**（低槽优先，不是最后一个）：同一批内第二个预测跳转在截断之后，不能让它的目标改写 PC
@@ -307,6 +332,10 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 - 端口无变化；新增 `LSQ_SIZE` 个触发器（默认 16）。
 
 ### core/memory.v
+> **现状（2026-09-24）**：**仅 TB 使用**。`student_top` 不例化它（存储换成 `core/mem_subsystem.v` + AXI），
+> 它留在 `verilog/filelist.f` 里只为让单元/整机 TB 共用一份源清单（综合时被 `hierarchy -top` 剪掉）。
+> 它的取指口是"固定 1 拍"，对应 `imem_valid=1` / `imem_hit=1` 的退化情形。
+
 | name | dir | width | 驱动方 | 说明 |
 |---|---|---|---|---|
 | `inst_data[W*32-1:0]` | out | 32×W | fetch | **同步读**（imem_addr 内部寄存一拍） |
@@ -319,14 +348,43 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 内部：`reg [7:0] mem[MEM_SIZE]`（仿真直读、可标注 ram 风格）；飞行槽（MEM_INFLIGHT 个）存 {addr, width, lsq_idx, 倒计时=MEM_LATENCY}，到期 `ld_done` 脉冲 + 同步读打包数据；被 flush 的 load 完成脉冲由 lsq.v 按条目有效性丢弃（飞行槽不取消）。
 
-### top/cpu_top.v — 仅 clk/rst + 调试输出，胶水全部内部
+### core/axi_lite_master.v（新增，纯协议层）
+只做 5 通道握手与 VALID 稳定性，不含任何语义（子字抽取/MMIO 分流都在上层）：
+`{ar,r,aw,w,b}valid/ready` + `araddr/rdata/rresp/awaddr/wdata/wstrb/bresp` + 内部两对 FIFO
+（读：待发 AR 指针 + 待收 R 指针，**R 严格按 AR 顺序**；写：`{addr,data,strb}` 同序）。
+- **`rready`/`bready` 恒 `1'b1`**（不得被复位或状态门控）：`bready` 不驱动 ⇒ 停机 store 的 B 永不握手
+  ⇒ `done` 永假 ⇒ 每条 case 都超时（最容易"功能全对却零分"的一处）。
+- `araddr` 取自 FIFO 条目，而条目只在握手时才动 ⇒ **VALID 稳定性结构上免费获得**（不可能组合依赖 `ready`）。
+- AW 与 W 由**同一指针**驱动、两通道都握手才推进 ⇒ **AW 序 == W 序 == 提交序**，
+  满足从机"`aw.front()` 配 `w.front()`"的位置配对（`sim.cpp:85-88`）。
+- 异步低有效复位（ASAP7 库只有异步复位触发器）。
+
+### core/mem_subsystem.v（新增，CPU 侧端口与 `memory.v:10-38` 逐一对位）
+内部三块：**取指预取窗口**（`PF_DEPTH` 字 = 直接映射、每格 `{tag, data, valid}`，就是 I-cache 的数据通路；
+`PF_WIN` = 预取流超前 demand 的字数上限，是取指/load 的**带宽分配旋钮**）、**load 适配**（子字抽取 + 记账）、
+**已提交 store 队列**（`SQ_DEPTH`，补 `commit → B 握手` 之间的可见性空洞）。关键契约：
+
+| 契约 | 内容 |
+|---|---|
+| 取指 | 发起时写 tag 并**清 valid**、回包时写 data 并置 valid ⇒ "valid ⟺ 本格数据属于本格 tag"（不清 valid 则旧数据被新 tag 冒充 ⇒ 假命中）。demand 未命中且不在飞 ⇒ 把流拉回 demand；已在本格或无回包在飞 ⇒ 不重发 |
+| `imem_valid` | 仅当"本拍 `inst_data` 对应的地址"与回包地址相等时才拉高 |
+| `ld_busy==0` | **必须当场兑现**：`lsq.v` 的 `ld_start_valid` 组合自 `!ld_busy` 且收到即置 `issued_r`；反悔 ⇒ 该条目永久在飞 ⇒ head 卡死 ⇒ 全机死锁 |
+| 完成脉冲 | 每个被接受的 load **恰好**一个 `ld_done_valid`（`rresp` **不参与门控** —— LSQ 没有错误口） |
+| 子字 | `araddr` 强制 4 字节对齐；回包右移 `8*addr[1:0]` 后**零扩展**（符号扩展由 `lsq.v` 做）；⚠ 不支持跨 4 字节边界的非对齐访问 |
+| store 可见性 | 合并层次 **`memory` < `store_queue` < `LSQ`**；队列条目退休条件 = **B 已握手 _且_ 该 B 到达时在飞的读都已返回**（只等 B 不够：那些读可能在该 store 落盘前就被服务）。提交与完成同拍的那条 store 由**上层 LSQ** 兜（它在 posedge 才失效，且必然更老）—— 本模块**不**重复并入，并入即组合环（`docs/plan.md` §14.3 缺陷 2） |
+| 背压 | 队列满 ⇒ `sw_ready=0` ⇒ `cpu_top` 压住该拍提交（提交路径唯一的背压点） |
+
+### top/cpu_top.v — 调试输出 + 存储接口（原内部 `u_mem` 已提为端口）
 | name | dir | width | 说明 |
 |---|---|---|---|
-| `clk, rst_n` | in | 1/1 | 时钟/同步复位 |
-| `halt` | out | 1 | 终止标记已提交 |
+| `clk, rst_n` | in | 1/1 | 时钟/异步低有效复位 |
+| `halt` | out | 1 | 终止已提交（TERM marker **或** MMIO 停机） |
 | `ret_val[7:0]` | out | 8 | rob 排空后 `prf[rat.map_arch[10]] & 0xFF` |
 | `commit_count[31:0], flush_count[31:0], branch_count[31:0]` | out | 32×3 | 性能/消融统计 |
 | `rob_head[RW-1:0], rob_ready_head` | out | RW/1 | 调试 |
+| `imem_addr / inst_data / imem_valid / imem_hit` | out/in | 32W / 32W / 1 / 1 | 取指存储口（见 fetch 一节） |
+| `ld_start_valid/addr/width/idx`、`ld_done_valid/idx/data`、`ld_busy` | out/in | — | load 口（发起 ≤1/周期、完成 ≤1/周期） |
+| `sw_valid/addr/data/width`、`sw_ready` | out/in | — | store 口（提交级 ≤1/周期；`sw_ready=0` ⇒ 本拍不提交该 store） |
 
 **内部组合块**（assign/generate，无新增模块）：
 - B1 操作数获取：`op = (prs==0)?0 : (cdb 槽标签匹配 ? 槽结果 : (rt_ready[prs] ? prf 索引读 : 0))`——读口地址由槽选择结果驱动
@@ -363,7 +421,9 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 
 ## 目标架构：官方框架对接（Phase C 规格）
 
-> 本节是**待实现的目标规格**（本次只写规格、不写 RTL）。实施顺序与验收判据见 `docs/plan.md` 的 Phase C。
+> 本节是**目标规格 + 实现记录**。**C2/C3/C4 已实现**（`student_top` + AXI4-Lite + MMIO 停机，
+> 过程与验收见 `docs/plan.md` §14）；**仍未实现**：C1（DIV/DIVU/REM/REMU、LB/LBU/LH/LHU）、
+> C6（Cache）、C7（清掉 `core/memory.v`）、C8b（真核面积基线）。
 > 凡标「**已验证**」的条目都出自对官方框架源码/文档的实读（`scripts/sim.cpp`、`fakeram.py`、
 > `synth.py`、`docs/{axi4-lite,sram}.md`，快照 `/tmp/cpu2026-fw`，上游 main `54fc150`）；
 > 标「**待验证**」的仍是推断。
@@ -374,7 +434,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 |---|---|---|
 | 顶层 | `cpu_top`（`clk/rst_n/halt/ret_val[7:0]/commit_count/...`） | **`student_top`**，端口模板固定，**与 `cpu_top` 无一重合** ⇒ 纯新增包层 |
 | 复位 | 同步低有效 `rst_n` | 高有效 `reset`，初始化保持 5 拍 |
-| 内存 | 片上 `core/memory.v`，`MEM_SIZE=65536`、`$readmemh` 装载 | 外部 256 MiB AXI4-Lite 从机，**`memory.v` 退役**（不进 `verilog/filelist.f`） |
+| 内存 | 片上 `core/memory.v`，`MEM_SIZE=65536`、`$readmemh` 装载 | 外部 256 MiB AXI4-Lite 从机，**`memory.v` 退役**（不进 `verilog/filelist.f`）—— **现状**：`student_top` 已不例化它，但仍在 `filelist.f` 里供 TB 复用，待 C7 摘除 |
 | 延迟 | `MEM_LATENCY=3`（参数化倒计时） | 从机固定语义：最快"握手后下一拍被服务"，服务到响应 **10 拍**（`LATENCY` 默认值） |
 | 终止 | `ori x0,x0,255` + `ret_val = a0[7:0]` | 向 MMIO `0x80000000` 做 32 位 store，退出值 = `WDATA[31:0]`（由总线侧读取） |
 | ISA | 缺 DIV/DIVU/REM/REMU（静默 NOP）；无 LB/LBU/LH/LHU | **全 RV32IM**；LB/LBU/LH/LHU 必须实现 |
@@ -384,14 +444,18 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 ### C.2 层次结构
 
 ```
-student_top                      ← 官方要求的顶层；只做复位取反 + 例化 + 端口对接
-├── cpu_top                      ← 现有乱序核（内存侧端口扩 4 根，其余不动）
+student_top                      ← 官方要求的顶层；复位取反 + 例化 + 端口对接   【已实现】
+├── cpu_top                      ← 乱序核（存储侧端口已外露，其余不动）
 │   └── 现有 19 个模块            ← 除 decode.v（补 div/rem 与子字访存）外不改
-└── mem_subsystem                ← 新增
-    ├── icache / dcache          ← 阵列一律用 sram_fakeram
+└── mem_subsystem                ← 存储子系统                              【已实现】
+    ├── 取指预取窗口 (ifetch)     ← 直接映射、每格 {tag,data,valid}；未来 I-cache 在它上面长
+    ├── load 适配                ← 子字抽取 + 按序记账（LD_INFLIGHT 上限）
     ├── store_queue              ← 已提交未生效的 store（同时是 AXI 写队列）
-    └── axi_lite_master          ← 协议 FSM + 子字选择 + MMIO 分流
+    └── axi_lite_master          ← 纯协议层（5 通道握手 / VALID 稳定性 / 同序 AW-W）
 ```
+（原规格里的 `icache / dcache` 与"MMIO 分流在 master 内"两处**未按原样落地**：本轮不做 Cache；
+MMIO 判定放在 `cpu_top` 提交级（只判地址与宽度），`0x80000000` 的写照常经 store_queue 发到总线
+—— 从机自己认这个地址并置 `exit`，CPU 侧不做任何分流。）
 
 ### C.3 `student_top` 包层规格（**已验证**）
 
@@ -435,14 +499,24 @@ student_top                      ← 官方要求的顶层；只做复位取反 
 > ⚠ **`bready` 必须驱动**（建议恒 1）：`done` 依赖 B 握手，若 `bready` 恒 0，退出 store 的响应永远送不出去 ⇒
 > **仿真跑到 `MAX_CYCLES` 超时**，成绩判 FAIL。这是最容易"功能全对却零分"的一处。
 
-**适配层职责**（保持 `cpu_top` 的内存侧接口不变以隔离改动）：
+**适配层职责**（`cpu_top` 的存储侧端口与 `memory.v` 逐一对位，改动被隔离在包层）：**【已实现】**
 
-1. **子字访问**：load 按 `addr[1:0]` 从 `rdata` 选字节/半字，按 `func3[2]` 决定是否符号扩展；
-   store 按 `addr[1:0]` + 宽度生成 `wstrb`。地址须自然对齐（不满足则是程序 bug，不是本层职责）。
-2. **按序记账**：读请求用 FIFO 记录 `{lsq_idx}`，R 到达时按 FIFO 出队 demux 回 LSQ ——
+1. **子字访问**：load 按 `addr[1:0]` 从 `rdata` 选字节/半字、**零扩展**后回传 ——
+   符号扩展由 `lsq.v` 自己做（它知道 `is_unsigned_r`）；store 按 `addr[1:0]` + 宽度生成 `wstrb`
+   并左移 `wdata << 8*addr[1:0]`（**不可**直用 `sw_data`）。地址须自然对齐（不满足则是程序 bug）。
+2. **按序记账**：读请求用 FIFO 记录 `{lsq_idx, addr}`，R 到达时按 FIFO 出队 demux 回 LSQ ——
    一笔 AR 对应**恰好一个** R，**丢响应或重发都会写坏目的寄存器**（`lsq.v` 的 `issued_r` 身份依赖这条）。
 3. **不阻塞**：`rready`/`bready` 必须恒可接收（数据有专属缓冲），否则一个慢消费者会队头阻塞整条通道。
-4. **MMIO 分流**：见 C.5。
+4. **MMIO 分流**：**未按原规格做**——`0x80000000` 不特判、照常经写队列发上总线，由从机自己置 `exit`；
+   CPU 侧只在提交级用"地址 + 宽度"判定停机（见 C.5）。
+
+> **实现后记（与原规格的差异 + 一条教训）**：取指侧原计划用"`inst_valid`/`imem_stall` 接进 fetch"，
+> 实际落地的是 **`imem_valid`（数据真回来了）+ `imem_hit`（本拍请求地址已可取）** 两个输入，
+> 配合"请求地址即需求地址"的语义（见 fetch 一节）—— 这是唯一能在变长延迟下既不停错 PC 也不让
+> 预取流自我重启的写法。另外 store→load 的合并**不要**画蛇添足并入"本拍正在提交"的那条 store：
+> 它必然更老、又还在 LSQ 里，由 LSQ 兜住即可；硬并入会造出
+> `sw_valid → load 回包 → 分支目标 → misp_det → ce_w → sw_valid` 的**零延迟组合环**（Verilator
+> UNOPTFLAT 报出，综合/STA 无解），详见 `docs/plan.md` §14.3 缺陷 2。
 
 ### C.5 MMIO 终止与 `cpu_top` 改动清单
 
@@ -452,8 +526,9 @@ student_top                      ← 官方要求的顶层；只做复位取反 
 | 出口值 | `exit_value = sw_data`（整 32 位）；仅调试，不导出端口 |
 | 缓存性 | **不可缓存**：`{IC,DC}` 只覆盖 `0x0000_0000–0x0fff_ffff`，`0x8000_0000` 直通写队列 |
 | 子字 store 到该地址 | **不终止**（`wstrb≠4'hf`，从机也不认，返回 SLVERR）；仍正常发到总线 |
-| 删 | `TERM_RAW`/`TERM_RAW2`、`marker_acc`/`marker_commit`、`ret_val`/`ret_sample`/`ret_latched_r` 与 `rd1mux`（槽 0 读口复用采样） |
-| 加 | `sw_ready` 背压（`ce_w[0] &= (is_store_w[0] ? sw_ready : 1'b1)`，**提交路径唯一的背压点，必须加 TB**）；`sw_valid` 门控 `!halt_q_r`（halt 后不再发新 store，但写队列**继续排空**）；`inst_valid`/`imem_stall` 接进 fetch |
+| 删 | ~~`TERM_RAW`/`TERM_RAW2`、`marker_acc`/`marker_commit`、`ret_val`/`ret_sample`/`ret_latched_r`~~ —— **实际未删**：TB 仍靠 marker 判停机，`ret_val` 是 TB 的判据，两者与 MMIO **OR 并存**（`0x80000000` 远超 TB 的 `MEM_SIZE`，不可能误命中）⇒ 不必加参数、不必改 TB |
+| 加 | `sw_ready` 背压（**提交路径唯一的背压点，必须加 TB**）；`inst_valid`/`imem_hit` 接进 fetch；`mmio_exit = sw_valid && sw_ready && (sw_addr == 32'h8000_0000) && (sw_width == 2'b10)` |
+| 判据不过松的证明 | 半字 store 到 `0x80000000` 必须**超时而非假 PASS**：手写 4 条指令的镜像 + `EXPECTED=7` 实跑得 `FAIL cycles=1000000`（`docs/plan.md` §14.5） |
 | halt 语义 | 只冻结取指/统计/新 store，**不停提交、不排空 ROB**（沿用现状，最小行为改动） |
 
 ### C.6 Cache 层规格

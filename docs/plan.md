@@ -1261,6 +1261,8 @@ Verilator 是 2-state，**无法复现 X 传播类缺陷**。每项后 `make syn
    qsort 81/105、pi 112/137，格式`官方/本地`）⇒ **本地 18 个 PASS 的证据不能平移到官方评测**。
 2. **DIV/REM 是必答题**：官方每个编译程序都在 `course_put_result` 里用 `remu`（`% 253`）——
    我们的 `decode.v` 把 M 扩展 funct3 4–7 静默当 NOP ⇒ **19 个里 18 个会算错**（见 §12.3 乙）。
+   > **后续实测修正（§14.4）**：实际是 **17 个失败**——`lvalue2` 的 `hash = 175 < 253` 使那条 `remu`
+   > 成了恒等运算，NOP 化恰好得到同一结果，是巧合不是实现。
 3. **§9 的接入计划作废**：官方 `testcases/*/program.data` 是**预编译镜像**（装载地址 0），
    不需要 crt0 / 链接脚本 / ELF→`.data` 脚本 / `rsort` 源码替换（详见 §9 的作废说明）。
 
@@ -1403,6 +1405,152 @@ fa92e6ab1481810602811b1eea54bc016a341f11fb5188d7512c026599adf038  SIMPLE_RVT_TT_
   `synth.py:83/:104/:121` **硬编码** `hierarchy -top student_top`，顶层不到位就跑不了。
 - **IPC 的跨环境可比性**：容器内 Verilator 是 **5.020**、本机 **5.051**。
   `make perf` 的 IPC 若在容器里跑，须与宿主结果**分开记录**，不得混在同一张表里取几何平均。
+
+### 14. Phase C2+C3+C4 — 打通 AXI 闭环（2026-09-24）—— `student_top` + AXI4-Lite 主机 + MMIO 停机
+
+**本次范围（用户已定）**：只做 C2（存储接口外露）+ C3（AXI master）+ C4（MMIO 停机），**不碰 ISA**
+（DIV/REM 留在 C1）。目的：把"总线/停机"这个变量与"ISA 缺失"这个变量**隔离开** —— 两者混在一起时，
+首次失败无法归因。频率策略：**先保 300 MHz**（硬性前提），mul/div 不重构（见 §13.5 的瓶颈结论）。
+
+**为什么必须先做**：`build.py:74` 硬编码 `--top-module student_top`、`synth.py:83/:104/:121` 硬编码
+`hierarchy -top student_top`，两者都不接受覆盖 ⇒ 没有 `student_top` 就**一个官方数字也拿不到**。
+它是 C8b（真核面积基线）与 C1（DIV/REM）共同的前置。
+
+#### 14.1 步骤与产出（S1–S5 已逐条提交）
+
+| 步 | 提交 | 内容 |
+|---|---|---|
+| S1 | `674f6a8` | `cpu_top` 存储接口外露为端口（纯重构，零行为变化）；TB 改为本地例化 `memory u_mem` |
+| S2 | `d794013` | `fetch.v` 支持变长取指延迟（新增 `imem_valid`；`cap_w`/`rewind_w` 门控） |
+| S3 | `c76fe72` | `core/axi_lite_master.v`（纯协议层：5 通道握手 / VALID 稳定性 / tag FIFO）+ 单元 TB |
+| S4 | `07b42dd` / `99f5c12` | `core/mem_subsystem.v`（预取窗口 / load 适配 / 已提交 store 队列）+ `tb_mem_axi`；`cpu_top` 提交路径接受 `sw_ready` 背压 |
+| 修正 | `d5e0da7` | S5 接线过程中定位并修掉的两个缺陷（见 §14.3） |
+| S5 | `7ec0b10` | `top/student_top.v`（19 端口）+ MMIO 停机判据 + `filelist.f` |
+
+**设计要点**（细节在各文件头注释，这里只记"为什么"）：
+
+- **不改 `core/memory.v`**：TB 继续把它当"固定 1 拍内存"用；`mem_subsystem` 只对位复刻它的 CPU 侧接口。
+  仿真链路与官方链路各走各的存储实现 ⇒ 回归风险最小。
+- **`student_top` 不引出 `halt`/`ret_val`**：官方从机在 B 握手时从 `WDATA` 取退出值（`sim.cpp:119-121`），
+  退出值不经 CPU 的调试口。手写程序的 TERM marker 判定保留（OR 并存）：TB 走 marker、官方走 MMIO。
+- **预取窗口就是 I-cache 的数据通路**（直接映射、每行 1 字、无替换）：下一轮加容量/相联度参数化时在它上面长，
+  不重写。本轮**不做** I-cache —— `description.md` 把 Cache 容量/相联度列为消融维度，现在加会把"总线"与
+  "缓存"两个变量重新混在一起。
+
+#### 14.2 验收判据（全部实测通过，2026-09-24）
+
+| 判据 | 实测 |
+|---|---|
+| ① `make -f Makefile.tb run` | **14 个 TB 全 `ALL TESTS PASSED`**，退出码 0（S3/S4 新增两个 TB） |
+| ② `make CONFIG=config.local.mk build` | 退出码 0，产出 `build/sim` |
+| ③ `make run PROGRAM=testcases/correctness_add_to_100/program.data EXPECTED=5050` | **PASS cycles=645 result=5050 expected=5050** |
+| ④ `make CONFIG=config.local.mk test` | **19 条结果：2 PASS / 17 FAIL**，17 条全部可归因到 DIV/REM（见 §14.4） |
+| ⑤ 负例：`sh`（半字）写 `0x80000000`，`EXPECTED=7` | **FAIL cycles=1000000（超时）** —— 判据不过松，见 §14.5 |
+
+> **不把 IPC 当本次判据**（用户明确要求）：DIV/REM 缺失、取指窗口未调优，此刻的 IPC 没有意义。
+> `add_to_100` 的 **645 拍**只作"链路真通了"的旁证 —— 若贴近 1e6 上限就说明 S4 的窗口没起作用。
+> **不给"固定 1 拍存储"下的对照周期数**：官方 `program.data` + `EXPECTED` 的入口是 `make run`（走 `student_top`），
+> 而 TB 入口（`tb_cpu_prog`）读的是另一套 `.data` 格式，跑不了官方镜像 ⇒ 本轮没有同口径的可比数字。
+> AXI 往返延迟的代价留给消融/优化一节，用**同一入口**测。
+
+#### 14.3 Debug 记录：`add_to_100` 从死锁到 645 拍
+
+S5 接好线后官方 run 直接卡死（`FAIL cycles=1000000`）。用 VCD 逐拍取证，查出**两个独立缺陷**，
+都只在"存储不再固定 1 拍"这一前提下才成立 —— 这正是 S2 想隔离的那个变量。
+
+> **可复现的证据边界**：失败运行的 VCD 是临时文件（约 460 MB，未入库），且产生它的 RTL 已被后续提交覆盖
+> ⇒ 下面每个数字都**标注来源**：能从当次 VCD 抽出的是**实测**（附抽取命令），从代码规则直接推出的是**推导**。
+> 后文所有周期数则都来自框架自己的输出行（`PASS cycles=N` / `FAIL cycles=N`），可直接重跑核对。
+
+**缺陷 1：`fetch` 的 PC 失步（死锁的直接原因）**
+
+| 阶段 | 现象 | 结论 |
+|---|---|---|
+| 旧 `hold_w` 规则（S2 原方案） | **推导**（无留存证据）：数据迟到时 `!stall` 分支仍推进 pc，而 `exp_pc_r` 不动 | `arr_ok_w` 只比地址 ⇒ 永不成立 ⇒ 接收门永远关着 ⇒ ROB 排空后全机死锁。`fetch.v:74-75` 的注释本就预警了这一条 |
+| 第一次修正（无条件"落后就补发"） | **实测**（1e6 拍超时那次运行的 VCD，抽取命令见下）：`pc_r` 全程**每拍翻转**（全程 1e6 拍里变化 999988 次）、`halt_q_r` 从未抬起、`sw_valid` 从未脉冲、**AR 握手总计只有 286 次，且最后一次发生在 VCD 时刻 1215**（全程到 2000009；即 ~600 拍后近 1e6 拍一条 AR 也无）；提交停在 **414** 条（该程序 `metrics.json` 记 **421** 条动态指令 ⇒ 失败发生在临近结尾处） | 请求地址每拍翻转 ⇒ 预取流的 demand 每拍变 ⇒ 取指流在 ~600 拍处被自己彻底掐死，pc 抖动到超时 |
+| 最终方案（新增 `imem_hit` 端口） | `PASS cycles=645`（框架输出行） | 只有**期望批已在窗口里**（`imem_hit`）才允许把请求提前到下一批；否则把请求**退回 `exp_pc_r`** 重复请求它 —— 于是存储查找的地址恒等于期望地址，数据一到即接收 |
+
+> 上表第二行的数字来源（VCD 已删，仅记抽取方式；信号 id 取自该 VCD 的 `$var` 行、且仅对该次 dump 有效）：
+> `arvalid`/`arready` 同时为 1 的拍数计数得 **286**，最后一次在时刻 1215；`awk '/^b[01xz]+ X-$/{n++} END{print n}'`
+> 数 `pc_r` 取值变化得 **999988**；`grep -ac '^1Y-$'` 得 `halt_q_r` 恒 0；`sw_valid`（id `<`）恒 0；
+> `n_commit` 按拍加权求和得 828 个 tick 有提交，VCD 是 **2 tick/拍** ⇒ **414 条**。
+
+- 不变量：`pc_r ∈ { exp_pc_r, exp_pc_r + 4W }`（相等 = 还没发出下一批请求；差一批 = 已有一条在飞）。
+  固定 1 拍存储下 `imem_hit` 恒 1 ⇒ `cap` 每拍成立 ⇒ 新规则与改动前**逐拍等价**（`tb_fetch` 逐拍比对过）。
+- **这条推翻了本轮计划里 S2 的写法**（"三处改动缺一不可"，核心是 `hold_w`）：那套在变长延迟下是错的，
+  正确的抽象是"**请求地址即需求地址**；数据没到就把请求停在需求地址上重复请求它"，`imem_hit` 只是
+  判断"能否先把请求推到下一批"的可用性依据。
+- `tb_fetch` 的 F15b 断言随之改写：旧断言"数据迟到时 pc 必须冻结"**编码的是旧规则**，
+  新断言是真正的不变量 `pc ∈ {exp, exp + 4W}`。
+
+**缺陷 2：`mem_subsystem` 里一条零延迟组合环（综合/STA 无解）**
+
+`make build` 时 Verilator 报：
+
+```
+%Warning-UNOPTFLAT: verilog/core/mem_subsystem.v:71:39: Signal unoptimizable:
+                   Circular combinational logic: 'student_top.u_mem.sw_valid'
+  Example path: u_mem.sw_valid → u_mem.ld_m0 → u_lsq.mem_done_data → u_lsq.mb0
+              → slt[0].u_slot.load_cdb_result → slt[0].u_slot.u_br.ucmp.a
+              → slt[0].u_slot.u_br.target → slt[0].u_slot.misp_det
+              → u_cpu.ce_w → u_mem.sw_valid
+```
+（原样摘自**修复前** `make CONFIG=config.local.mk build` 的输出，Verilator 5.051。）
+
+- **根因**：S4 为了让"提交与完成同拍"的那一拍也能被合并，把**本拍正在提交的 store** 组合地并进了
+  load 的回包数据。环的另一半是 `ce_w` 的 `!misp_valid` 项（防提交副作用重复，见 `cpu_top.v` §4/§5
+  的注释），两处都不可动。
+- **该旁路本就冗余**：本拍提交的 store 此刻**仍在 LSQ 里**（失效发生在 posedge），且它必然**比正在完成的
+  那个 load 老**（提交前提 `rob_ready` ⇒ 它的操作数早到一拍，而完成的 load 数据本拍才到）⇒ 必然命中
+  `lsq.v:257` 的 `(j - hd) < dd` 合并分支（`dd` = 完成 load 距 head 的距离，比 `dd` 小 = 更老）。
+  即：**这一拍由 LSQ 兜，`mem_subsystem` 只需兜"已进入队列"的 store**。
+- **修法**：删掉 `sq_merge_byte_f` 的 `sv` 参数（无新增端口）。删后 `add_to_100` **周期数不变**（645），
+  `Circular combinational` 告警归零。
+- **教训（值得写进报告）**：这是"按直觉加保险"造出来的环 —— 保险本身冗余，代价却是综合不可用。
+  组合环在仿真里被 Verilator 的迭代求解**掩盖**（多数拍地址不重叠，环上的值不真的翻转），
+  只在"跨部件组合路径 + 地址重合 + 同拍误预测"时才可能取到非确定解 ⇒ **必须靠综合/告警发现，
+  不能靠跑程序发现**。
+
+#### 14.4 `make test` 的 17 条失败归因：全部是 DIV/REM 未实现（C1 的活）
+
+| 事实 | 出处 / 实测 |
+|---|---|
+| `decode.v` 的合法性门只覆盖 `f7=0000001 && f3∈{0,1,2,3}`（`mul/mulh/mulhsu/mulhu`） | `decode.v:50`（`mul_f3_ok`）、`:66`（`v_mul`） |
+| DIV/DIVU/REM/REMU 的 `f3∈{4,5,6,7}` ⇒ `valid=0` ⇒ **译成 NOP**（不写回、不报错） | `decode.v:75`（`valid` 不含它们） |
+| 19 个程序**每个**都含 ≥1 条 DIV/REM（`course_put_result` 里 `remu a0,a0,253`） | 官方 `program.S` 反汇编逐条统计 |
+| 实测：2 PASS / 17 FAIL | `add_to_100`（**0 条** div/rem）645 拍；`lvalue2`（**1 条**）254 拍 |
+
+- **`lvalue2` 为什么也过了**（这条容易被误读成"ISA 没问题"）：它唯一那条 `remu` 在
+  `course_put_result` 里算 `hash % 253`，而该程序的 `hash = 175 < 253` ⇒ 真实 RISC-V 下这条 `remu`
+  是恒等运算，**NOP 化**（`a0` 保持 `lw` 读来的 `hash`）恰好得到同一结果。是巧合，不是实现。
+- 失败的两种形态都可解释：**算错**（`exit result mismatch`，如 `expr` expected 136 / actual 3271831050）
+  与**超时**（`remu` 化 0 后程序自旋到 1e6 拍）。
+- ⇒ **C1（DIV/REM）落地后这 17 条才有意义**；在此之前不得用 `make test` 的数字判断存储通路的正确性
+  （判据③ + 判据⑤ + `tb_mem_axi` 三件套才是本轮的正确性证据）。
+
+#### 14.5 负例：停机判据"不过松"的可证伪证据
+
+`sim.cpp:91-92` 只在 `address == 0x80000000 && wstrb == 4'hf` 时置 `exit`，否则回 **SLVERR 且不停机**。
+若我们的 `halt` 判据写松（例如只看地址、或把 `sw_width` 映射错），半字写就会被误判成停机并**输出一个假结果**。
+故构造反例（手写 4 条指令）：`lui t0,0x80000; addi a0,zero,7; sh a0,0(t0); j .`，
+用 `EXPECTED=7`（"若判据松了就会看到的那个值"）跑：
+
+```
+FAIL cycles=1000000 (timeout or finish before exit write response)
+```
+
+⇒ 判据**按设计拒绝**了半字写：既没有假 PASS，也没有把 `7` 当退出值。同时反证了
+`sw_width==2'b10 ⇔ wstrb==4'hf` 这条映射是对的（`cpu_top` 侧只用 `sw_width` 判停机，不直接看 `wstrb`）。
+
+#### 14.6 本轮遗留（下一轮的前置）
+
+- **C1（DIV/DIVU/REM/REMU）**：§14.4 的 17 条全等它。乘法已按 Booth+Wallace 实现，除法尚未落地。
+- **C7（清掉 `core/memory.v`）**：`student_top` 已不例化它，但它仍在 `filelist.f` 里（TB 要用）。
+  真核面积基线（C8b）前必须确认 `hierarchy -top student_top` 把它剪干净，否则 64 KB 阵列会被降成触发器。
+- **组合环类缺陷的例行检查**：把 `Circular combinational` / `UNOPTFLAT` 纳入"每次改存储接口后必看"的
+  清单（见 §14.3 缺陷 2 的教训）。
+- **`mem_subsystem` 的已知简化**：不支持跨 4 字节边界的非对齐访问（`memory.v` 的平铺字节数组支持）；
+  编译产出的 C 代码不会产生这种访问。若 C1/C8 引入新 workload，需重新确认。
 
 ## 消融 + 综合（报告素材）
 

@@ -172,7 +172,8 @@ module fetch #(
     // 落后补发: 期望批本身已在存储中可取 (imem_hit) 时, 才可把请求预先推到下一批 —— 它只花一个在途
     //   请求的代价换来"到达流与 exp_pc 同拍对齐"。若不加 imem_hit, 数据未回的拍会盲目超前 →
     //   下一拍到达的不是期望批 → 退回 → 再超前 → 请求地址每拍翻转, 预取流永远重启, 一个字也取不回来
-    //   (实测: 官方 add_to_100 尾部 pc 在 0x2c/0x30 间抖动, imem_valid 恒 0, commit 冻在 414)
+    //   (实测: 官方 add_to_100 的失败运行 VCD 里 pc_r 每拍在两个相邻批地址间翻转 —— 1e6 拍内变化 999988 次;
+    //    AR 只发出 286 条后再无一条 (最后一次在全程的约 1/1600 处), 提交停在 414/421 条)
     wire pc_lead_w = pc_behind_w && imem_hit && !stall;
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
                           : rewind_w       ? exp_pc_r
