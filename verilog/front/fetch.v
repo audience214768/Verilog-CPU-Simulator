@@ -29,7 +29,8 @@ module fetch #(
     input  [ISSUE_WIDTH - 1 : 0]     bht_upd_taken,  // 执行槽 i: 实际方向
     input                        ras_restore_valid,  // 误预测 head 恢复 (透传 ras)
     input  [$clog2(RAS_SIZE) - 1 : 0]              ras_restore_head,
-    input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,       // memory 同步读 (1 拍延迟)
+    input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,       // 存储读出 (固定 1 拍, 或变长延迟)
+    input                 imem_valid,            // 本拍 inst_data 确实读自 imem_addr_d (变长延迟时可能为 0)
     input                 stall,                 // 保持 PC 与输出
     input                 redirect_valid,
     input  [31 : 0]         redirect_pc,
@@ -68,13 +69,21 @@ module fetch #(
     wire batch_taken = batch_any && !stall;         // 本拍批被发射 (stall 由 cpu_top 给出)
     wire cap_ok_w  = !batch_any || batch_taken;     // 下拍批寄存器可接收 (空 或 本拍批被发射)
     wire arr_ok_w  = (imem_addr_d[0 * 32 +: 32] == exp_pc_r);   // 本拍到达是期望的下一批
-    wire cap_w     = arr_ok_w && cap_ok_w && !halt; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
-    wire rewind_w  = arr_ok_w && !cap_ok_w && !halt; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
+    // imem_valid: 存储可含延迟, 未就绪时 inst_data 仍是上一次的值 (地址已对但数据是旧的),
+    //   故"接收/回退"都必须以它为前提 —— 单看 arr_ok_w 会把旧数据当成新到达
+    //   (负向用例实测: cap_w 这一项是硬要求 (删掉立刻把旧指令当到达批收下);
+    //    rewind_w 这一项被 hold_w 覆盖 —— 迟到拍 pc 本就不写, 单删不报错, 保留为使本条自身完整)
+    wire cap_w     = arr_ok_w && cap_ok_w && !halt && imem_valid; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
+    wire rewind_w  = arr_ok_w && !cap_ok_w && !halt && imem_valid; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
     // 预测可信条件: 到达数据正是期望批。否则到达的是错路/重复读出的陈旧指令
     // (重定向后 1 拍、预测跳转后 1 拍、stall 期间的重复读出), 若用它的跳转预测改写 pc,
     // pc 会被陈旧指令的目标劫持 → imem_addr_d 再也追不上 exp_pc_r → 永久失步死锁。
     // 非期望批时 pc 只做顺序推进 (它只是"在途请求", 不改变 exp_pc 的推进)
-    wire pred_ok_w = arr_ok_w && !halt;
+    // ★ 数据未就绪 (imem_valid=0) 时 inst_data 是上一次的指令, 用它的预测目标改 pc
+    //   就是上面那条死锁路径 (从"理论"变成"可达") —— 故此处也必须含 imem_valid。
+    //   (负向用例实测: 迟到拍 hold_w 已挡住一切 pc 写, 故本项目前被 hold_w 覆盖, 单删不报错;
+    //    仍就地写全, 使"预测可信"的条件不依赖 hold_w 这条远端约束)
+    wire pred_ok_w = arr_ok_w && !halt && imem_valid;
 
     // ---- 预测组合 (基于到达指令 inst_data 与 T 拍 pc_r) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] pred_target_w;
@@ -150,7 +159,16 @@ module fetch #(
                           : (stall || halt) ? pc_r
                           : (pc_r + 32'd4 * ISSUE_WIDTH);
     // pc_jmp_w 必须在写使能里 (否则 stall 拍 pc_wr_w=0, 上面选的跳转目标根本写不进去)
-    wire pc_wr_w = rst_n && (redirect_valid || rewind_w || pc_jmp_w || (!stall && !halt));
+    // ★ hold_w: 存储数据未就绪时**不推进 pc**。pc_r 一旦超前 exp_pc_r 超过一个批, imem_addr_d
+    //   就再也追不上 exp_pc_r ⇒ arr_ok_w 恒 0 ⇒ 取指永久失步 (即头注释所述死锁)。固定 1 拍
+    //   存储下 imem_valid 恒 1、hold_w 恒 0, 行为与改动前逐拍一致。
+    //   不可把该条件并进 stall: stall 同时决定 batch_taken/cap_ok_w, 在"本拍批已发射"时把它
+    //   拉高, 会造成批寄存器不释放而 cpu_top 已把同一批压入 rob/rs ⇒ 同一批被重复发射。
+    //   redirect 不受 hold 约束 (重定向必须随时能改 pc); rewind_w / pc_jmp_w 已各自含 imem_valid,
+    //   故 hold_w 实际只在"纯顺序推进"这一支生效。
+    //   (负向用例实测: 删掉 hold_w 后迟到拍 pc 一路 0x300→0x310→0x320 跑飞, 即头注释那条死锁)
+    wire hold_w  = !imem_valid && !redirect_valid && !halt;
+    wire pc_wr_w = rst_n && !hold_w && (redirect_valid || rewind_w || pc_jmp_w || (!stall && !halt));
     always @(posedge clk) begin
         if (!rst_n)       pc_r <= 32'd0;
         else if (pc_wr_w) pc_r <= pc_next;

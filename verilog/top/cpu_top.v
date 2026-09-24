@@ -20,9 +20,10 @@ module cpu_top #(
     output [$clog2(ROB_SIZE) - 1 : 0] rob_head,
     output             rob_ready_head,
     // ---- 存储接口 (原内部 u_mem 提升为端口; 端口名/位宽与 core/memory.v 逐一对位) ----
-    // 取指: 同步读 (地址寄存一拍后数据返回)
+    // 取指: 同步读 (地址寄存一拍后数据返回; 固定 1 拍存储下 imem_valid 恒 1)
     output [ISSUE_WIDTH * 32 - 1 : 0] imem_addr,
     input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
+    input                             imem_valid,
     // load: 发起 ≤1/周期, 完成 ≤1/周期 (idx 由完成脉冲回传)
     output                            ld_start_valid,
     output [31 : 0]                   ld_start_addr,
@@ -94,7 +95,7 @@ module cpu_top #(
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
         .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
-        .inst_data(inst_data), .stall(fetch_stall),
+        .inst_data(inst_data), .imem_valid(imem_valid), .stall(fetch_stall),
         .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
     );
     wire [ISSUE_WIDTH * 7 - 1 : 0]  d_opcode, d_func7;

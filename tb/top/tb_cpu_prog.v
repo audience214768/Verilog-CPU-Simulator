@@ -56,7 +56,7 @@ module tb_cpu_prog;
         .commit_count(commit_count), .flush_count(flush_count),
         .branch_count(branch_count),
         .rob_head(rob_head), .rob_ready_head(rob_ready_head),
-        .imem_addr(imem_addr), .inst_data(inst_data),
+        .imem_addr(imem_addr), .inst_data(inst_data), .imem_valid(1'b1),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
