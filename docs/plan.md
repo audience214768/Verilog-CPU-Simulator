@@ -1511,7 +1511,12 @@ S5 接好线后官方 run 直接卡死（`FAIL cycles=1000000`）。用 VCD 逐�
   只在"跨部件组合路径 + 地址重合 + 同拍误预测"时才可能取到非确定解 ⇒ **必须靠综合/告警发现，
   不能靠跑程序发现**。
 
-#### 14.4 `make test` 的 17 条失败归因：全部是 DIV/REM 未实现（C1 的活）
+#### 14.4 `make test` 的 17 条失败归因（**结论已被 §15 推翻，本条仅作存档**）
+
+> **2026-09-27 更正**：本条的"17 条全部可归因到 DIV/REM"**不成立**。实测 6 条 mismatch 的退出值
+> 恰好满足 `R % 253 == expected`（核心算对了，只缺末尾那一条 `remu`），而 `hanoi`/`magic`/
+> `multiarray`/`qsort`/`queens`/`tak` 是**核内物理寄存器泄漏导致的死锁**，与 DIV/REM 无关。
+> 证据与命令见 **§15**。
 
 | 事实 | 出处 / 实测 |
 |---|---|
@@ -1527,6 +1532,8 @@ S5 接好线后官方 run 直接卡死（`FAIL cycles=1000000`）。用 VCD 逐�
   与**超时**（`remu` 化 0 后程序自旋到 1e6 拍）。
 - ⇒ **C1（DIV/REM）落地后这 17 条才有意义**；在此之前不得用 `make test` 的数字判断存储通路的正确性
   （判据③ + 判据⑤ + `tb_mem_axi` 三件套才是本轮的正确性证据）。
+- ⚠️ **上一条的前提（"17 条全等 C1"）已作废**：其中 ≥6 条等的是 §15 的物理寄存器泄漏，
+  C1 单独落地**达不到 19/19**。判据③ 与判据⑤ 的结论（存储通路正确）不受影响。
 
 #### 14.5 负例：停机判据"不过松"的可证伪证据
 
@@ -1551,6 +1558,124 @@ FAIL cycles=1000000 (timeout or finish before exit write response)
   清单（见 §14.3 缺陷 2 的教训）。
 - **`mem_subsystem` 的已知简化**：不支持跨 4 字节边界的非对齐访问（`memory.v` 的平铺字节数组支持）；
   编译产出的 C 代码不会产生这种访问。若 C1/C8 引入新 workload，需重新确认。
+
+### 15. C1 前置勘察：§14.4 归因被推翻 + 物理寄存器泄漏死锁（2026-09-27）
+
+> 本轮原计划执行 **C1（DIV/DIVU/REM/REMU）**。按计划的执行顺序先取"改动前基线"
+> （`make test` + `make perf`），基线一取就发现两件事：**§14.4 的归因是错的**，
+> 且 **`make perf` 根本取不到数**。C1 的 G2/G4 判据在修掉本节缺陷前不可达。
+> **RTL 未做任何改动，工作树停在 `dd695f9`。**
+>
+> **证据边界**：15.1–15.4、15.6 全部为**实测**（命令与输出行在正文给出，可重跑核对）；
+> **15.5 是逐行推导，尚未逐拍证实**，修复时须以实测判据为准。
+
+#### 15.1 实测：`make test` 基线复现，但 6 条 "mismatch" 的成因不是"算错"
+
+`make CONFIG=config.local.mk test` → **2 PASS / 17 FAIL**，与 §14.2 ④ 逐条一致。
+但把官方镜像直接喂给 `build/sim` 读出**真实退出值**后，"算错"这一类的成因与 §14.4 的说法相反：
+
+```
+./build/sim testcases/<case>/program.data <expected.txt> 5000000 10
+```
+
+| 程序 | 实测退出值 R | `R % 253` | `expected.txt` | 判词 |
+|---|---|---|---|---|
+| array_test1 | 1388 | **123** | 123 | 只差末尾 `remu` |
+| array_test2 | 1561 | **43** | 43 | 只差末尾 `remu` |
+| expr | 3271831050 | **136** | 136 | 只差末尾 `remu` |
+| naive | 350 | **97** | 97 | 只差末尾 `remu` |
+| manyarguments | 293 | **40** | 40 | 只差末尾 `remu` |
+| superloop | 893 | **134** | 134 | 只差末尾 `remu` |
+
+`course_put_result` 就是 `lw a0,hash; remu a0,a0,253`（各 `program.S` 的 `0x5c` 段）。
+`remu` 被译成 NOP ⇒ `a0` 保持未取模的 `hash` ⇒ 退出值恰是"**正确结果的模前值**"。
+**六条全中 `R % 253 == expected`** ⇒ 这些程序**主体完全算对了**，唯一缺的就是那一条 `remu`。
+即 §14.4 表格末行说的"算错"，真实含义是"**只剩最后一条指令没算**"。
+
+另两条 mismatch（`basicopt1` 2173、`statement_test` 1564）不满足该关系：它们的 `main` 自身
+也用了 div（各程序 div/rem 条数：`basicopt1` 3、`statement_test` 2，其中 1 条属 `course_put_result`）
+—— 这两条属真正的 C1 范围。
+
+#### 15.2 实测：1e6 默认上限本身会制造"超时"
+
+`superloop` 在 `MAX_CYCLES=1e6` 下超时，放宽后 **1,984,114 拍正常完成**（退出值同样满足
+`893 % 253 == 134`）。⇒ §14.4 把"超时"一律解释成"`remu` 化 0 后程序自旋"不成立：
+**有一部分超时只是预算不足**，默认 1e6 拍下"超时"不等于"死锁"。
+
+#### 15.3 实测：剩余 6 条是**核内死锁**，与 DIV/REM 无关，与 AXI 也无关
+
+`hanoi`/`magic`/`multiarray`/`qsort`/`queens`/`tak` 六条与 15.2 的"预算不足"不同形：
+把**官方镜像**（去掉开头 `#` 注释行）放进 `tb/top/prog/`，用 `tb_cpu_prog` 的**单元 TB 路径**
+（`core/memory.v`，`MEM_LATENCY_TB=3`，**不经过 `mem_subsystem`/AXI**）跑：
+
+```
+$ ./sim/bench/bench +PROG=oj_tak +PERF=2000000 +DUMP=0
+PERF: oj_tak cycles=2000000 commit=307 ipc=0.000 flush=27 branch=19
+```
+
+`commit` 从第 ~500 拍起**冻结在 307**；官方 `multiarray` 同形（冻结在 **922**）。
+⇒ 死锁在**核里**，`mem_subsystem`/AXI 无罪。`+TRACE` 抓到的现场：
+
+```
+STALL: oj_tak cyc=20000000 issue=334 nobatch=67 flushcyc=54 misp=27 | block rob=0 rs=0 fl=19999545 lsq=0
+T 650 pc=00000074 ... iss=0 hb=1 misp=0 flsh=0 halt=0 robh=19 robl=19 rdy=1 raw_h=fc4080e7
+```
+
+- **`fl=19999545`**（2e7 拍里 19,999,545 拍）⇒ 卡在**空闲物理寄存器不够**（`fl_count < n_wr`）；
+  ROB / RS / LSQ 都不是瓶颈（`rob=0 rs=0 lsq=0`）。
+- **`robh == robl == 19`** ⇒ **ROB 是空的**（`last` 是空槽位语义）；`rdy=1` / `raw_h=` 只是陈旧槽位内容。
+- `cpu_top.v:542` 的提交使能含 `!rob_empty` ⇒ **ROB 空 ⇒ 无人提交 ⇒ 无人回收 preg**。
+  成环：**池空 → rename 挡住 → ROB 空 → 提交停 → 池更空**，且 `flushing_r=0`（walker 也不会回补），永不自解。
+
+#### 15.4 实测：这是**泄漏**，不是容量不够
+
+用 §11.2 记录的 `iverilog -P` 消融口径，只改 `PRF_SIZE_TB`：
+
+| 配置 | 2e5 拍时 commit | 1e6 / 2e6 拍时 commit | 判词 |
+|---|---|---|---|
+| `PRF_SIZE_TB=64`（默认） | **307**（已冻结） | 307 | 死锁 |
+| `PRF_SIZE_TB=128` | 1854 | **仍是 1854**（`flush=177`） | **同样死锁，只是晚一点** |
+
+⇒ 加大 PRF 只把死锁推迟，不能避免 ⇒ **每来一次误预测就漏掉若干 preg，池被逐渐抽干**。
+
+#### 15.5 推导（**未逐拍证实**）：漏点 = walker 回滚区间漏掉了被误预测的那一条
+
+`cpu_top.v` 的 walker 只回滚 `(fs, walk_ptr]`：
+
+```
+:317  assign rem_w    = walk_ptr_r - fs_eff_w;      // 待回滚条数 (fs+1..walk_ptr]
+:325  assign walked_valid[jj] = flushing_r && (rem_w > jj);
+```
+
+而截断是 `set_last_val = misp_fs_w`（`:505`），rob.v 的 `last` 是**空槽位**语义
+（`:600` 注释原文："last 是空槽位, 不可回滚"）⇒ `set_last = fs` 把**条目 `fs` 自己也释放了**。
+于是条目 `fs` 的 **`new_pnum` 不回池、RAT 也不恢复**：
+
+- 条件分支（`beq`/`bne`/…）`rd = x0` ⇒ `rob_new_w = 0` ⇒ 不漏；
+- **`jal` / `jalr ra,…` 写 `rd = ra` ⇒ 每被误预测一次漏 1 个 preg**；
+- 实测的误预测分箱支持这一条：`JUMP: … misp jal=0 ret=3 jalr=19 …` —— 19 条**写 ra 的 jalr**
+  被误预测（`ret` 是 `jalr x0,0(x1)`，`rd=0`，不漏），与"漏 19 个"同量级
+  （默认 `PRF=64` 只有 32 个可分配 preg，`BASE=32`）。
+
+> 该推导**尚未逐拍证实**。修复的验收判据是实测的：同一程序在默认 `PRF=64` 下不再冻结。
+
+#### 15.6 实测：`tb/top/prog/*.data` 与官方镜像是**两套不同的程序**
+
+`tb_cpu_prog` 跑的那 18 个程序与 `testcases/correctness_*` **不是同一份镜像** ——
+地址区间与体积都不同（`gcd` 440 B / 到 `0x119f` vs 官方 244 B / 到 `0xf3`；`tak` 484 B vs 380 B；
+共同地址里逐字节相同的只有 4~6 个）。TB 那套是参考模拟器（RV32I）的旧测试集，
+用 `0x0FF00513` 停机标记；官方这套用 MMIO 停机。
+
+⇒ **§11.3 的"Verilator ≡ Icarus 16/16 逐字段相同"只对旧测试集成立，不能给官方 19 条背书。**
+（`tb_cpu_prog` 的 MMIO 停机通路本身是好的：官方镜像放进 TB、`sw_ready` 恒 1 时，
+`cpu_top.v:614` 的 `mmio_exit` 正常抬起 —— 本节 15.3 的数据就是靠它拿到的。）
+
+#### 15.7 待办（C1 的前置）
+
+1. **修 15.5 的泄漏**（walker 回滚区间须含 `fs`），验收：官方 `tak` 在默认 `PRF=64` 下不再冻结。
+2. 修完**重取 `make perf` 基线** —— 目前 `perf_multiply`（**0 条 div/rem**）在默认 1e6 拍下即死锁，
+   `perf` 目标直接 `SystemExit`，**6 个 IPC 一个都取不到**（§14.2 的"不把 IPC 当判据"掩盖了这一点）。
+3. 之后 C1（DIV/REM）的 G2 才有意义：**19/19 不是 C1 单独能达成的**。
 
 ## 消融 + 综合（报告素材）
 
