@@ -14,13 +14,19 @@
 > 本节以下内容记录的是**旧口径下**已完成的工作与证据 —— 它证明"乱序核本身功能正确"，
 > 但**不等于**官方评测已通过（两者的测试集、终止方式、内存模型、延迟都不同）。差异清单见 §13。
 
-### 收口：三条对官方评测最要紧的差距（**尚未解决**，详见 §13）
+### 收口：三条对官方评测最要紧的差距（**三条均已解决**，原表存档；§1 见 §14，§2/§3 见 §15.10）
 
 | # | 差距 | 后果 | 证据 |
 |---|---|---|---|
-| 1 | **顶层不是 `student_top`、没有 AXI4-Lite 端口** | 官方 `make build` 直接报 `--top-module 'student_top' was not found`；官方 `make test/perf/synth` 全部不可用 | 实测：19 个源文件全部读入成功，仅缺顶层 |
-| 2 | **DIV/DIVU/REM/REMU 未实现（静默 NOP）** | 官方 19 个编译正确性程序里 **18 个**用到 `remu`（`course_put_result` 的 `% 253`）⇒ **每一个都算错** | `testcases/correctness_*/program.S`；缺口本体见 §12.3(乙) |
-| 3 | **LB/LBU/LH/LHU 未实现** | 最终版 ISA 免除清单里已**删除**这四条（上一版是免除的）⇒ 现在是必答题 | description.md §架构要求与设计规范 · 1 |
+| 1 | ~~**顶层不是 `student_top`、没有 AXI4-Lite 端口**~~ → 已实现（§14） | 官方 `make build` 直接报 `--top-module 'student_top' was not found`；官方 `make test/perf/synth` 全部不可用 | 实测：19 个源文件全部读入成功，仅缺顶层 |
+| 2 | ~~**DIV/DIVU/REM/REMU 未实现（静默 NOP）**~~ → 已实现（§15.10） | 官方 19 个编译正确性程序里 **18 个**用到 `remu`（`course_put_result` 的 `% 253`）⇒ **每一个都算错** | `testcases/correctness_*/program.S`；缺口本体见 §12.3(乙) |
+| 3 | ~~**LB/LBU/LH/LHU 未实现**~~ → **已实现，本条是陈旧记录** | 最终版 ISA 免除清单里已**删除**这四条（上一版是免除的）⇒ 现在是必答题 | description.md §架构要求与设计规范 · 1 |
+
+> 第 3 条**从来没有真的缺过**（`de0cd27` 时代的快照）：`decode.v` 的 `ld_f3_ok` 收 `f3∈{0,1,2,4,5}`，
+> `mem_width = f3[1:0]`、`mem_unsigned = f3[2]`，`lsq.v` 按 `width_r`/`is_unsigned_r` 做符号/零扩展，
+> `mem_subsystem.v` 按 `addr[1:0]` 抽子字。单元证据 `tb_lsq` L12a/b/c（signed byte / unsigned byte /
+> signed half）；端到端证据：**6 个 `perf_*` 程序全部使用 `lbu`**（`course_put_result` 之外的主程序路径）。
+> 19 个 `correctness_*` 一条 lb/lh 都没有 ⇒ `lb`/`lh`/`lhu` 目前只有单元级证据。
 
 > 另有一条**容易被忽略但会白干**的：官方 `testcases/correctness_*` 与我们 `tb/top/prog/*.data`
 > **不是同一批二进制** —— 19 个程序里 **7 个**期望值不同（naive 97/94、expr 136/58、hanoi 184/20、
@@ -141,7 +147,8 @@ qsort / rsort / towers / vvadd），IPC = `metrics.json` 的 `dynamic_instructio
 
 按依赖序（详细规格见 `docs/architecture.md` 的「目标架构」）：
 
-1. **补 ISA 缺口**：DIV/DIVU/REM/REMU（§12.3 乙已记录改法）与 LB/LBU/LH/LHU 解码 ——
+1. ~~**补 ISA 缺口**：DIV/DIVU/REM/REMU（§12.3 乙已记录改法）与 LB/LBU/LH/LHU 解码~~ ——
+   **已完成**（§15.10）：DIV/DIVU/REM/REMU 多周期落地，LB/LBU/LH/LHU 本来就是好的。
    这是**正确性的必要条件**，且不依赖框架迁移，可以并行开工（官方 18/19 个程序要 `remu`）。
 2. **`student_top` 包层 + AXI4-Lite 适配层**：让官方 `make build/test` 第一次能跑通。
    验收判据 = `make test` 的 19 个 `correctness_*` 全过（`expected.txt` 逐条相符）。
@@ -213,7 +220,7 @@ qsort / rsort / towers / vvadd），IPC = `metrics.json` 的 `dynamic_instructio
 
 | 步 | 内容 | 验收判据 |
 |---|---|---|
-| C1 | **ISA 补齐**：DIV/DIVU/REM/REMU（改法见 §12.3 乙）+ LB/LBU/LH/LHU 解码与访存 | `tb_lsq`/`tb_alu` 加对应用例全过；自造 div/rem 汇编程序 ret 对（**现有 18 个镜像 div/rem 命中 0 条，没有现成的题**） |
+| C1 | **ISA 补齐**：DIV/DIVU/REM/REMU（改法见 §12.3 乙）。~~+ LB/LBU/LH/LHU 解码与访存~~ —— **LB/LH 早已实现**（`5fee7b7` 前后落地），此处系陈旧快照，证据见文首"收口"表注 | **已完成**（§15.10）：`make test` 19/19 PASS；新增 `tb_div`；自造角例程序 `tb/top/div_corner.data` PASS。原判据里"`tb_lsq`/`tb_alu` 加用例"不成立——除法器是独立多周期模块，`tb_alu` 覆盖不到（改用 `tb_div`）；`tb_lsq` 无需改（load 路径未动） |
 | C2 | **`student_top` 包层**（复位取反 + 端口对接），`verilog/filelist.f` 顶层指向它 | `make build` 编译通过；`make run PROGRAM=testcases/correctness_naive/program.data EXPECTED=97` 出 PASS |
 | C3 | **`axi_lite_master` + `mem_subsystem`（旁路档 `IC_SIZE=DC_SIZE=0`）** | `make test` → **19 个 `correctness_*` 全过**（`expected.txt` 逐条相符）；这是"总线路径功能正确"的独立证据 |
 | C4 | **MMIO 终止**（提交级 store 地址判定 + `exit_value`，删 `TERM_RAW`/`ret_val`） | C3 的判据即可覆盖（`expected.txt` 就是靠 MMIO 退出值判的） |
@@ -1135,7 +1142,7 @@ rv32im/ilp32 的 `libgcc.a` 里 **`atomic.o` 一个符号都没有**（连 `_1`/
 - **当时的判断"不阻塞"已作废**：12.1 ⑤ 只看过 `CPU-2026-Benchmark` 的 6 个 workload；
   官方 `testcases/correctness_*` 的**每一个编译程序**都在 `course_put_result` 里用 `remu`（`% 253`）
   ⇒ 缺口从"可能触发"变成"**必然触发**"，**C1 步必须先修**（Phase C）。
-- **若日后要修**（记录结论，省得重查）：
+- **若日后要修**（记录结论，省得重查）：**已按此落地，多周期实现 —— 验收见 §15.10**。
   - op 空间 `14..31` 空闲，可用 14=DIV/15=DIVU/16=REM/17=REMU。
   - ⚠ **只放开 `decode.v:50` 而不动 `execute_slot.v` 会更糟**：`execute_slot.v:82` 的
     `is_mul = is_r && (func7 == 7'h01)` 配上 `:122-124` 的编码 mux，`f3 >= 4` 会落到 `op=5'd13`（MULHU）
@@ -1148,6 +1155,8 @@ rv32im/ilp32 的 `libgcc.a` 里 **`atomic.o` 一个符号都没有**（连 `_1`/
     很可能不够 ⇒ **倾向多周期除法器**。
   - 本仓库 18 个 `.data` 镜像里 **div/rem 命中 0 条** ⇒ 用它们**没有现成的题可测**；
     但官方 `testcases/correctness_*` 里遍地是 `remu`，修完直接拿官方点验收即可（Phase C 的 C1）。
+    → **实际两条都用了**：官方 19 条给常规路径（G2），另自造 `tb/top/div_corner.*` 补"官方题库
+    一条都没有"的除零与溢出（G3，见 §15.10.6）。
 
 #### 12.4 一个尚未验证的达标项：**频率**
 
@@ -1835,6 +1844,114 @@ GEOMEAN                                                  0.3484
 `perf_median`（6961/28141）与 `perf_multiply`（21722/37979）与 §15.8 **逐位相同**（指令数与周期数
 两项都相同）⇒ 修复只动了 qsort（唯一把队列压到回绕且同字节重叠的程序），其余 5 个点未被扰动。
 **这 6 个数就是 C1 的 G4 基线。**
+
+### 15.10 C1 实施记录：DIV/DIVU/REM/REMU（2026-09-27）
+
+范围按 §12.3(乙) 的结论收窄：**LB/LBU/LH/LHU 本来就已实现**（证据见文首"收口"表的注），
+C1 的真实代码工作量只有 DIV/DIVU/REM/REMU 四条。分 4 步提交（除法器 → 译码发射接线 →
+自造角例程序 → 本节文档）。
+
+#### 15.10.1 为什么只能是多周期
+
+§12.3(乙) 的预判在 §13.5 拿到实测支持：`mul` **自身**的 F2F = **2.0879 ns**，500 MHz
+（2.0 ns）已超预算、400 MHz（2.5 ns）也吃掉 83.5%。单周期组合除法器的 32 级借位链会**叠在**
+这棵华莱士树**后面** ⇒ 几乎必然跌破 300 MHz 硬性前提。故取 **radix-2 迭代，33 拍**
+（32 次迭代 + 1 拍输出）：每拍只有"33 位比较 + 33 位加减 + 移位 + 2:1 mux"，**不进关键路径**。
+
+#### 15.10.2 在飞协议（照抄访存飞行槽那一套）
+
+| 环节 | 机制 |
+|---|---|
+| 发起 | `execute_slot` 导出 `div_start_req/op/a/b/prd/rob_tag`；`cpu_top` 门控后由 `div.v` 锁存 |
+| 释放 RS | `rs_clear_valid = sel_valid & ~div_hold_w` —— **没被收下就不清条目**（清了这条指令再也不会被选中 ⇒ 死锁） |
+| 不广播 | `exec_valid = sel_valid && !is_load && !is_div`（否则当拍广播一个占位结果并把 ROB 置就绪） |
+| 写回 | CDB 新增**槽 W+1**（槽 W 是 load 完成），`prf` 写口 +1，`rt_set_req`/`rob_ready_req` 各加一路 |
+| 旁路 | 槽 W/W+1 **不参与同拍旁路**：`ready_table` 是寄存器，被唤醒的依赖者最早下拍才被选中，那时 PRF 已写入 ⇒ `rs`/`execute_slot` 的 `cdb_tag`/`cdb_slot_valid` 宽度**不变** |
+| 作废 | `div_kill`（见 15.10.3） |
+
+`rs.v` **完全不用改**：条目在发起当拍就被清（与 load 相同），身份改由 `div.v` 内部锁存。
+
+#### 15.10.3 kill 判据
+
+与本文 §4 的 rs/lsq 失效掩码**严格同口径**（"年龄 > 生效冲刷点 ⇒ 错路"），但**每拍评估**：
+
+```verilog
+assign div_kill = (misp_valid || flushing_r)
+               && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
+```
+
+`div_fly_rob_tag` 是 `div.v` **内部锁存**的 tag（为此新增输出 `busy_rob_tag`）——发起当拍
+RS 条目就已释放，`cpu_top` 侧没有别的副本。误预测当拍该 div 可能**就已经在飞**（乱序：更老的
+误预测分支后执行），拖到 walker 拍才杀既多浪费一拍，又可能赶上"walker 当拍就走完"⇒ 掩码对
+"已不在 rs 里"的在飞 div 无从下手。
+
+#### 15.10.4 与批准计划的 5 处偏差
+
+| # | 计划 | 实际 | 为什么 |
+|---|---|---|---|
+| 1 | radix-2 **非恢复**余数 | radix-2 **恢复**余数 | 恢复式 R ∈ [0,\|b\|) ⇒ `Rs = {R, A[31]}` 33 位**无符号**即可，不需要 34 位有符号中间量、也不需要末尾修正步。可观测契约（33 拍 / 面积量级 / 不进关键路径）两者相同 |
+| 2 | `rob.v` 新增输出 `set_last_clear_all` | **不加**（`rob.v` 零改动） | 按计划的 `set_last_val = misp_fs + 1` 推，`keep_head` 恒真 ⇒ 该输出是常量 0 的死逻辑；而 `set_last_val` 在 ROB 满时有回绕边界 |
+| 3 | kill 在 `set_last_valid` 当拍评估一次 | 每拍评估的年龄比较 | 见 15.10.3 |
+| 4 | 未提 | **冲刷中禁止发起**（`div_go_w` 含 `!flushing_r`） | 反例：walker 首拍被选中的错路 div 若当拍启动，而 walker 可能**同拍就走完** ⇒ 下拍不再有 kill 拍，该 div 33 拍后写一个**已被 free_list 回收**的 preg ⇒ 写坏架构状态 |
+| 5 | W>1 靠 `~(is_div & div_busy)` 覆盖 | **只有槽 0 能启动** | 计划的机制**不成立**：`div_busy` 是寄存器，发起当拍仍为 0 ⇒ 两个槽会同拍启动、后一发覆盖前一发。改为 `div_go_w = div_req_w[0] && !div_busy && !flushing_r`。W>1 的正确性靠 `rs.v` 的 W 级年龄仲裁是**稠密前缀**（第 k 级能选出候选 ⇒ 第 k-1 级必然也选出）⇒ 槽 0 每拍都在推进（启动或扣住后重选）⇒ 高槽的 div 必然在有限拍内移到槽 0。代价仅 W>1 的吞吐 |
+
+#### 15.10.5 验收（G1–G5）
+
+| 判据 | 实测 |
+|---|---|
+| G1 `make -f Makefile.tb run` | **15/15 `ALL TESTS PASSED`，0 `TESTS FAILED`**（原 14 + 新增 `tb_div`） |
+| G2 `make test` | **19/19 PASS** —— 须 `MAX_CYCLES=100000000`。§15.2 已经指出 1e6 默认上限本身会制造"超时"，而 `config.mk:47` 的官方值就是 1e8（框架 `MAX_CYCLES ?= 1000000`，本机用 `make ... MAX_CYCLES=100000000 test` 覆盖，**不改官方文件**） |
+| G3 自造角例程序 | 见 15.10.6 |
+| G4 `make perf` | **6 个 IPC 与 §15.9 基线逐位相同**（0.2474 / 0.5719 / 0.2537 / 0.2985 / 0.2810 / 0.5940，几何平均 **0.3484**）⇒ 除法器接进来**没有扰动核心路径**。这 6 个程序的 div/rem 计数均为 0，所以这是干净的 A/B |
+| G5 `make build` | 无 `UNOPTFLAT`（`grep -c` = 0） |
+
+> `make build` 里有一条 `SYNCASYNCNET`，指名 `u_div.rst_n`，但**不是本次引入的**：把 `u_div`
+> 从设计里摘掉后，同一条警告移到 `u_front.u_bht.rst_n`。本设计的 `rst_n` 是**单网**同时喂异步
+> 复位（rob/rs/rat/ready_table/div）与同步复位（prf/lsq/free_list/ras/bht）的模块，Verilator
+> 只是挑一个实例报。判据只要求无 `UNOPTFLAT`。
+
+#### 15.10.6 自造角例程序（G3）
+
+**为什么必须自造**：官方 19 条 correctness 里 div/rem 只出现在 `gcd`/`bulgarian`/`pi` 的算法除法与
+`course_put_result` 的 `remu % 253` —— 商次遍布正常路径，但**除零与 `INT_MIN/-1` 溢出一次都不出现**，
+而这两类恰恰是 `div.v` 里唯二需要**显式 mux**（不能靠迭代自然得出）的地方。
+即"官方全过"并不能证明它们对。本程序专补这两类 + 四象限符号 + 边界。
+
+| 文件 | 作用 |
+|---|---|
+| `tb/top/div_corner.s` | 25 对操作数 × {div, divu, rem, remu} = **100 个结果**，累加进 `a0`，末尾 `sw a0, 0(0x80000000)` |
+| `tb/top/div_corner_expect.py` | 从 `.s` 的 `pairs` 表**按 RISC-V 语义独立算**期望值（不取自仿真输出——否则是自证）。脚本断言每一条 `.word` 都被解析到，防漏读 |
+| `tb/top/bin2data.py` | 裸二进制 → 官方 `program.data` 文本格式（`objcopy -O binary` 的产物） |
+| `tb/top/div_corner.data` | 生成物，312 字节 `@00000000` |
+
+覆盖：`100/7`、`7/100`、`±7/±2` 四象限、`-1/1`、`1/-1`、`-1/-1`、
+**除零**（`100/0`、`0/0`、`-1/0`）、**`INT_MIN/-1`**、`INT_MIN/±1/±2/INT_MAX/INT_MIN`、
+`INT_MAX/-1`、`INT_MAX/INT_MIN`、`0/5`、`0/-1`、`1/INT_MIN`、`0x12345678/0x9ABCDEF0`（双向）、
+`15/16`、`16/16`。
+
+**走 `make run`，即真实 `student_top` + AXI + MMIO 通路**（与判分口径一致），不用 `tb_cpu_prog` 的旧 8 位通路：
+
+```
+EXPECTED=3557883290 (0xd410fd9a)
+PASS cycles=3378 result=3557883290 expected=3557883290
+```
+
+##### 累加器为什么是 `a0 = a0*31 + r` 而不是异或
+
+**异或累加在这个程序上不可判伪**：同一个错值出现偶数次会自己抵消。这不是推测——把 `div.v` 的
+除零商从 `32'hFFFF_FFFF` 改成 `32'h0000_0000`（程序里 6 处除零）后，**异或终值一字不变**，
+而 `a0*31+r` 立刻报错。31 是奇数 ⇒ `31^k` 在 mod 2^32 下可逆 ⇒ **任何一个结果错，终值必不同**。
+
+##### 判伪能力由 RTL 变异实测（不是靠推理）
+
+| 版本 | 结果 |
+|---|---|
+| 正常 | `PASS cycles=3378 result=3557883290 expected=3557883290` |
+| `div.v` 除零商 `32'hFFFF_FFFF` → `32'h0000_0000` | `FAIL cycles=3378 result=3572143610 expected=3557883290` |
+| 还原（`git diff` 空）后复跑 | 再次 PASS |
+
+> 期望值来自 `.s` 的 `pairs` 表 + 独立语义模型，**不取自仿真**；变异实验证明程序能分辨。
+> 两者合起来才构成 G3 的证据，单有"跑过了 PASS"只是自证。
 
 ## 消融 + 综合（报告素材）
 

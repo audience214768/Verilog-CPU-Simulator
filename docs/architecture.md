@@ -2,16 +2,18 @@
 
 > 本文件是**设计规格**：设计决策、参数表、时序约定、模块接口、握手协议、正确性陷阱清单，
 > 以及**面向官方框架的目标架构**（`student_top` / AXI4-Lite / Cache / MMIO 终止 —— 其中
-> `student_top` + AXI4-Lite + MMIO 终止**已实现**（`docs/plan.md` §14），Cache 与 DIV/REM 仍待实现）。
+> `student_top` + AXI4-Lite + MMIO 终止**已实现**（`docs/plan.md` §14），
+> DIV/DIVU/REM/REMU 亦已实现（多周期，`docs/plan.md` §15.10），**只剩 Cache 待实现**）。
 > 改 RTL 前先对照本文；RTL 与本文不一致时以本文为基准并同步更新。
 > 过程记录 / 阶段计划 / debug 台账 / 消融矩阵在 `docs/plan.md`；
 > 评测口径一律以 `docs/description.md` 为准（该文件只由用户手动修改）。
 
 ## 背景 (Context)
 
-verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**19 个模块已全部实现**，且**官方链路已打通**（`student_top` + AXI4-Lite，`make build` 通过、
-`correctness_add_to_100` 官方镜像 PASS；单元 TB 14 个全绿）。仍未实现的是 DIV/REM 与 LB/LBU/LH/LHU
-（⇒ 官方 19 个正确性程序里 17 个失败，归因见 `docs/plan.md` §14.4）。本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
+verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**`verilog/filelist.f` 里 23 个模块已全部实现**，且**官方链路已打通**（`student_top` + AXI4-Lite，`make build` 通过、
+`correctness_add_to_100` 官方镜像 PASS；单元 TB 15 个全绿，`make test` 19/19 PASS）。**RV32IM 指令集已补齐**
+（DIV/DIVU/REM/REMU 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）；仍未实现的是 **Cache**。
+本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
 
 需求（**以 `docs/description.md` 为准**，该文件只由用户手动修改；本节及全文的指标口径随其更新）。
 以下按 description.md 的**章节名**索引（旧文档用的行号指针已随该文件改版全部失效）：
@@ -111,10 +113,30 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | name | dir | width | 说明 |
 |---|---|---|---|
 | `a, b` | in | 32 | 操作数/立即数 |
-| `op[4:0]` | in | 5 | 14 种：add sub sll slt sltu xor srl sra or and mul mulh mulhsu mulhu |
+| `op[4:0]` | in | 5 | 0..9 逻辑/移位、10..13 乘法。**14..17 = div/divu/rem/remu 仅占位**（返回 0）：除法走多周期 `div.v`，执行槽对 div 置 `exec_valid=0`，占位只为"别落到 default 别名成 MULHU" |
 | `result[31:0]` | out | 32 | 组合结果（mul 低/高半按 op 选择） |
 
-内部实例化 adder32（add/sub/slt 差分校准）+ mul（`a_signed=(op==mulh‖op==mulhsu)`，`b_signed=(op==mulh)`）；移位/逻辑用 `?:`。**LUI/AUIPC 由 cpu_top 映射为 add**（a=0/pc，b=imm），alu 无需 pc 输入。
+内部实例化 adder32（add/sub/slt 差分校准）+ mul（`a_signed=(op==mulh‖op==mulhsu)`，`b_signed=(op==mulh)`）；移位/逻辑用 `?:`。**LUI/AUIPC 由 cpu_top 映射为 add**（a=0/pc，b=imm），alu 无需 pc 输入。乘法器输入由 `sel_prod = (op>=10) && (op<=13)` 门控——不收窄到 13 的话，除法占位编码会把整棵华莱士树重新点燃，白白加长执行级路径。
+
+### exec/div.v — 多周期（33 拍），参数 `PRF_SIZE`/`ROB_SIZE`
+| name | dir | width | 说明 |
+|---|---|---|---|
+| `start_valid` | in | 1 | 发起请求；**上层保证 `busy` 期间不再拉起**（靠不释放 RS 条目） |
+| `start_op[1:0]` | in | 2 | = func3[1:0]：0=div 1=divu 2=rem 3=remu |
+| `start_a, start_b` | in | 32 | 被除数 / 除数 |
+| `start_prd` | in | PW | 目的物理寄存器 |
+| `start_rob_tag` | in | RW | ROB 条目号 |
+| `kill` | in | 1 | 作废**在飞**的那一发（判据见 `docs/plan.md` §15.10.3） |
+| `busy` | out | 1 | 忙；此间 `start_valid` 被忽略 |
+| `busy_rob_tag` | out | RW | 在飞那发的 rob_tag（发起当拍其 RS 条目已释放，cpu_top 侧无别的副本） |
+| `done_valid` | out | 1 | 完成脉冲（**恰好**发起后 33 拍） |
+| `done_prd` / `done_rob_tag` / `done_result` | out | PW / RW / 32 | 随 `done_valid` 有效 |
+
+radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代后按符号修正；恢复式 `R ∈ [0,|b|)`
+⇒ `Rs = {R, A[31]}` 33 位**无符号**即可，无末尾修正步。除零（`b==0` → 商全 1 / 余 = 被除数）与
+`INT_MIN/-1` 需显式 mux。**为什么不做单周期**：`mul` 自身 F2F 已 2.0879 ns（`docs/plan.md` §13.5），
+32 级借位链叠上去必破 300 MHz 硬性前提。`kill` 判据写成 `kill && busy_r`——空闲时不得吞掉同拍的新
+`start`（那条指令的 RS 条目已被上层清掉，漏收即永久死锁）。
 
 ### exec/branch.v — 纯组合，无参数
 | name | dir | width | 说明 |
@@ -292,11 +314,15 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 |---|---|---|---|---|
 | `exec_valid[W-1:0], exec_prd[W*PW-1:0], exec_result[W*32-1:0], exec_rob_tag[W*RW-1:0], exec_rob_wr[W-1:0]` | in | (1+PW+32+RW+1)×W | cpu_top（执行槽） | 生产者 A |
 | `load_valid, load_prd, load_result, load_rob_tag, load_rob_wr` | in | 1+PW+32+RW+1 | lsq.v（load 完成） | 生产者 B（每周期 ≤1 个） |
-| `prf_valid[W:0], prf_preg[(W+1)*PW-1:0], prf_data[(W+1)*32-1:0]` | out | (W+1)/PW/32 ×(W+1) | prf.v | 写回口 |
+| `div_valid, div_prd, div_result, div_rob_tag` | in | 1+PW+32+RW | div.v（除法完成） | 生产者 C（每周期 ≤1 个；隐含 `rob_wr=1`，除法必写 rd） |
+| `prf_valid[W+1:0], prf_preg[(W+2)*PW-1:0], prf_data[(W+2)*32-1:0]` | out | (W+2)/PW/32 ×(W+2) | prf.v | 写回口 |
 | `rt_set_req[PRF_SIZE]` | out | PRF_SIZE | ready_table.v | 置位掩码 |
 | `rob_ready_req[ROB_SIZE]` | out | ROB_SIZE | rob.v | ROB ready 掩码（`rob_wr` 槽按 tag 置位） |
 
-内部全部 `assign`（prd==0 的槽不写 PRF 不置 ready；rob_wr 槽置 ROB）。槽 0..W-1 = 执行，槽 W = load。
+内部全部 `assign`（prd==0 的槽不写 PRF 不置 ready；rob_wr 槽置 ROB）。槽 `0..W-1` = 执行，槽 `W` = load，槽 `W+1` = 除法完成。
+
+> 槽 `W`/`W+1` **不参与同拍旁路**：`ready_table` 是寄存器，被唤醒的依赖者最早下拍才被选中，那时 PRF 已写入 ⇒ 除法结果经 PRF 消费即可，`rs.v`/`execute_slot.v` 的 `cdb_slot_valid`/`cdb_tag` 宽度**不变**。
+> 除法**不与 load 共用**槽 `W`：load 完成是组合脉冲、不可延迟 ⇒ 只能 load 优先 ⇒ 除法在 load 密集循环里会被长期饿死。
 
 ### core/lsq.v
 | name | dir | width | 驱动方 | 说明 |
@@ -422,7 +448,8 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 ## 目标架构：官方框架对接（Phase C 规格）
 
 > 本节是**目标规格 + 实现记录**。**C2/C3/C4 已实现**（`student_top` + AXI4-Lite + MMIO 停机，
-> 过程与验收见 `docs/plan.md` §14）；**仍未实现**：C1（DIV/DIVU/REM/REMU、LB/LBU/LH/LHU）、
+> 过程与验收见 `docs/plan.md` §14）；**C1 的 DIV/DIVU/REM/REMU 亦已实现**（多周期，
+> 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）；**仍未实现**：
 > C6（Cache）、C7（清掉 `core/memory.v`）、C8b（真核面积基线）。
 > 凡标「**已验证**」的条目都出自对官方框架源码/文档的实读（`scripts/sim.cpp`、`fakeram.py`、
 > `synth.py`、`docs/{axi4-lite,sram}.md`，快照 `/tmp/cpu2026-fw`，上游 main `54fc150`）；
@@ -437,7 +464,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | 内存 | 片上 `core/memory.v`，`MEM_SIZE=65536`、`$readmemh` 装载 | 外部 256 MiB AXI4-Lite 从机，**`memory.v` 退役**（不进 `verilog/filelist.f`）—— **现状**：`student_top` 已不例化它，但仍在 `filelist.f` 里供 TB 复用，待 C7 摘除 |
 | 延迟 | `MEM_LATENCY=3`（参数化倒计时） | 从机固定语义：最快"握手后下一拍被服务"，服务到响应 **10 拍**（`LATENCY` 默认值） |
 | 终止 | `ori x0,x0,255` + `ret_val = a0[7:0]` | 向 MMIO `0x80000000` 做 32 位 store，退出值 = `WDATA[31:0]`（由总线侧读取） |
-| ISA | 缺 DIV/DIVU/REM/REMU（静默 NOP）；无 LB/LBU/LH/LHU | **全 RV32IM**；LB/LBU/LH/LHU 必须实现 |
+| ISA | ~~缺 DIV/DIVU/REM/REMU（静默 NOP）；无 LB/LBU/LH/LHU~~ → **已补齐**（C1，`docs/plan.md` §15.10） | **全 RV32IM**；LB/LBU/LH/LHU 必须实现 |
 | 参数化 | W / ROB / RS / PRF / LSQ / BHT / RAS | 追加 **Cache 容量与相联度**（官方明列） |
 | 面积 | `synth/cpu.ys` 直跑 Yosys，内存当黑盒 | `make synth`（Yosys+ABC+OpenSTA，`CLOCK_PERIOD_NS=2.0`），**SRAM 估算面积计入** |
 
@@ -446,7 +473,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 ```
 student_top                      ← 官方要求的顶层；复位取反 + 例化 + 端口对接   【已实现】
 ├── cpu_top                      ← 乱序核（存储侧端口已外露，其余不动）
-│   └── 现有 19 个模块            ← 除 decode.v（补 div/rem 与子字访存）外不改
+│   └── 现有 19 个模块            ← decode/execute_slot/alu/cdb/prf/cpu_top 已按 C1 改动（div.v 为新增）
 └── mem_subsystem                ← 存储子系统                              【已实现】
     ├── 取指预取窗口 (ifetch)     ← 直接映射、每格 {tag,data,valid}；未来 I-cache 在它上面长
     ├── load 适配                ← 子字抽取 + 按序记账（LD_INFLIGHT 上限）
@@ -615,6 +642,9 @@ tr: R 到达并捕获（= t1 的快照，不含 S）
 - **新增（Phase C，见上文「目标架构」）**：verilog/top/student_top.v、verilog/core/{icache,dcache,store_queue,axi_lite_master,mem_subsystem}.v；
   修改：cpu_top.v（内存侧端口 + MMIO 终止）、decode.v（div/rem + LB/LBU/LH/LHU 解码）、lsq.v（只改接口对接，合并语义不动）；
   退役：core/memory.v（移出 `verilog/filelist.f`，留作本地回归后端）
+- **新增（C1，见 `docs/plan.md` §15.10）**：verilog/exec/div.v（多周期除法器）、tb/exec/tb_div.v、tb/top/div_corner.{s,data} + 两个脚本；
+  修改：decode.v（div/rem 译码）、execute_slot.v（is_div / 发起请求 / exec_valid 门控）、alu.v（sel_prod 收窄 + default 显式 0）、
+  cdb.v + prf.v（写回口 +1 → 槽 W+1）、cpu_top.v（div 例化 + 发起仲裁 + kill 判据）、verilog/filelist.f
 - 官方框架（根目录，**勿改**）：Makefile、config.mk、scripts/、docs/{axi4-lite,sram}.md、testcases/（submodule）；
   本机工具链路径写 `config.local.mk`（已 gitignore），用 `make CONFIG=config.local.mk <target>`
 - 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp
