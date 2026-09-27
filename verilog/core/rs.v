@@ -86,7 +86,7 @@ module rs #(
     wire [ISSUE_WIDTH * SRW - 1 : 0] pidx;         // push 分配条目
     wire [ISSUE_WIDTH - 1 : 0] pvalid_w;           // 分配有效
 
-    genvar ge, gj, gk;
+    genvar ge, gj, gk, gn;
 
     // ---- 就绪: prs==0 || load 完成广播命中 || rt_ready ----
     // 执行槽广播 (组合 = sel_valid) 不参与就绪判断: 会形成
@@ -105,36 +105,52 @@ module rs #(
         end
     endgenerate
 
-    // ---- W 级年龄仲裁: 级 k 状态链 {v, age, idx}, 候选排除前级选中 ----
-    // psel[k][e] = 级 k 扫描时条目 e 已被更早级选中
+    // ---- W 级年龄仲裁: **锦标赛树** (原为逐条目线性扫描) ----
+    // 原实现按 ge = 0..RS_SIZE-1 **串行递推** st_prev, 深度 O(RS_SIZE);
+    // 求 (valid, age) 的全序最小值满足结合律 ⇒ 可以做成树, 深度降到 O(log2 RS_SIZE)。
+    // **比较器个数不变** (两者都是 RS_SIZE-1 个), 面积基本持平; RS_SIZE=16 时 16 级 → 4 级。
+    // 平局取**低条目号** (对齐原实现的"同年龄低槽赢"): 每个节点的左子树覆盖更小的 ge,
+    // 判据写成「右胜 = 右有效 && (左无效 || 右年龄更老)」即自动把平局留给左边。
+    // 堆式布局: 叶 ge → 节点 (NP-1+ge); 内部节点 i 的子为 2i+1 / 2i+2; 根 = 节点 0。
+    // 叶数补齐到 NP = 2^ceil(log2 RS_SIZE), 补齐叶恒无效 (RS_SIZE=16 时无补齐)。
+    // psel[k][e] = 槽 k 仲裁时条目 e 已被更早的槽选中 (槽间互斥, 仍是 W 级串行, 与树无关)
+    localparam NP = 1 << $clog2(RS_SIZE);       // 补齐后的叶数 (2 的幂)
+    localparam NODES = 2 * NP - 1;              // 每槽的树节点总数 (NP 叶 + NP-1 内部)
     wire [ISSUE_WIDTH * RS_SIZE - 1 : 0] psel;
-    wire [ISSUE_WIDTH * RS_SIZE * STW - 1 : 0] ast;
+    wire [ISSUE_WIDTH * NODES * STW - 1 : 0] tst;
     generate
         for (gk = 0; gk < ISSUE_WIDTH; gk = gk + 1) begin : arb
-            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : slt
-                // 前级选中掩码 (级 0 无)
-                if (gk == 0) begin : p0
-                    assign psel[0 * RS_SIZE + ge] = 1'b0;
-                end else begin : pn
-                    // 级 gk-1 的选中: sel_idx_w[gk-1] 与末级有效
-                    wire onehot = sel_valid_w[gk - 1] && (sel_idx_w[(gk - 1) * SRW +: SRW] == ge);
-                    assign psel[gk * RS_SIZE + ge] = psel[(gk - 1) * RS_SIZE + ge] || onehot;
+            // --- 叶: 候选状态 {v, age, idx}; 非候选给全 0 (即"无效") ---
+            for (ge = 0; ge < NP; ge = ge + 1) begin : lf
+                if (ge < RS_SIZE) begin : ok
+                    // 前级选中掩码 (槽 0 无)
+                    if (gk == 0) begin : p0
+                        assign psel[0 * RS_SIZE + ge] = 1'b0;
+                    end else begin : pn
+                        // 槽 gk-1 的选中: sel_idx_w[gk-1] 与末级有效
+                        wire onehot = sel_valid_w[gk - 1] && (sel_idx_w[(gk - 1) * SRW +: SRW] == ge[SRW - 1 : 0]);
+                        assign psel[gk * RS_SIZE + ge] = psel[(gk - 1) * RS_SIZE + ge] || onehot;
+                    end
+                    // 候选: 就绪 && 未被前级选中 && 未 flush
+                    wire cand = ready_e_w[ge] && !flush_mask[ge] && !psel[gk * RS_SIZE + ge];
+                    assign tst[(gk * NODES + NP - 1 + ge) * STW +: STW]
+                         = cand ? {1'b1, age_pack[ge * RW +: RW], ge[SRW - 1 : 0]}
+                                : {(1 + RW + SRW){1'b0}};
+                end else begin : pad
+                    // 补齐叶 (RS_SIZE 非 2 的幂时才有): 恒无效, 永不入选
+                    assign tst[(gk * NODES + NP - 1 + ge) * STW +: STW] = {(1 + RW + SRW){1'b0}};
                 end
-                // 候选: 就绪 && 未被前级选中 && 未 flush
-                wire cand = ready_e_w[ge] && !flush_mask[ge] && !psel[gk * RS_SIZE + ge];
-                // 状态递推
-                wire [STW - 1 : 0] st_prev = (ge == 0)
-                    ? {(1 + RW + SRW){1'b0}}
-                    : ast[((gk * RS_SIZE) + ge - 1) * STW +: STW];
-                wire better = !st_prev[STW - 1]
-                    || (age_pack[ge * RW +: RW] < st_prev[SRW +: RW])
-                    || ((age_pack[ge * RW +: RW] == st_prev[SRW +: RW]) && (ge < st_prev[SRW - 1 : 0]));
-                assign ast[(gk * RS_SIZE + ge) * STW +: STW]
-                     = (cand && better) ? {1'b1, age_pack[ge * RW +: RW], ge[SRW - 1 : 0]} : st_prev;
             end
-            // 级输出: 末级 (e = RS_SIZE-1) 状态
-            assign sel_valid_w[gk] = ast[(gk * RS_SIZE + RS_SIZE - 1) * STW + STW - 1];
-            assign sel_idx_w[gk * SRW +: SRW] = ast[(gk * RS_SIZE + RS_SIZE - 1) * STW +: SRW];
+            // --- 内部节点: 自底向上两两归并 (连续赋值与书写顺序无关) ---
+            for (gn = 0; gn < (NP - 1); gn = gn + 1) begin : nd
+                wire [STW - 1 : 0] lst = tst[(gk * NODES + 2 * gn + 1) * STW +: STW];
+                wire [STW - 1 : 0] rst = tst[(gk * NODES + 2 * gn + 2) * STW +: STW];
+                assign tst[(gk * NODES + gn) * STW +: STW]
+                     = (rst[STW - 1] && (!lst[STW - 1] || (rst[SRW +: RW] < lst[SRW +: RW]))) ? rst : lst;
+            end
+            // --- 根 ---
+            assign sel_valid_w[gk] = tst[(gk * NODES) * STW + STW - 1];
+            assign sel_idx_w[gk * SRW +: SRW] = tst[(gk * NODES) * STW +: SRW];
         end
     endgenerate
 
