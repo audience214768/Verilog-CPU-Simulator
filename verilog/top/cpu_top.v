@@ -594,6 +594,34 @@ module cpu_top #(
                    && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
 
     // ==================== 5. 提交 (B6) ====================
+    // ---- 提交级读口: **one-hot + AND-OR** (原为 `rob_xxx_w[eidx * W +: W]`) ----
+    // 索引读综合出 32 选 1 的 mux 树, 索引**最低位落在最宽的一级**:
+    // 扇出 = 16 × (7 + 1 + PW + PW + LW + 32) = 16 × 56 = 896 (实测 900)。
+    // 官方 abc 无 `-constr` ⇒ 不做 buffer/upsize (§15.10.8), 那一级实测 4.67 ns = 关键路径的 23%。
+    // 改成: 先把 6 个字段按条目**重排**成 cmt_ent[ge][CTW] (纯连线, 不产生门),
+    // 再把 eidx 译成 one-hot 后逐位 AND-OR ⇒ 每条 one-hot 只驱动 CTW 个 AND, 峰值扇出 896 → 56。
+    // 面积持平 (mux ≈ 2 门/位/级 vs AND2 + OR2 ≈ 2 门), 深度 31 级 → ~9 级。
+    // 注: 不能只把 mux 换成 one-hot 就完事 —— 它选出的 cmt_lsq 又当下游 LSQ 读口的索引,
+    //     原样传下去等于把 16 × 66 = 1056 的扇出留在原地; 故 LSQ 三个读口同样 one-hot 化 (见下)。
+    localparam CTW = 7 + 1 + PW + PW + LW + 32;      // 提交级要读的 ROB 字段合计位宽
+    // 各字段在打包总线里的起始位 (逐行累加, 行尾注释即该字段宽度; 与下面拼接顺序一一对应)
+    localparam CO_CK  = 0;                           // : 7
+    localparam CO_RDY = CO_CK  + 7;                  // : 1
+    localparam CO_NEW = CO_RDY + 1;                  // : PW
+    localparam CO_OLD = CO_NEW + PW;                 // : PW
+    localparam CO_LSQ = CO_OLD + PW;                 // : LW
+    localparam CO_RAW = CO_LSQ + LW;                 // : 32
+    wire [ROB_SIZE * CTW - 1 : 0] cmt_ent;
+    genvar gc, gb;
+    generate
+        for (gc = 0; gc < ROB_SIZE; gc = gc + 1) begin : cpack
+            assign cmt_ent[gc * CTW +: CTW] = {
+                rob_raw_w[gc * 32 +: 32], rob_lsq_w[gc * LW +: LW],
+                rob_old_w[gc * PW +: PW], rob_new_w[gc * PW +: PW],
+                rob_ready_w[gc], rob_opcode_w[gc * 7 +: 7] };
+        end
+    endgenerate
+
     wire [ISSUE_WIDTH - 1 : 0] ce_w, is_store_w, is_memop_w, cmt_push_v, marker_acc;
     wire [ISSUE_WIDTH * PW - 1 : 0] cmt_push_p;
     wire [ISSUE_WIDTH * 32 - 1 : 0] sw_addr_c, sw_data_c;
@@ -601,26 +629,45 @@ module cpu_top #(
     generate
         for (c = 0; c < ISSUE_WIDTH; c = c + 1) begin : cmt
             wire [RW - 1 : 0] eidx = rob_head_w + c;                    // 回绕
-            assign is_store_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h23);
-            assign is_memop_w[c] = (rob_opcode_w[eidx * 7 +: 7] == 7'h03) || is_store_w[c];
+            // 本槽的 ROB 字段取: one-hot 译码 eidx → 逐位 AND-OR (置换了原来 6 处 `rob_xxx_w[eidx * W +: W]`)
+            wire [ROB_SIZE - 1 : 0] cmt_oh;
+            wire [CTW - 1 : 0] cmt_sel;
+            for (gc = 0; gc < ROB_SIZE; gc = gc + 1) begin : cod
+                assign cmt_oh[gc] = (eidx == gc[RW - 1 : 0]);
+            end
+            for (gb = 0; gb < CTW; gb = gb + 1) begin : cor
+                wire [ROB_SIZE - 1 : 0] m;
+                for (gc = 0; gc < ROB_SIZE; gc = gc + 1) begin : e
+                    assign m[gc] = cmt_ent[gc * CTW + gb] & cmt_oh[gc];
+                end
+                assign cmt_sel[gb] = |m;
+            end
+            wire [6 : 0]      cmt_opc = cmt_sel[CO_CK  +: 7];
+            wire              cmt_rdy = cmt_sel[CO_RDY];
+            wire [PW - 1 : 0] cmt_new = cmt_sel[CO_NEW +: PW];
+            wire [PW - 1 : 0] cmt_old = cmt_sel[CO_OLD +: PW];
+            wire [LW - 1 : 0] cmt_lsq = cmt_sel[CO_LSQ +: LW];
+            wire [31 : 0]     cmt_raw = cmt_sel[CO_RAW +: 32];
+            assign is_store_w[c] = (cmt_opc == 7'h23);
+            assign is_memop_w[c] = (cmt_opc == 7'h03) || is_store_w[c];
             // store 提交需下游队列有空位 (sw_ready=0 ⇒ 该槽不提交, 整批到此截断, 不产生任何副作用);
             // store 截断批 ⇒ 一批至多一个 store ⇒ 这条门控等价于"整批是否被压住"
             wire sw_ok_w = sw_ready || !is_store_w[c];
             if (c == 0) begin : ce0
                 // misp 拍禁提交: rob 内 set_last 优先于 set_head (head 不前进), 但提交副作用
                 // (free_list 回收 / RAT arch / 计数) 已发生 → 同一条目会再提交一次, free_list 出重
-                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && rob_ready_w[rob_head_w]
+                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && cmt_rdy
                                  && sw_ok_w;
             end else begin : cen
-                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && rob_ready_w[eidx]  // store 截断批
+                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && cmt_rdy  // store 截断批
                                  && sw_ok_w;
             end
             assign com_acc[(c + 1) * 3 +: 3] = com_acc[c * 3 +: 3] + ce_w[c];
             // free_list 回收: new_pnum!=0 才 push old_pnum
-            assign cmt_push_v[c] = ce_w[c] && (rob_new_w[eidx * PW +: PW] != 0);
-            assign cmt_push_p[c * PW +: PW] = rob_old_w[eidx * PW +: PW];
+            assign cmt_push_v[c] = ce_w[c] && (cmt_new != 0);
+            assign cmt_push_p[c * PW +: PW] = cmt_old;
             // memop 提交 → lsq 条目失效
-            wire [LW - 1 : 0] cmt_lsq_tag = rob_lsq_w[eidx * LW +: LW];
+            wire [LW - 1 : 0] cmt_lsq_tag = cmt_lsq;
             // one-hot 掩码链 (iverilog: 连续赋值 LHS 位选择须常量索引)
             wire [LSQ_SIZE - 1 : 0] inv_one = (ce_w[c] && is_memop_w[c])
  ? ({{(LSQ_SIZE - 1){1'b0}}, 1'b1} << cmt_lsq_tag) : {LSQ_SIZE{1'b0}};
@@ -630,9 +677,35 @@ module cpu_top #(
                 assign inv_c[c * LSQ_SIZE +: LSQ_SIZE] = inv_c[(c - 1) * LSQ_SIZE +: LSQ_SIZE] | inv_one;
             end
             // store 直写 (≤1/批: 截断保证; OR-reduce 链)
-            wire [31 : 0] sw_a = (ce_w[c] && is_store_w[c]) ? lsq_addr_w[rob_lsq_w[eidx * LW +: LW] * 32 +: 32] : 32'd0;
-            wire [31 : 0] sw_d = (ce_w[c] && is_store_w[c]) ? lsq_data_w[rob_lsq_w[eidx * LW +: LW] * 32 +: 32] : 32'd0;
-            wire [1 : 0]  sw_w = (ce_w[c] && is_store_w[c]) ? lsq_width_w[rob_lsq_w[eidx * LW +: LW] * 2 +: 2] : 2'd0;
+            // LSQ 三个读口同样 one-hot + AND-OR: 索引 cmt_lsq 直接落到 16 选 1 mux 的最宽一级
+            // ⇒ 扇出 = 8 × (32 + 32 + 2) = 528。把"是否本拍提交的 store"折进 one-hot 里,
+            // 未提交时全 0 ⇒ OR 结果天然为 0, 与原 `? : 32'd0` 等价且省掉末级 mux。
+            wire lsq_rd_en = ce_w[c] && is_store_w[c];
+            wire [LSQ_SIZE - 1 : 0] lsq_oh;
+            for (gc = 0; gc < LSQ_SIZE; gc = gc + 1) begin : lod
+                assign lsq_oh[gc] = lsq_rd_en && (cmt_lsq == gc[LW - 1 : 0]);
+            end
+            wire [31 : 0] sw_a, sw_d;
+            wire [1 : 0]  sw_w;
+            for (gb = 0; gb < 32; gb = gb + 1) begin : lor
+                wire [LSQ_SIZE - 1 : 0] ma, md;
+                for (gc = 0; gc < LSQ_SIZE; gc = gc + 1) begin : e
+                    wire [31 : 0] ent_a = lsq_addr_w[gc * 32 +: 32];
+                    wire [31 : 0] ent_d = lsq_data_w[gc * 32 +: 32];
+                    assign ma[gc] = ent_a[gb] & lsq_oh[gc];
+                    assign md[gc] = ent_d[gb] & lsq_oh[gc];
+                end
+                assign sw_a[gb] = |ma;
+                assign sw_d[gb] = |md;
+            end
+            for (gb = 0; gb < 2; gb = gb + 1) begin : loww
+                wire [LSQ_SIZE - 1 : 0] mw;
+                for (gc = 0; gc < LSQ_SIZE; gc = gc + 1) begin : e
+                    wire [1 : 0] ent_w = lsq_width_w[gc * 2 +: 2];
+                    assign mw[gc] = ent_w[gb] & lsq_oh[gc];
+                end
+                assign sw_w[gb] = |mw;
+            end
             if (c == 0) begin : sw0
                 assign sw_addr_c[0 * 32 +: 32]  = sw_a;
                 assign sw_data_c[0 * 32 +: 32]  = sw_d;
@@ -642,8 +715,7 @@ module cpu_top #(
                 assign sw_data_c[c * 32 +: 32]  = sw_data_c[(c - 1) * 32 +: 32] | sw_d;
                 assign sw_width_c[c * 2 +: 2]   = sw_width_c[(c - 1) * 2 +: 2] | sw_w;
             end
-            assign marker_acc[c] = ce_w[c] && ((rob_raw_w[eidx * 32 +: 32] == TERM_RAW)
-                                            || (rob_raw_w[eidx * 32 +: 32] == TERM_RAW2));
+            assign marker_acc[c] = ce_w[c] && ((cmt_raw == TERM_RAW) || (cmt_raw == TERM_RAW2));
         end
     endgenerate
     assign lsq_invalidate = inv_c[(ISSUE_WIDTH - 1) * LSQ_SIZE +: LSQ_SIZE];   // 末槽 chunk (链只写到 W-1)
