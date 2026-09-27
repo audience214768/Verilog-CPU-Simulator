@@ -10,6 +10,7 @@
 # --- exec (无参数) ---
 exec/adder32.v
 exec/mul.v
+exec/div.v
 exec/alu.v
 exec/branch.v
 exec/execute_slot.v
