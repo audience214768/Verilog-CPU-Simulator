@@ -18,9 +18,13 @@ module branch (
     wire [31 : 0] t_sum;                    // pc + imm
     wire [31 : 0] j_sum;                    // rs1 + imm
     wire [31 : 0] l_sum;                    // pc + 4
-    adder32 utgt (.a(pc),     .b(imm),  .cin(1'b0), .sum(t_sum), .cout());
-    adder32 ujal (.a(rs1),    .b(imm),  .cin(1'b0), .sum(j_sum), .cout());
-    adder32 ulnk (.a(pc),     .b(32'd4), .cin(1'b0), .sum(l_sum), .cout());
+    // 下面三个的进位输出**直接省略端口**, 不要写成 .cout() —— 显式连到空会把 Yosys 的
+    // opt_hier 弄崩 ("Port cout connected on instance ujal not found in module adder32"):
+    // opt_hier 会按实例特化 adder32, 特化后的变体没有 cout 端口, 而空连接仍引用它。
+    // 省略端口是等价的 (本来就不接), 但能跑通 ⇒ 官方 `make synth MODE=diagnose` 才可用。
+    adder32 utgt (.a(pc),     .b(imm),  .cin(1'b0), .sum(t_sum));
+    adder32 ujal (.a(rs1),    .b(imm),  .cin(1'b0), .sum(j_sum));
+    adder32 ulnk (.a(pc),     .b(32'd4), .cin(1'b0), .sum(l_sum));
 
     // 有符号小于: 异号看 rs1 符号位, 同号看差符号位; 无符号小于 = 借位
     wire slt_s = (rs1[31] && !rs2[31]) || (rs1[31] == rs2[31] && diff[31]);
