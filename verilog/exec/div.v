@@ -41,6 +41,8 @@ module div #(
     input                             kill,
     // ---- 状态 / 结果 ----
     output                            busy,
+    output [$clog2(ROB_SIZE) - 1 : 0] busy_rob_tag,   // 在飞那发的 rob_tag (上层算 kill 判据用;
+                                                      // 发起时其 RS 条目已释放, 无别的副本)
     output                            done_valid,
     output [$clog2(PRF_SIZE) - 1 : 0] done_prd,
     output [$clog2(ROB_SIZE) - 1 : 0] done_rob_tag,
@@ -125,6 +127,7 @@ module div #(
     wire [31 : 0] r_fix_w  = a_neg_r ? (~r_r + 32'd1) : r_r;
 
     assign busy         = busy_r;
+    assign busy_rob_tag = rob_r;
     assign done_valid   = done_r;
     assign done_prd     = prd_r;
     assign done_rob_tag = rob_r;

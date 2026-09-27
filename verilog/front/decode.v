@@ -15,11 +15,11 @@ module decode #(
     output [ISSUE_WIDTH * 7 - 1 : 0]  func7,
     output [ISSUE_WIDTH * 5 - 1 : 0]  rd, rs1, rs2,
     output [ISSUE_WIDTH * 32 - 1 : 0] imm,             // 6 种类型符号扩展
-    output [ISSUE_WIDTH - 1 : 0]    is_alu, is_mul, is_load, is_store,
+    output [ISSUE_WIDTH - 1 : 0]    is_alu, is_mul, is_div, is_load, is_store,
     output [ISSUE_WIDTH - 1 : 0]    is_branch, is_jal, is_jalr, is_lui, is_auipc,
     output [ISSUE_WIDTH - 1 : 0]    writes_rd,       // rd!=0 且非 store/branch
-    output [ISSUE_WIDTH * 2 - 1 : 0]  mem_width,       // 1/2/4 字节 (仅 lw → 4)
-    output [ISSUE_WIDTH - 1 : 0]    mem_unsigned     // load 无符号 (仅 lw → 0)
+    output [ISSUE_WIDTH * 2 - 1 : 0]  mem_width,       // 1/2/4 字节 (f3[1:0]: 00=1 01=2 10=4)
+    output [ISSUE_WIDTH - 1 : 0]    mem_unsigned     // load 无符号 (lb/lh 由 f3[2] 选)
 );
     genvar i;
     generate
@@ -48,6 +48,7 @@ module decode #(
 
             // ---- 合法性门: func3/func7 合规 (子集外的组合 → NOP) ----
             wire mul_f3_ok = (f3 == 3'd0) || (f3 == 3'd1) || (f3 == 3'd2) || (f3 == 3'd3);
+            wire div_f3_ok = (f3 == 3'd4) || (f3 == 3'd5) || (f3 == 3'd6) || (f3 == 3'd7);
             wire ld_f3_ok  = (f3 == 3'd0) || (f3 == 3'd1) || (f3 == 3'd2)
                           || (f3 == 3'd4) || (f3 == 3'd5);   // lb / lh / lw / lbu / lhu
             wire st_f3_ok  = (f3 == 3'd0) || (f3 == 3'd1) || (f3 == 3'd2);   // sb / sh / sw
@@ -64,6 +65,7 @@ module decode #(
                         || ((f7 == 7'b0100000) && ((f3 == 3'd0) || (f3 == 3'd5)));
             wire v_r     = cat_r   && r_ok;
             wire v_mul   = cat_r   && (f7 == 7'b0000001) && mul_f3_ok;
+            wire v_div   = cat_r   && (f7 == 7'b0000001) && div_f3_ok;
             wire v_i     = cat_i   && shift_ok;
             wire v_ld    = cat_ld  && ld_f3_ok;
             wire v_st    = cat_st  && st_f3_ok;
@@ -72,7 +74,7 @@ module decode #(
             wire v_jalr  = cat_jalr && jalr_ok;
             wire v_lui   = cat_lui;
             wire v_auipc = cat_auipc;
-            wire valid   = d_valid[i] && (v_r || v_mul || v_i || v_ld || v_st || v_br
+            wire valid   = d_valid[i] && (v_r || v_mul || v_div || v_i || v_ld || v_st || v_br
                                        || v_jal || v_jalr || v_lui || v_auipc);
 
             // ---- imm 符号扩展 (6 种; 仅按类别选一) ----
@@ -95,6 +97,7 @@ module decode #(
             assign imm[i * 32 +: 32]   = valid ? immx : 32'd0;
             assign is_alu[i]    = valid && v_r;
             assign is_mul[i]    = valid && v_mul;
+            assign is_div[i]    = valid && v_div;
             assign is_load[i]   = valid && v_ld;
             assign is_store[i]  = valid && v_st;
             assign is_branch[i] = valid && v_br;
@@ -104,7 +107,8 @@ module decode #(
             assign is_auipc[i]  = valid && v_auipc;
             // writes_rd: rd!=0 且写目的 (store/branch/非法/终止指令不写)
             assign writes_rd[i] = valid && (rd_eff != 5'd0)
-                               && (v_r || v_mul || v_i || v_ld || v_jal || v_jalr || v_lui || v_auipc);
+                               && (v_r || v_mul || v_div || v_i || v_ld
+                                || v_jal || v_jalr || v_lui || v_auipc);
             assign mem_width[i * 2 +: 2] = (v_ld || v_st) ? f3[1 : 0] : 2'd0;   // 00=1 01=2 10=4 字节
             assign mem_unsigned[i] = v_ld && f3[2];                            // lbu/lhu (f3 = 100/101)
         end

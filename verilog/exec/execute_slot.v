@@ -3,6 +3,8 @@
 // misp 汇出链 (最老优先 = 跨槽拓扑) 在 cpu_top: 本模块只输出 misp_det (=smisp)
 // 与 smisp 级 payload (misp_red/misp_fs/misp_ras), cpu_top 侧 1-bit 前缀 OR 链汇出
 // 槽 0 的 ret_sample 读口复用由 cpu_top override (rd1_preg mux)
+// div: 本槽只**发起** (div_start_req + op/a/b/prd/rob_tag); 33 拍后由 div.v 经 CDB 槽 W+1 回来,
+//      故 exec_valid 对它置 0 —— 否则会立刻广播一个垃圾 alu_result 并把 ROB 置就绪
 module execute_slot #(
     parameter ISSUE_WIDTH = 1,
     parameter RS_SIZE     = 16,
@@ -37,6 +39,12 @@ module execute_slot #(
     output [$clog2(PRF_SIZE) - 1 : 0]         exec_prd,
     output [31 : 0]                           exec_result,
     output [$clog2(ROB_SIZE) - 1 : 0]         exec_rob_tag,
+    // ---- 输出: 多周期除法发起 (结果不经本槽 ALU, 由 div.v 33 拍后经 CDB 槽 W+1 回) ----
+    output                                    div_start_req,
+    output [1 : 0]                            div_op,
+    output [31 : 0]                           div_a, div_b,
+    output [$clog2(PRF_SIZE) - 1 : 0]         div_prd,
+    output [$clog2(ROB_SIZE) - 1 : 0]         div_rob_tag,
     output                                    set_addr_req, set_data_req,
     output [$clog2(LSQ_SIZE) - 1 : 0]         set_addr_idx, set_data_idx,
     output [31 : 0]                           set_addr_val, set_data_val,
@@ -79,7 +87,9 @@ module execute_slot #(
     wire is_branch = (opcode == 7'h63);
     wire is_jal    = (opcode == 7'h6F);
     wire is_jalr   = (opcode == 7'h67);
-    wire is_mul    = is_r && (func7 == 7'h01);
+    // M 扩展: f7=0000001 且 f3[2]=0 → mul*, f3[2]=1 → div/rem (见 decode 的 mul/div_f3_ok)
+    wire is_mul    = is_r && (func7 == 7'h01) && (func3 <  3'd4);
+    wire is_div    = is_r && (func7 == 7'h01) && (func3 >= 3'd4);
     wire is_ctrl   = is_branch || is_jal || is_jalr;
     wire is_mem    = is_load || is_store;
 
@@ -119,9 +129,11 @@ module execute_slot #(
     wire [31 : 0] alu_a = is_lui ? 32'd0 : (is_auipc ? pc : op1);
     wire [31 : 0] alu_b = (is_lui || is_auipc || is_i || is_mem) ? imm : op2;
     // alu op 编码: 0=add 1=sub 2=sll 3=slt 4=sltu 5=xor 6=srl 7=sra 8=or 9=and 10..13=mul*
+    //              14..17 = div/divu/rem/remu 占位 (结果被 exec_valid=0 屏蔽, 只为不落 default)
     wire [4 : 0] alu_op = is_r ? (is_mul
  ? (func3 == 3'd0 ? 5'd10 : func3 == 3'd1 ? 5'd11
  : func3 == 3'd2 ? 5'd12 : 5'd13)
+ : is_div ? (5'd14 + {3'd0, func3[1 : 0]})
  : (func3 == 3'd0 ? (func7[5] ? 5'd1 : 5'd0)
  : func3 == 3'd1 ? 5'd2 : func3 == 3'd2 ? 5'd3
  : func3 == 3'd3 ? 5'd4 : func3 == 3'd4 ? 5'd5
@@ -141,11 +153,20 @@ module execute_slot #(
                  .mode(br_mode), .br_op(func3), .taken(br_taken),
                  .target(br_target), .link(br_link));
 
-    // ---- CDB 生产者 (load 槽排除: 其 prd 是"地址", 依赖者不得匹配) ----
-    assign exec_valid   = sel_valid && !is_load;
+    // ---- CDB 生产者 (load 槽排除: 其 prd 是"地址", 依赖者不得匹配;
+    //      div 同样排除: 多周期, 其完成走 CDB 槽 W+1, 本拍广播的 alu_result 是无意义的占位) ----
+    assign exec_valid   = sel_valid && !is_load && !is_div;
     assign exec_prd     = prd;
     assign exec_result  = is_ctrl ? br_link : alu_result;
     assign exec_rob_tag = rob_tag;
+
+    // ---- 除法发起: 仅"选中且非忙"时才真正被 div.v 收下 (cpu_top 侧门控) ----
+    assign div_start_req = sel_valid && is_div;
+    assign div_op        = func3[1 : 0];      // 0=div 1=divu 2=rem 3=remu
+    assign div_a         = op1;
+    assign div_b         = op2;
+    assign div_prd       = prd;
+    assign div_rob_tag   = rob_tag;
 
     // ---- 访存: 地址 = alu 结果, store 数据 = rs2 ----
     assign set_addr_req = sel_valid && is_mem;

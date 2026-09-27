@@ -1,5 +1,7 @@
 // 公共数据总线: 纯组合写回扇出 — PRF 写回 / ready_table 置位 / ROB ready 置位
-// 槽 0..W-1 = 执行 (cdb 无寄存器: 当拍旁路 + 当拍 posedge 写回), 槽 W = load 完成
+// 槽 0..W-1 = 执行 (cdb 无寄存器: 当拍旁路 + 当拍 posedge 写回), 槽 W = load 完成,
+// 槽 W+1 = div 完成。槽 W/W+1 **不参与同拍旁路** (rs/execute_slot 的 cdb_slot_valid 只到 W):
+// ready_table 是寄存器, 被唤醒的依赖者最早下一拍才被选中, 那时 PRF 已写入 ⇒ 无需旁路。
 // prd==0 的槽不写 PRF 不置 ready; rob_wr 槽按 rob_tag 置 ROB ready
 module cdb #(
     parameter ISSUE_WIDTH = 1,
@@ -18,10 +20,16 @@ module cdb #(
     input  [31 : 0]       load_result,
     input  [$clog2(ROB_SIZE) - 1 : 0]     load_rob_tag,
     input               load_rob_wr,
+    // 生产者 C: div 完成 (每周期 ≤1, 发起后 33 拍)。div 必写 rd (恒置 ROB ready),
+    // 故无 rob_wr 开关; rd==x0 时 prd==0 由 prd_nz 门控不写 PRF
+    input               div_valid,
+    input  [$clog2(PRF_SIZE) - 1 : 0]     div_prd,
+    input  [31 : 0]       div_result,
+    input  [$clog2(ROB_SIZE) - 1 : 0]     div_rob_tag,
     // 汇出: PRF 写回
-    output [ISSUE_WIDTH : 0]          prf_valid,
-    output [(ISSUE_WIDTH + 1) * $clog2(PRF_SIZE) - 1 : 0] prf_preg,
-    output [(ISSUE_WIDTH + 1) * 32 - 1 : 0] prf_data,
+    output [ISSUE_WIDTH + 1 : 0]      prf_valid,
+    output [(ISSUE_WIDTH + 2) * $clog2(PRF_SIZE) - 1 : 0] prf_preg,
+    output [(ISSUE_WIDTH + 2) * 32 - 1 : 0] prf_data,
     // 汇出: ready_table 置位掩码
     output [PRF_SIZE - 1 : 0] rt_set_req,
     // 汇出: ROB ready 置位掩码
@@ -44,6 +52,10 @@ module cdb #(
     assign prf_valid[ISSUE_WIDTH] = load_valid && (load_prd != {PW{1'b0}});
     assign prf_preg[ISSUE_WIDTH * PW +: PW] = load_prd;
     assign prf_data[ISSUE_WIDTH * 32 +: 32] = load_result;
+    // 槽 W+1: div 完成 (每周期 ≤1)
+    assign prf_valid[ISSUE_WIDTH + 1] = div_valid && (div_prd != {PW{1'b0}});
+    assign prf_preg[(ISSUE_WIDTH + 1) * PW +: PW] = div_prd;
+    assign prf_data[(ISSUE_WIDTH + 1) * 32 +: 32] = div_result;
 
     // rt_set_req / rob_ready_req: 独热译码后逐位归约 (assign 目标必须常量索引)
     function [PRF_SIZE - 1 : 0] dec_p;
@@ -84,7 +96,8 @@ module cdb #(
                 assign b[gx] = rt_slot[gx * PRF_SIZE + gr];
             end
             assign rt_set_req[gr] = |b
-                || (load_valid && (load_prd != {PW{1'b0}}) && (load_prd == gr));
+                || (load_valid && (load_prd != {PW{1'b0}}) && (load_prd == gr))
+                || (div_valid && (div_prd != {PW{1'b0}}) && (div_prd == gr));
         end
         for (gr = 0; gr < ROB_SIZE; gr = gr + 1) begin : rrm
             wire [ISSUE_WIDTH - 1 : 0] b;
@@ -92,7 +105,8 @@ module cdb #(
                 assign b[gx] = rr_slot[gx * ROB_SIZE + gr];
             end
             assign rob_ready_req[gr] = |b
-                || (load_valid && load_rob_wr && (load_rob_tag == gr));
+                || (load_valid && load_rob_wr && (load_rob_tag == gr))
+                || (div_valid && (div_rob_tag == gr));
         end
     endgenerate
 endmodule

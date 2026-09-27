@@ -3,6 +3,9 @@
 // 组合块: B2 发射(全批 or 不批) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
 //         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → verilog/exec/execute_slot.v
 //         误预测汇出链(最老优先)与 fetch 重定向/rob 截断/ras 恢复在此
+// 多周期除法: div 槽只发起 (载荷取槽 0), 33 拍后由 div.v 经 CDB 槽 W+1 写回; 在飞条目靠
+//         div_hold_w 扣住 RS (没被收下就不能清), 错路靠 div_kill 作废 —— 两者都是死锁/写坏
+//         空闲 preg 的关口, 见各自 assign 处注释
 module cpu_top #(
     parameter ISSUE_WIDTH  = 1,
     parameter ROB_SIZE     = 32,
@@ -77,6 +80,22 @@ module cpu_top #(
     wire [ISSUE_WIDTH * RA - 1 : 0]   misp_ras_pay_w;
     wire [ISSUE_WIDTH - 1 : 0]        br_inc_w;
     wire [ISSUE_WIDTH : 0]            misp_any_c;   // misp_det 前缀 OR (段值在 slt 内)
+    // div 发起 (载荷取槽 0 位段; 段值/门控在 slt 内, 实例在下方)
+    wire [ISSUE_WIDTH - 1 : 0]        div_req_w, div_hold_w;
+    wire [ISSUE_WIDTH * 2 - 1 : 0]    div_op_all;
+    wire [ISSUE_WIDTH * 32 - 1 : 0]   div_a_all, div_b_all;
+    wire [ISSUE_WIDTH * PW - 1 : 0]   div_prd_all;
+    wire [ISSUE_WIDTH * RW - 1 : 0]   div_rob_all;
+    wire                              div_go_w, div_kill;
+    wire                              div_busy, div_done_valid;
+    wire [RW - 1 : 0]                 div_fly_rob_tag;   // 在飞那发的 rob_tag (div.v 内部锁存)
+    wire [PW - 1 : 0]                 div_done_prd;
+    wire [RW - 1 : 0]                 div_done_rob_tag;
+    wire [31 : 0]                     div_done_result;
+    wire [1 : 0]                      div_op_w;
+    wire [31 : 0]                     div_a_w, div_b_w;
+    wire [PW - 1 : 0]                 div_prd_w;
+    wire [RW - 1 : 0]                 div_rob_w;
 
     // ==================== 1. 实例化区 ====================
 
@@ -105,7 +124,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH * 3 - 1 : 0]  d_func3;
     wire [ISSUE_WIDTH * 5 - 1 : 0]  d_rd, d_rs1, d_rs2;
     wire [ISSUE_WIDTH * 32 - 1 : 0] d_imm;
-    wire [ISSUE_WIDTH - 1 : 0] d_is_alu, d_is_mul, d_is_load, d_is_store, d_is_branch,
+    wire [ISSUE_WIDTH - 1 : 0] d_is_alu, d_is_mul, d_is_div, d_is_load, d_is_store, d_is_branch,
                            d_is_jal, d_is_jalr, d_is_lui, d_is_auipc,
                            d_writes_rd, d_mem_unsigned;
     wire [ISSUE_WIDTH * 2 - 1 : 0]  d_mem_width;
@@ -113,7 +132,8 @@ module cpu_top #(
         .raw(f2i_raw), .d_valid(f2i_valid),
         .opcode(d_opcode), .func3(d_func3), .func7(d_func7),
         .rd(d_rd), .rs1(d_rs1), .rs2(d_rs2), .imm(d_imm),
-        .is_alu(d_is_alu), .is_mul(d_is_mul), .is_load(d_is_load), .is_store(d_is_store),
+        .is_alu(d_is_alu), .is_mul(d_is_mul), .is_div(d_is_div),
+        .is_load(d_is_load), .is_store(d_is_store),
         .is_branch(d_is_branch), .is_jal(d_is_jal), .is_jalr(d_is_jalr),
         .is_lui(d_is_lui), .is_auipc(d_is_auipc),
         .writes_rd(d_writes_rd), .mem_width(d_mem_width), .mem_unsigned(d_mem_unsigned)
@@ -220,7 +240,10 @@ module cpu_top #(
         .flush_mask(rs_flush_mask)
     );
     // 执行槽清空 = 本拍选择结果 (rs 内部 posedge 应用)
-    assign rs_clear_valid = sel_valid;
+    // 例外: 本槽选中了 div 但**没被收下** (除法器忙 / 正在冲刷 / 让位给槽 0) 时条目必须扣住 ——
+    // 条目一清, 这条指令就再也不会被选中, 而它又没进除法器 ⇒ 永不执行 ⇒ 死锁。
+    // 扣住后它下一拍仍是同一条目 (rs 仲裁只看 ready/年龄), 会被重新选中。
+    assign rs_clear_valid = sel_valid & ~div_hold_w;
     assign rs_clear_idx   = sel_idx;
 
     // ---- ready_table / prf / cdb ----
@@ -233,9 +256,9 @@ module cpu_top #(
     );
     wire [ISSUE_WIDTH * 32 - 1 : 0] prf_d1, prf_d2;
     wire [ISSUE_WIDTH * PW - 1 : 0] rd1_preg, rd2_preg;
-    wire [ISSUE_WIDTH : 0]          cdb_prf_valid;
-    wire [(ISSUE_WIDTH + 1) * PW - 1 : 0] cdb_prf_preg;
-    wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] cdb_prf_data;
+    wire [ISSUE_WIDTH + 1 : 0]          cdb_prf_valid;
+    wire [(ISSUE_WIDTH + 2) * PW - 1 : 0] cdb_prf_preg;
+    wire [(ISSUE_WIDTH + 2) * 32 - 1 : 0] cdb_prf_data;
     prf #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_prf (
         .clk(clk), .rst_n(rst_n),
         .data_out1(prf_d1), .data_out2(prf_d2),
@@ -257,8 +280,29 @@ module cpu_top #(
         .exec_rob_tag(cdb_exec_rob_tag), .exec_rob_wr(cdb_exec_rob_wr),
         .load_valid(load_cdb_valid), .load_prd(load_cdb_prd), .load_result(load_cdb_result),
         .load_rob_tag(load_cdb_rob_tag), .load_rob_wr(load_cdb_rob_wr),
+        .div_valid(div_done_valid), .div_prd(div_done_prd),
+        .div_result(div_done_result), .div_rob_tag(div_done_rob_tag),
         .prf_valid(cdb_prf_valid), .prf_preg(cdb_prf_preg), .prf_data(cdb_prf_data),
         .rt_set_req(rt_set_req_w), .rob_ready_req(rob_ready_set_w)
+    );
+
+    // ---- div: 多周期除法器 (33 拍), 完成经 CDB 槽 W+1 ----
+    // 只有槽 0 能启动 (仲裁见 div_go_w 处) ⇒ 载荷取槽 0 位段。
+    // 没被收下时由 div_hold_w 扣住 RS 条目 (下一拍重选), 条目与发起严格一一对应 (丢 = 死锁)。
+    assign div_op_w  = div_op_all[0 +: 2];
+    assign div_a_w   = div_a_all[0 +: 32];
+    assign div_b_w   = div_b_all[0 +: 32];
+    assign div_prd_w = div_prd_all[0 +: PW];
+    assign div_rob_w = div_rob_all[0 +: RW];
+    div #(.PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_div (
+        .clk(clk), .rst_n(rst_n),
+        .start_valid(div_go_w), .start_op(div_op_w),
+        .start_a(div_a_w), .start_b(div_b_w),
+        .start_prd(div_prd_w), .start_rob_tag(div_rob_w),
+        .kill(div_kill),
+        .busy(div_busy), .busy_rob_tag(div_fly_rob_tag),
+        .done_valid(div_done_valid), .done_prd(div_done_prd),
+        .done_rob_tag(div_done_rob_tag), .done_result(div_done_result)
     );
 
     // ---- lsq / memory ----
@@ -377,6 +421,13 @@ module cpu_top #(
     assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
     assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
 
+    // ---- div 发起仲裁 (W>1: 只有槽 0 能启动) ----
+    // 只让槽 0 启动是安全的: rs.v 的 W 级年龄仲裁是**稠密前缀** (第 k 级能选出候选 ⇒ 第 k-1 级
+    // 必然也选出了), 所以槽 0 每拍都在推进 (启动或扣住后重选) ⇒ 高槽的 div 必然在有限拍内移到槽 0。
+    // 忙时/冲刷中一律不启动: 忙时启动会丢这一发 (其 RS 条目已清) ⇒ 死锁;
+    // 冲刷中启动则可能让错路 div 逃过 kill —— rs 失效掩码只在 walker 拍生效, 而 walker 可能当拍就走完。
+    assign div_go_w = div_req_w[0] && !div_busy && !flushing_r;
+
     // ---- 每槽胶水 ----
     generate
         for (s = 0; s < ISSUE_WIDTH; s = s + 1) begin : slt
@@ -444,6 +495,9 @@ module cpu_top #(
                 .rt_ready(rt_ready_w), .prf_d1(prf_d1[s * 32 +: 32]), .prf_d2(prf_d2[s * 32 +: 32]),
                 .cdb_slot_valid(cdb_slot_valid_w), .cdb_tag(cdb_tag_w),
                 .cdb_exec_result(cdb_exec_result), .load_cdb_result(load_cdb_result),
+                .div_start_req(div_req_w[s]), .div_op(div_op_all[s * 2 +: 2]),
+                .div_a(div_a_all[s * 32 +: 32]), .div_b(div_b_all[s * 32 +: 32]),
+                .div_prd(div_prd_all[s * PW +: PW]), .div_rob_tag(div_rob_all[s * RW +: RW]),
                 .rd1_preg(slot_rd1), .rd2_preg(rd2_preg[s * PW +: PW]),
                 .exec_valid(cdb_exec_valid[s]), .exec_prd(cdb_exec_prd[s * PW +: PW]),
                 .exec_result(cdb_exec_result[s * 32 +: 32]), .exec_rob_tag(cdb_exec_rob_tag[s * RW +: RW]),
@@ -462,6 +516,8 @@ module cpu_top #(
             end else begin : rd1plain
                 assign rd1_preg[s * PW +: PW] = slot_rd1;
             end
+            // div 请求被扣住 (没被除法器收下) ⇒ rs_clear 放过它, 条目留到下拍重选
+            assign div_hold_w[s] = div_req_w[s] && !((s == 0) && div_go_w);
             // CDB 标签/有效别名 (与 exec_valid 同源; load 槽由模块内排除)
             assign cdb_slot_valid_w[s] = cdb_exec_valid[s];
             assign cdb_tag_w[s * PW +: PW] = cdb_exec_prd[s * PW +: PW];
@@ -527,6 +583,15 @@ module cpu_top #(
                 && ((lsq_rob_tag_w[e * RW +: RW] - rob_head_w) > (fs_sel - rob_head_w));
         end
     endgenerate
+
+    // ==================== 4b. 在飞 div 的作废判据 ====================
+    // 与上面 rs/lsq 掩码严格同口径 ("年龄 > 生效冲刷点" ⇒ 错路), 但**每拍评估**而不是只在 walker 拍:
+    // 误预测当拍该 div 就已在飞 (乱序: 更老的误预测分支后执行), 拖到 walker 拍才杀会多浪费 1 拍,
+    // 且 walker 可能只走一拍 —— 那时掩码对"已不在 rs 里"的在飞 div 已无从下手。
+    // age 用 (tag - rob_head) 自然回绕比较: 在飞 div 必然未提交 (READY 未置), 故 age ∈ [0, ROB_SIZE)。
+    // 被杀的 div 不产生 done_valid, 也永远不会写 PRF/置 ready ⇒ 年龄比较不会越界。
+    assign div_kill = (misp_valid || flushing_r)
+                   && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
 
     // ==================== 5. 提交 (B6) ====================
     wire [ISSUE_WIDTH - 1 : 0] ce_w, is_store_w, is_memop_w, cmt_push_v, marker_acc;

@@ -1,6 +1,8 @@
 // ALU: 纯组合, 支持 RV32IM 的 14 种运算
 // op 编码: 0=add 1=sub 2=sll 3=slt 4=sltu 5=xor 6=srl 7=sra 8=or 9=and
 //          10=mul 11=mulh 12=mulhsu 13=mulhu
+//          14=div 15=divu 16=rem 17=remu —— 仅占位让 result 确定: 除法走多周期 div.v,
+//          执行槽对 div 置 exec_valid=0, 这四个编码只是"别落到 default 别名成 MULHU"
 // 内部实例化 adder32 (add/sub/slt/sltu 差分校准) + mul (2位Booth+华莱士树, 符号模式按 op)
 module alu (
     input  [31 : 0] a,
@@ -22,8 +24,8 @@ module alu (
     wire m_as = (op == 5'd11) || (op == 5'd12);
     wire m_bs = (op == 5'd11);
     // 非乘法 op 时把操作数钳到 0: mul 是纯组合的, 不门控则每拍都重算整棵华莱士树。
-    // 用 >= 而非枚举: result 的 default 分支取 product[63:32], 编码 14..31 也消费它
-    wire sel_prod = (op >= 5'd10);
+    // 必须收窄到 10..13: 除法占位编码 14..17 若也点燃华莱士树, 执行级路径白增一条乘法延迟
+    wire sel_prod = (op >= 5'd10) && (op <= 5'd13);
     mul umul (.a(sel_prod ? a : 32'd0), .b(sel_prod ? b : 32'd0),
               .a_signed(m_as), .b_signed(m_bs), .product(product));
 
@@ -44,5 +46,6 @@ module alu (
                   : (op == 5'd10) ? product[31 : 0]
                   : (op == 5'd11) ? product[63 : 32]
                   : (op == 5'd12) ? product[63 : 32]
-                  :                 product[63 : 32];
+                  : (op == 5'd13) ? product[63 : 32]
+                  :                 32'd0;         // 含除法占位 14..17 与非法编码
 endmodule
