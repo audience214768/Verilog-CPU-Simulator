@@ -289,6 +289,13 @@ module mem_subsystem #(
     endgenerate
 
     // 字节地址 pos 的最终值: 扫队列 (由老到新, 后者覆盖前者 ⇒ 最年轻胜) → AXI 原始字节
+    // ★ 遍历必须按**年龄** (队首 + 年龄, 模 SQ_DEPTH), 不能按槽号 0..SQ_DEPTH-1: 三指针是自由跑的
+    //   回绕计数器, 队列一旦绕过一圈, **低槽号反而是更年轻的条目** ⇒ 按槽号扫会让最老的 store 赢,
+    //   与"后写覆盖先写"正好相反 (载入结果被改写成一个过期值 —— 静默算错)。
+    //   触发要两个条件同时成立: ①队列已回绕 ②>=2 条存活条目覆盖同一字节。
+    //   lat=1 时 B 很快回来, 队列长期只占用 0~1 条 ⇒ 两个条件都难成立, 掩盖了缺陷;
+    //   lat>=2 队列开始驻留并回绕, 才被 qsort 那种"先大量 store 再读回"的模式压出来。
+    //   对照 lsq.v 的 merge_byte_f: 它用 (j - hd) & mask 显式算年龄取最大, 是同一个道理。
     // 状态一律作为参数传入 (iverilog 连续赋值中的函数不建立对模块级信号的事件依赖, 见 lsq.v 同款注释)
     //
     // ★ 这里**只**合并"已提交进队列"的 store, 不含本拍正在提交的那条。本拍提交的 store 由上层
@@ -304,29 +311,32 @@ module mem_subsystem #(
         input [SQ_DEPTH * 32 - 1 : 0] q_a, q_d;
         input [SQ_DEPTH * 2 - 1 : 0]  q_w;
         input [SQ_DEPTH - 1 : 0]      q_v;
+        input [SQ_IW - 1 : 0]         q_ret;        // 队首 (最老条目所在槽)
         input [7 : 0]                 raw;
         integer m;
+        reg [SQ_IW - 1 : 0] s;
         reg [31 : 0] q_addr;
         reg [7 : 0]  val;
         begin
             val = raw;
             for (m = 0; m < SQ_DEPTH; m = m + 1) begin
-                q_addr = q_a[m * 32 +: 32];
-                if (q_v[m] && (pos >= q_addr) && (pos < (q_addr + wd_bytes(q_w[m * 2 +: 2]))))
-                    val = q_d[m * 32 + (pos - q_addr) * 8 +: 8];
+                s = q_ret + m[SQ_IW - 1 : 0];      // 年龄 m ⇒ 槽号 (模 SQ_DEPTH, 截断即取模)
+                q_addr = q_a[s * 32 +: 32];
+                if (q_v[s] && (pos >= q_addr) && (pos < (q_addr + wd_bytes(q_w[s * 2 +: 2]))))
+                    val = q_d[s * 32 + (pos - q_addr) * 8 +: 8];
             end
             sq_merge_byte_f = val;
         end
     endfunction
 
     wire [7 : 0] ld_m0 = sq_merge_byte_f(ld_a_w + 32'd0,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[7 : 0]);
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[7 : 0]);
     wire [7 : 0] ld_m1 = sq_merge_byte_f(ld_a_w + 32'd1,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[15 : 8]);
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[15 : 8]);
     wire [7 : 0] ld_m2 = sq_merge_byte_f(ld_a_w + 32'd2,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[23 : 16]);
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[23 : 16]);
     wire [7 : 0] ld_m3 = sq_merge_byte_f(ld_a_w + 32'd3,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, ld_raw_w[31 : 24]);
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[31 : 24]);
 
     // 零扩展 (符号由 lsq.v:291-297 按 is_unsigned_r 做)
     assign ld_done_data = (ld_w_w == 2'b10) ? {ld_m3, ld_m2, ld_m1, ld_m0}

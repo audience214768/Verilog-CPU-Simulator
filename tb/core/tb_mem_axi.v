@@ -13,7 +13,8 @@
 //   * ★ 每个被接受的 load 恰好一个完成脉冲 (ld_busy 硬契约的两半: 不反悔 / 不重复不少给)
 //
 // 用例: T1 顺序取指 (含冷启动周期数) / T2 重定向与 tag 别名不错绑 / T3 load 各宽度与零扩展 /
-//       T4 store 各宽度 strb 与地址对齐 / T5 store→load 可见性竞态 (提交时刻扫描) / T6 复位打断
+//       T4 store 各宽度 strb 与地址对齐 / T5 store→load 可见性竞态 (提交时刻扫描) / T6 复位打断 /
+//       T7 队列回绕后的合并次序 (按年龄遍历, 不是按槽号)
 // 失败: N TESTS FAILED + $stop; 成功: ALL TESTS PASSED + $finish
 `timescale 1ns/1ps
 module tb_mem_axi;
@@ -36,6 +37,7 @@ module tb_mem_axi;
     localparam LA_BASE = 32'h0000_0200;            // load 区
     localparam SA_BASE = 32'h0000_0300;            // store 区
     localparam RA_BASE = 32'h0000_0500;            // 竞态区
+    localparam T7_BASE = 32'h0000_0680;            // 队列回绕区
 
     reg clk = 1'b0;
     wire rst_n;
@@ -677,6 +679,30 @@ module tb_mem_axi;
         expect(cap_ld_data === mem_word(LA_BASE + 32'd4), "T6 load after reset");
         expect(cap_ld_idx === 4'd3, "T6 index after reset");
         $display("PASS: T6 reset in the middle of traffic");
+
+        // ---- T7 队列回绕后的合并次序 ----
+        // sq_merge_byte_f 的三指针是**自由跑的回绕计数器**: 队列一旦绕过一圈, 低槽号反而是**更年轻**的
+        // 条目。若按槽号 0..SQ_DEPTH-1 扫、后者覆盖前者, 胜出的就是**最老**的 store ⇒ 载入被改写成
+        // 一个过期值 (静默算错)。正确口径是按年龄遍历 (队首 + 年龄), 与 lsq.v 的 (j - hd) 同源。
+        // 造法: 先让 5 条 store 走完全程 (wr=snd=ret=5), 再压住写通道推 6 条**同址** store
+        //       ⇒ wr=(5+6)%8=3 < ret=5, 即回绕态; 6 条压在同一字节上, 合并必须取**最后那条** (V5)。
+        do_reset();
+        imem_addr = FA_PARK;
+        for (k = 0; k < 5; k = k + 1)
+            st_push(T7_BASE + 32'd4 * k, 32'h1111_0000 + k, 2'b10);
+        sq_drain(120);
+        expect(dut.sq_ret_p === 3'd5, "T7 phase-1 pointers (precondition for the wrap)");
+        tb_hold_aw = 1'b1; tb_hold_w = 1'b1;      // 写落不到从机 ⇒ 队列驻留, 从机上仍是旧值
+        for (k = 0; k < 6; k = k + 1)
+            st_push(T7_BASE, 32'h7A00_0000 + k, 2'b10);
+        expect(dut.sq_ret_p === 3'd5, "T7 wrap: ret pointer moved while the channel is held");
+        expect(dut.sq_wr_p  === 3'd3, "T7 wrap: wr pointer (ret > wr = wrapped)");
+        ld_push(T7_BASE, 2'b10, 4'd2); ld_wait(80);
+        expect(cap_ld_data === 32'h7A00_0005, "T7 wrapped queue must yield the youngest store");
+        tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
+        sq_drain(160);
+        expect(mem_word(T7_BASE) === 32'h7A00_0005, "T7 youngest store must land last");
+        $display("PASS: T7 store-queue merge order after pointer wrap");
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect(ld_inflight_tb == 0, "load bookkeeping not balanced");
