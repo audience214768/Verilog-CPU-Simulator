@@ -46,10 +46,18 @@ module memory #(
     end
 
     // ---- 取指同步读: imem_addr 寄存一拍 → 4 字节小端打包 ----
+    // 复位值 = 复位期 pc(=0) 下各槽的地址 4*g, **不能**全 0: 复位期间 imem_addr 已经是
+    // {0, 4, 8, ...}, 全 0 会让复位后首批的高槽全部读到 lane 0 的指令 (批内错位一拍)。
+    // W=1 时 4*0 == 0 恰好掩盖, W>=2 实测表现为首批所有槽解码成同一条指令。
+    // (与 fetch.v 的 imem_addr_d 同一处理 —— 那处注释已记录过这个坑, 存储侧原先漏了)
     reg [ISSUE_WIDTH * 32 - 1 : 0] imem_addr_r;
+    integer bb;
     always @(posedge clk) begin
-        if (!rst_n) imem_addr_r <= {ISSUE_WIDTH * 32{1'b0}};
-        else        imem_addr_r <= imem_addr;
+        if (!rst_n)
+            for (bb = 0; bb < ISSUE_WIDTH; bb = bb + 1)
+                imem_addr_r[bb * 32 +: 32] <= 32'd4 * bb;
+        else
+            imem_addr_r <= imem_addr;
     end
     genvar g;
     generate

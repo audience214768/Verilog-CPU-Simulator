@@ -22,7 +22,8 @@ module tb_mem_axi;
     localparam LSQ_SIZE    = 16;
     localparam PF_DEPTH    = 16;
     localparam PF_WIN      = 8;
-    localparam LD_INFLIGHT = 8;
+    // parameter (非 localparam): 消融扫要能用 -Ptb_mem_axi.LD_INFLIGHT=2 覆盖
+    parameter  LD_INFLIGHT = 8;
     localparam SQ_DEPTH    = 8;
     localparam RD_DEPTH    = 8;
     localparam WR_DEPTH    = 8;
@@ -263,6 +264,13 @@ module tb_mem_axi;
     integer tcyc = 0;                // 全局拍计数 (do_reset 清零), 用于竞态时刻对齐
     integer commit_t, done_t;        // store 入队拍 / load 完成拍
     integer fetch_cycles;
+    integer base_inflight;                       // T8: 并发前的在飞账本基线
+    reg [31 : 0]   exp_addr [0 : 7];             // T8: 按发起序的期望 (完成与请求同序)
+    reg [LIW - 1 : 0] exp_idx [0 : 7];
+    // 完成队列: 在飞 >1 时 cap_ld_* 只留得住最后一条 ⇒ 逐条留证 (按回包序 = 发起序)
+    reg [31 : 0]      done_q_data [0 : 15];
+    reg [LIW - 1 : 0] done_q_idx  [0 : 15];
+    integer done_q_wp = 0, done_q_rp = 0;
 
     task expect;
         input cond;
@@ -290,6 +298,9 @@ module tb_mem_axi;
                 cap_ld_idx  = ld_done_idx;
                 done_t = tcyc;
                 pend_done = pend_done + 1;    // 完成脉冲可能落在两次 ld_wait 之间的空档 (T5 的对齐 tick)
+                done_q_data[done_q_wp] = ld_done_data;
+                done_q_idx[done_q_wp]  = ld_done_idx;
+                done_q_wp = (done_q_wp + 1) % 16;
             end
             // 提交拍与完成拍必须同一口径: 都用"握手可见的那一拍" (st_push 里读 tcyc 会晚一拍)
             if (s_sw_hs) commit_t = tcyc;
@@ -442,6 +453,14 @@ module tb_mem_axi;
                 ld_inflight_tb = ld_inflight_tb + 1;
                 ld_acc_tb = ld_acc_tb + 1;
             end
+        end
+    endtask
+
+    task wait_done;                       // T8: 等完成队列非空 (逐条核对用)
+        input integer maxn;
+        begin
+            for (n = 0; (n < maxn) && (done_q_wp == done_q_rp); n = n + 1) tick();
+            expect(done_q_wp != done_q_rp, "load completion never returned");
         end
     endtask
 
@@ -703,6 +722,35 @@ module tb_mem_axi;
         sq_drain(160);
         expect(mem_word(T7_BASE) === 32'h7A00_0005, "T7 youngest store must land last");
         $display("PASS: T7 store-queue merge order after pointer wrap");
+
+        // ---- T8 在飞 load 并发 (同时未回的条数触到/超过 LD_INFLIGHT) ----
+        // 在飞数由**指针差**算: 旧实现指针只有 clog2(N) 位 ⇒ 差是 mod N 的, N 与 0 同码
+        // ⇒ "在飞 == N" 永不成立, 满判据失效, 第 N+1 条会覆盖第 1 条的地址/idx 槽位,
+        // 完成脉冲便带着错 idx/错数据回来。TB 原先逐条等完成 ⇒ 并发度恒 1, 覆盖不到。
+        // 4 条 > LD_INFLIGHT=2 即可触发; LD_INFLIGHT>=4 时本条只验"能并发且不错位"。
+        fetch_wait(FA_PARK, 60);
+        base_inflight = ld_inflight_tb;
+        done_q_rp = done_q_wp;          // 丢弃前序测试遗留的完成记录 (它们已被 ld_wait 认领)
+        for (k = 0; k < 4; k = k + 1) begin
+            exp_addr[k] = LA_BASE + 32'd4 * k;
+            exp_idx[k]  = k[LIW - 1 : 0];
+            ld_push(exp_addr[k], 2'b10, exp_idx[k]);      // 连压 4 条, 中途不等完成
+        end
+        expect(ld_inflight_tb == base_inflight + 4, "T8 four loads must be accepted (ld_busy contract)");
+        // 在飞峰值 ≤ LD_INFLIGHT: 收下数 - 已认领完成数 - 空档期已回数 (账本口径, 与完成是否已被认领无关)
+        expect((ld_acc_tb - ld_done_tb - pend_done) <= LD_INFLIGHT,
+               "T8 in-flight loads exceeded LD_INFLIGHT (ld_busy contract)");
+        // 逐条核对: 回包与请求同序 (AXI 按 AR 序) ⇒ 第 k 个完成就是第 k 条
+        for (k = 0; k < 4; k = k + 1) begin
+            wait_done(200);
+            expect(done_q_idx[done_q_rp]  === exp_idx[k],  "T8 completion index mismatch (in-flight slot aliasing)");
+            expect(done_q_data[done_q_rp] === mem_word(exp_addr[k]), "T8 completion data mismatch");
+            done_q_rp = done_q_rp + 1;
+            pend_done = pend_done - 1;             // 本条已认领 (后面 ld_wait 不再算它)
+            ld_inflight_tb = ld_inflight_tb - 1;
+            ld_done_tb = ld_done_tb + 1;
+        end
+        $display("PASS: T8 concurrent in-flight loads (LD_INFLIGHT=%0d)", LD_INFLIGHT);
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect(ld_inflight_tb == 0, "load bookkeeping not balanced");

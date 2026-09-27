@@ -20,6 +20,9 @@ module tb_cpu_prog;
     //   iverilog -g2005 -s tb_cpu_prog -P tb_cpu_prog.MEM_LATENCY_TB=20 \
     //            -P tb_cpu_prog.MEM_INFLIGHT_TB=16 -o /tmp/x.vvp $(ls verilog/*/*.v) tb/top/tb_cpu_prog.v
     // (注意: make 不会因 IV/-P 变化而重建 .vvp, 消融一律直接 iverilog + vvp 建到 /tmp)
+    // 发射宽度是**唯一必须同时下传 cpu_top 与 memory 的旋钮**(取指是整批地址/整批数据);
+    // 只改一处会让另外半批悬空 ⇒ 早期假停机, 不是 RTL 故障 (实测踩过)
+    parameter ISSUE_WIDTH_TB  = 1;
     parameter MEM_LATENCY_TB  = 3;      // 性能档要求 20 (docs/description.md)
     parameter MEM_INFLIGHT_TB = 4;
     parameter ROB_SIZE_TB     = 32;
@@ -42,13 +45,13 @@ module tb_cpu_prog;
     // 消融旋钮 MEM_* 随之下移到 memory 实例 (cpu_top 不再拥有存储)
     localparam LW = $clog2(LSQ_SIZE_TB);
 
-    wire [31 : 0] imem_addr, inst_data;
+    wire [ISSUE_WIDTH_TB * 32 - 1 : 0] imem_addr, inst_data;
     wire          ld_start_valid, ld_busy, ld_done_valid, sw_valid;
     wire [31 : 0] ld_start_addr, ld_done_data, sw_addr, sw_data;
     wire [1 : 0]  ld_start_width, sw_width;
     wire [LW - 1 : 0] ld_start_idx, ld_done_idx;
 
-    cpu_top #(.ISSUE_WIDTH(1),
+    cpu_top #(.ISSUE_WIDTH(ISSUE_WIDTH_TB),
               .ROB_SIZE(ROB_SIZE_TB), .RS_SIZE(RS_SIZE_TB), .PRF_SIZE(PRF_SIZE_TB),
               .LSQ_SIZE(LSQ_SIZE_TB), .BHT_SIZE(BHT_SIZE_TB), .RAS_SIZE(RAS_SIZE_TB)) dut (
         .clk(clk), .rst_n(rst_n),
@@ -65,7 +68,7 @@ module tb_cpu_prog;
         .sw_ready(1'b1)                      // 本 TB 用 memory.v (无下游队列) ⇒ 恒可收
     );
 
-    memory #(.ISSUE_WIDTH(1), .MEM_SIZE(MEM_SIZE),
+    memory #(.ISSUE_WIDTH(ISSUE_WIDTH_TB), .MEM_SIZE(MEM_SIZE),
              .MEM_LATENCY(MEM_LATENCY_TB), .MEM_INFLIGHT(MEM_INFLIGHT_TB),
              .LSQ_SIZE(LSQ_SIZE_TB)) u_mem (
         .clk(clk), .rst_n(rst_n),
@@ -156,13 +159,89 @@ module tb_cpu_prog;
         end
     end
 
+    // ---- 不变量: PRF 分配唯一性 (同一 preg 同时至多被一条在飞指令持有) ----
+    // 违反 = free_list 池里有重复项 (把仍在用的 preg 提前/重复回收)。后果: 两条在飞指令分到同一
+    // prd, 后者写入 PRF 而依赖者按前者判就绪 ⇒ 读到错值, 或生产者标签对不上 ⇒ 依赖者永不就绪
+    // ⇒ 全机死锁 (W>=2 实测 gcd 卡在 blt 的 prs1)。批内两个槽同拍分配重复 preg 时, 跨拍检查
+    // 看不出来 (两个槽读到的都是本拍前的值), 故同拍也要比。
+    localparam PW_TB = $clog2(PRF_SIZE_TB);
+    localparam RW_TB = $clog2(ROB_SIZE_TB);
+    reg [PRF_SIZE_TB - 1 : 0] preg_held;
+    integer pi, pj;
+    always @(posedge clk) begin
+        if (!rst_n) preg_held <= {PRF_SIZE_TB{1'b0}};
+        else begin
+            // 先回收 (commit/walker 的 push), 再分配 —— 与本拍语义一致 (分配读的是旧池)
+            for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1)
+                if (dut.fl_push_valid[pi] && (dut.fl_push_preg[pi * PW_TB +: PW_TB] >= 32))
+                    preg_held[dut.fl_push_preg[pi * PW_TB +: PW_TB]] <= 1'b0;
+            for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1) begin
+                if (dut.rename_valid[pi]) begin
+                    if (preg_held[dut.alloc_val[pi * PW_TB +: PW_TB]]) begin
+                        $display("FAIL: PRF reused-while-held preg=%0d slot=%0d cyc=%0d",
+                                 dut.alloc_val[pi * PW_TB +: PW_TB], pi, cyc);
+                        errors = errors + 1;
+                    end
+                    for (pj = pi + 1; pj < ISSUE_WIDTH_TB; pj = pj + 1)
+                        if (dut.rename_valid[pj] &&
+                            (dut.alloc_val[pj * PW_TB +: PW_TB] == dut.alloc_val[pi * PW_TB +: PW_TB])) begin
+                            $display("FAIL: PRF double-alloc same cycle preg=%0d slots=%0d,%0d cyc=%0d",
+                                     dut.alloc_val[pi * PW_TB +: PW_TB], pi, pj, cyc);
+                            errors = errors + 1;
+                        end
+                    preg_held[dut.alloc_val[pi * PW_TB +: PW_TB]] <= 1'b1;
+                end
+            end
+        end
+    end
+
+    // ---- 调试: free_list 池内重复项扫描 (+FLCHK=1 开) ----
+    // 池里出现重复项 ⇒ 同一 preg 会被发两次 ⇒ 两条在飞指令同 prd。扫描**真实数组** (不复制索引
+    // 表达式, 免得镜像错误掩盖真相); O(FREE_NUM^2) 每拍, 仅调试时开。
+    integer flchk, fi, fj;
+    initial flchk = 0;
+    always @(posedge clk) begin
+        if (flchk && rst_n) begin
+            // RAT 必须是单射: 两个架构寄存器映到同一 preg ⇒ 两条在飞指令 old 相同 ⇒ 提交时
+            // 同一 preg 被回收两次 ⇒ 池内出现重复项 ⇒ 同一 preg 发给两条在飞指令 ⇒ 死锁。
+            // (preg 0..31 恒等映射且永不被分配, 故任意两路相等都是真违反)
+            for (fi = 0; fi < 31; fi = fi + 1)
+                for (fj = fi + 1; fj < 32; fj = fj + 1)
+                    if (dut.map_arch[fi * PW_TB +: PW_TB] == dut.map_arch[fj * PW_TB +: PW_TB]) begin
+                        $display("FAIL: RAT non-injective x%0d,x%0d -> preg %0d cyc=%0d",
+                                 fi, fj, dut.map_arch[fi * PW_TB +: PW_TB], cyc);
+                        fi = 32;
+                    end
+            for (fi = 0; fi < PRF_SIZE_TB - 32; fi = fi + 1)
+                for (fj = fi + 1; fj < PRF_SIZE_TB - 32; fj = fj + 1)
+                    if ((fi < dut.u_fl.sp) && (fj < dut.u_fl.sp) &&
+                        (dut.u_fl.pool[fi] == dut.u_fl.pool[fj])) begin
+                        $display("FAIL: free_list duplicate preg=%0d at pool[%0d],[%0d] sp=%0d cyc=%0d",
+                                 dut.u_fl.pool[fi], fi, fj, dut.u_fl.sp, cyc);
+                        fi = PRF_SIZE_TB;   // 一拍只报一次
+                    end
+            // 本拍 push 的 preg 若已在活动区 ⇒ 就是它造出的重复项 (定位 push 来源)
+            for (fi = 0; fi < ISSUE_WIDTH_TB; fi = fi + 1)
+                if (dut.fl_push_valid[fi]) begin
+                    for (fj = 0; fj < PRF_SIZE_TB - 32; fj = fj + 1)
+                        if ((fj < dut.u_fl.sp) &&
+                            (dut.u_fl.pool[fj] == dut.fl_push_preg[fi * PW_TB +: PW_TB])) begin
+                            $display("FAIL: push dup preg=%0d slot=%0d (pool[%0d]) flushing=%b cyc=%0d",
+                                     dut.fl_push_preg[fi * PW_TB +: PW_TB], fi, fj,
+                                     dut.flushing_r, cyc);
+                            fj = PRF_SIZE_TB;
+                        end
+                end
+        end
+    end
+
     // ---- 可选逐拍 trace (+TRACE=N 止, +FROM=M 起, 缺省 0 = 关): rob 头 / rs / lsq / 取指 ----
     integer te;
     always @(negedge clk) begin
         if (rst_n && (cyc <= trace_n) && (cyc >= trace_from) && (trace_n > 0)) begin
             $display("T %0d pc=%h exp=%h arrd=%h f2v=%b raw=%h iss=%b hb=%b misp=%b flsh=%b halt=%b robh=%0d robl=%0d rdy=%b raw_h=%h",
                      cyc, dut.u_fetch.pc_r, dut.u_fetch.exp_pc_r, dut.u_fetch.imem_addr_d[31 : 0],
-                     dut.f2i_valid, dut.f2i_raw[31 : 0],
+                     dut.f2i_valid, dut.f2i_raw,
                      dut.issue_en, dut.have_batch, dut.misp_valid, dut.flushing_r,
                      dut.halt_q_r, dut.rob_head_w, dut.rob_last_w,
                      dut.rob_ready_w[dut.rob_head_w],
@@ -185,9 +264,30 @@ module tb_cpu_prog;
                              dut.u_lsq.data_ready_r[te], dut.u_lsq.done_r[te],
                              dut.u_lsq.rob_tag_r[te * 5 +: 5],
                              dut.u_lsq.addr_r[te * 32 +: 32], dut.u_lsq.data_r[te * 32 +: 32]);
+            // 改名/自由表 (定位 preg 重复分配: 谁把仍在用的 preg 还进了池子)
+            for (te = 0; te < ISSUE_WIDTH_TB; te = te + 1)
+                $display("   REN[%0d] v=%b rd=%0d old=%0d new=%0d robv=%b pushv=%b pushp=%0d sp=%0d",
+                         te, dut.rename_valid[te], dut.d_rd[te * 5 +: 5],
+                         dut.old_map_chain[te * PW_TB +: PW_TB], dut.alloc_val[te * PW_TB +: PW_TB],
+                         dut.rob_push_valid[te],
+                         dut.fl_push_valid[te], dut.fl_push_preg[te * PW_TB +: PW_TB],
+                         dut.fl_count);
+            // walker 回滚口 (定位 RAT 被写成非单射/池内重复的老 old)
+            if (dut.flushing_r || dut.misp_valid)
+                for (te = 0; te < ISSUE_WIDTH_TB; te = te + 1)
+                    $display("   FLU[%0d] v=%b rd=%0d old=%0d widx=%0d fs=%0d wp=%0d rem=%0d",
+                             te, dut.walk_flush_valid[te], dut.walk_flush_rd[te * 5 +: 5],
+                             dut.walk_flush_old[te * PW_TB +: PW_TB],
+                             dut.walk_idx_w[te * RW_TB +: RW_TB], dut.fs_eff_w,
+                             dut.walk_ptr_r, dut.rem_w);
             $display("   MEM ldbusy=%b ldv=%b ldi=%0d lda=%h lsqh=%0d lsql=%0d",
                      dut.ld_busy, dut.ld_start_valid, dut.ld_start_idx, dut.ld_start_addr,
                      dut.u_lsq.head_r, dut.u_lsq.last_r);
+            // 访存写口 (定位"执行了却没写进 lsq"的错位)
+            $display("   SET ar=%b ai=%h av=%h | dr=%b di=%h dv=%h | pushv=%b robl=%0d nmem=%0d",
+                     dut.set_addr_req, dut.set_addr_idx, dut.set_addr_val[31 : 0],
+                     dut.set_data_req, dut.set_data_idx, dut.set_data_val[31 : 0],
+                     dut.lsq_push_valid, dut.rob_last_w, dut.n_mem);
         end
     end
 
@@ -301,6 +401,7 @@ module tb_cpu_prog;
         if (!$value$plusargs("FROM=%d", trace_from)) trace_from = 0;
         if (!$value$plusargs("PERF=%d", perf_n))    perf_n    = 0;
         if (!$value$plusargs("BAD=%h", bad_pc))     bad_pc    = 0;
+        if (!$value$plusargs("FLCHK=%d", flchk))    flchk     = 0;
         if (dump_cyc == 0) $dumpoff;      // +DUMP=0: 完全不记录 (长程序 VCD 可达数百 MB)
 
         run_prog(prog_name);

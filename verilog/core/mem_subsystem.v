@@ -162,9 +162,13 @@ module mem_subsystem #(
     reg [LD_INFLIGHT * 32 - 1 : 0]  ld_addr_r;
     reg [LD_INFLIGHT * 2 - 1 : 0]   ld_width_r;
     reg [LD_INFLIGHT * LIW - 1 : 0] ld_idx_r;
-    reg [LD_IW - 1 : 0]             ld_wr_p, ld_rd_p;
+    // 指针位宽 = LD_IW+1 (不是 LD_IW): 在飞数要能表示到 LD_INFLIGHT **本身**, 而 LD_IW 位的差
+    // 是 mod LD_INFLIGHT 的 (N 与 0 同码) ⇒ "在飞 == N" 永不成立, 满判据失效, 第 N+1 条会覆盖
+    // 第 1 条的槽位 (地址/idx 错位 ⇒ 完成脉冲带错 idx, LSQ 等一个永远不来的 ld_done ⇒ 挂死)。
+    // 默认 8 时被 AXI 读深度 RD_DEPTH=8 掩盖, LD_INFLIGHT=2 时暴露。数组下标取低位 LD_IW 位。
+    reg [LD_IW : 0]                 ld_wr_p, ld_rd_p;
 
-    wire [LD_IW : 0] ld_inflight_w = {1'b0, ld_wr_p} - {1'b0, ld_rd_p};
+    wire [LD_IW : 0] ld_inflight_w = ld_wr_p - ld_rd_p;
     // ★ 硬承诺: 有在飞余量**且**读口有空位才说不忙; 且 load 在发请求上优先于取指预取
     wire ld_accept = ld_start_valid && !ld_busy;
     assign ld_busy = (ld_inflight_w >= LD_INFLIGHT) || !rd_req_ready;
@@ -172,8 +176,8 @@ module mem_subsystem #(
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ld_wr_p <= {LD_IW{1'b0}};
-            ld_rd_p <= {LD_IW{1'b0}};
+            ld_wr_p <= {(LD_IW + 1){1'b0}};
+            ld_rd_p <= {(LD_IW + 1){1'b0}};
         end else begin
             if (ld_accept)  ld_wr_p <= ld_wr_p + 1'b1;
             if (ld_resp_hs) ld_rd_p <= ld_rd_p + 1'b1;
@@ -181,16 +185,16 @@ module mem_subsystem #(
     end
     always @(posedge clk) begin
         if (ld_accept) begin
-            ld_addr_r[ld_wr_p * 32 +: 32]  <= ld_start_addr;
-            ld_width_r[ld_wr_p * 2 +: 2]   <= ld_start_width;
-            ld_idx_r[ld_wr_p * LIW +: LIW] <= ld_start_idx;
+            ld_addr_r[ld_wr_p[LD_IW - 1 : 0] * 32 +: 32]  <= ld_start_addr;
+            ld_width_r[ld_wr_p[LD_IW - 1 : 0] * 2 +: 2]   <= ld_start_width;
+            ld_idx_r[ld_wr_p[LD_IW - 1 : 0] * LIW +: LIW] <= ld_start_idx;
         end
     end
 
     // 回包与请求同序 (AXI 保证按 AR 序) ⇒ 读指针所指即本条
-    wire [31 : 0]      ld_a_w   = ld_addr_r[ld_rd_p * 32 +: 32];
-    wire [1 : 0]       ld_w_w   = ld_width_r[ld_rd_p * 2 +: 2];
-    wire [LIW - 1 : 0] ld_i_w   = ld_idx_r[ld_rd_p * LIW +: LIW];
+    wire [31 : 0]      ld_a_w   = ld_addr_r[ld_rd_p[LD_IW - 1 : 0] * 32 +: 32];
+    wire [1 : 0]       ld_w_w   = ld_width_r[ld_rd_p[LD_IW - 1 : 0] * 2 +: 2];
+    wire [LIW - 1 : 0] ld_i_w   = ld_idx_r[ld_rd_p[LD_IW - 1 : 0] * LIW +: LIW];
     wire [31 : 0]      ld_raw_w = rd_resp_data >> {ld_a_w[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
 
     assign ld_done_valid = ld_resp_hs;

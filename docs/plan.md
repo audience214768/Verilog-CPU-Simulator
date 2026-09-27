@@ -2859,6 +2859,74 @@ prd 6 + rob_tag 5 + lsq_tag 4 + result 32 + addr 32 + data 32），只登记**�
 判据：容器综合后 **`hot_ns` 显著下降且 `healthy_ns` 不退化**（总长 < 25.0176 ns）；
 **不得**用"某个网扇出下降"当成功判据 —— 该代理量已在 `tools/README.md` §0 被证伪。
 
+#### 15.10.15 修 W≥2 的四条正确性缺陷（报告 W{1,2,4} 消融矩阵的前置条件）（2026-09-27）
+
+**为什么必须先修**：报告要求 W{1,2,4} 消融矩阵，而 W≥2 全线挂死。**W=1 全部 20 个程序一直是过的**
+—— 下面四条**全部只在 W≥2 可见**，因为 W=1 时"批"只有 1 槽：没有批内下标、没有批内多写、
+`f2i_valid` 只有 1 位。四条都已修，且**互为独立**（修完前两条 naive 才过，修完第四条 gcd 才过）。
+
+##### 一、`core/memory.v`（仅 TB 用存储）复位时多槽地址全 0
+
+`imem_addr_r` 复位成全 0 ⇒ W≥2 的**所有槽**初始都请求 word(0)，第一批的解码内容与 pc 不符。
+改为 `32'd4 * bb`（每槽复位到自己那一拍）。**只影响 TB**（`student_top` 已不例化 `memory.v`）。
+
+##### 二、`rob_push_valid` 漏了 `f2i_valid[s]` —— 幽灵条目堵死 ROB 头
+
+`issue_en` 是**整批**决定，而 `f2i_valid` 是**稠密前缀**（批内首个预测跳转之后的槽是错误路径，
+`fetch.v:225`）。漏掉这一项后，那些槽用 `d_*`（decode 按 `d_valid` 门控 ⇒ 全 0）压进 ROB+RS：
+幽灵条目 `opcode=0` 无功能单元认领 ⇒ `ready` 永不为 1（`rob.v` 唯一置位源是 CDB）⇒ ROB 头堵死。
+**实测指纹**：无分支的 `naive` 过、凡有预测跳转的程序全挂。修：
+`rob_push_valid[s] = issue_en && f2i_valid[s]`（该线同时喂 rob push 与 rs push）。
+
+##### 三、提交链缺**占用窗口**检查 —— head 越过 last，`empty` 永不成立
+
+`ce_w[c]`（c≥1）原来只要求前槽提交且资源就绪，没查"槽 c 是否在 ROB 占用窗口内"。
+占用窗口 = `ROB_SIZE - free_count`（`rob.v` 的 `empty/full` 用的就是它，满/空**不靠 `head==last`**）。
+越窗提交会把 `head` 推过 `last` ⇒ 占用量算成负 ⇒ `empty (free==ROB_SIZE)` 永不成立 ⇒
+提交逻辑空转（**实测 W=2**：head 0→2→3→5→6→8 而 `robl` 恒 7，逐拍重复同一批陈旧槽，
+`ret_latched_r` 永不置位；`naive` 停不下）。修：`cmt_in_win = (c < rob_occ)` 串进 `ce_w` 链。
+
+##### 四、`old_map_chain` 的批内前递**回落到前一槽的 old** —— preg 重复分配（本轮根因）
+
+```verilog
+// 旧 (W>=2 才执行):
+old_map_chain[s+1] = (d_writes_rd[s] && (d_rd[s] == d_rd[s+1])) ? alloc_val[s] : old_map_chain[s];
+```
+两个 rd **不同**时回落到 `old_map_chain[s]` —— 那是**另一个 rd 的映射**。正确值是
+`map_arch[d_rd[s+1]]`（本槽自己的 RAT 映射）。后果两条，都实测到了：
+
+1. **提交回收别人的 preg**（提前回收）⇒ `free_list` 池内出现重复项 ⇒ 同一 preg 发给两条在飞指令
+   ⇒ 后者的生产者标签对不上 ⇒ 依赖者永不就绪 ⇒ **死锁**；
+2. **walker 回滚把两个 rd 写成同一 preg** ⇒ RAT 失去单射性（`map[x12] == map[x13]`）。
+
+**取证链**（`tb/top/tb_cpu_prog.v` 新增三条不变量检查，`+FLCHK=1` 开；全部不复制 RTL 索引表达式，
+直接扫真实数组，免得镜像错误掩盖真相）：
+
+| 检查 | 首报 | 说明 |
+|---|---|---|
+| `free_list` 池内重复项（O(n²) 扫 `u_fl.pool`）| `cyc=55` preg=43 @ `pool[12],[15]` sp=16 | 以及"本拍 push 的 preg 已在活动区"= `cyc=54 slot=1 preg=43 flushing=1`（**walker** 推的）|
+| PREG 被两条在飞指令同时持有 | `cyc=59` preg=49 slot=0 | 证实重复项**真被发出去了** |
+| RAT 单射性（32 选 2 两两比）| `cyc=25` x12,x13 → 37 | 最早可见的异常 |
+
+trace 定位到源头：`T=20` 同一批 `rd=13 old=37` 与 `rd=12 old=37`（两条不同 rd 的**老映射相同**，
+即 RAT 当时已经不单射）；`T=24` walker 两槽 `widx=0 rd=12 old=37` / `widx=31 rd=13 old=37`
+把不单射性又写回去 —— 而这两个 old 正是 `T=20` 那批的**错误记录值**。
+
+**修法**：按 `rat.v` 读口的同一规则（"读口 i 看 rename j<i，**最后匹配者赢**"）逐槽展平：
+`s` 的 old = 本批**早于 s 的最大 j**（`d_writes_rd[j] && d_rd[j]==d_rd[s]`）的 `alloc_val[j]`，
+无则 `map_arch[d_rd[s]]`。**W=1 时内层循环不执行**，表达式与旧代码逐字等价 ⇒ 频率/面积不受影响；
+W≥2 才有 W² 项 mux 链（代价换正确性，见"待办"）。
+
+**验证**：`gcd` 在 W=2 由挂死变为 `PASS ret=178 cycles=660`，且 `+FLCHK=1` **零违反**。
+W{1,2,4} × 20 程序的矩阵见下节。
+
+##### 五、`docs/plan.md` §15.10.13 表 5 的 div 结论已作废（RTL 已改）
+
+该表写"W>1 靠槽 0 单点启动（`div_go_w = div_req_w[0] && …`）"。现行 RTL 是**任一槽都可发起**：
+`div_gnt_w = div_req_w & (~div_req_w + 1)`（最低置位槽）、`div_go_w = (|div_gnt_w) && !div_busy && !flushing_r`、
+`div_accept_w[s] = div_gnt_w[s] && div_go_w`，载荷走 one-hot AND-OR。W≥2 的死锁正是"只有槽 0 能启动"
+这条设计引起的（高槽的 div 移不到槽 0 时 `q_freeze` 永不释放），故已按"任一槽发起"重做。
+
 ## 消融 + 综合（报告素材）
 
 - 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × **PRF{64,96,128}** × LSQ{8,16,32} × BHT{16,32,128} ×

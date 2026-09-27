@@ -83,7 +83,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH * RA - 1 : 0]   misp_ras_pay_w;
     wire [ISSUE_WIDTH - 1 : 0]        br_inc_w;
     wire [ISSUE_WIDTH : 0]            misp_any_c;   // misp_det 前缀 OR (段值在 slt 内)
-    // div 发起 (载荷取槽 0 位段; 段值/门控在 slt 内, 实例在下方)
+    // div 发起 (段值在 slt 内; 授权槽载荷在 "div 发起仲裁" 处选, 实例在下方)
     wire [ISSUE_WIDTH - 1 : 0]        div_req_w;
     wire [ISSUE_WIDTH * 2 - 1 : 0]    div_op_all;
     wire [ISSUE_WIDTH * 32 - 1 : 0]   div_a_all, div_b_all;
@@ -202,7 +202,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH * SRW - 1 : 0] sel_idx;
     wire [ISSUE_WIDTH - 1 : 0]    sel_valid_q;    // execute_slot Q 级有效 (晚一拍)
     wire [ISSUE_WIDTH - 1 : 0]    pipe_stall_w;   // execute_slot Q 级冻结
-    wire [ISSUE_WIDTH - 1 : 0]    div_accept_w;   // div 发起被收下 (只有槽 0 可能为 1)
+    wire [ISSUE_WIDTH - 1 : 0]    div_accept_w;   // div 发起被收下 (每拍至多一个槽为 1)
     wire [ISSUE_WIDTH - 1 : 0]    rs_clear_valid;
     wire [ISSUE_WIDTH * SRW - 1 : 0] rs_clear_idx;
     wire [CSW - 1 : 0]            rs_free_w;
@@ -294,13 +294,7 @@ module cpu_top #(
     );
 
     // ---- div: 多周期除法器 (33 拍), 完成经 CDB 槽 W+1 ----
-    // 只有槽 0 能启动 (仲裁见 div_go_w 处) ⇒ 载荷取槽 0 位段。
-    // 没被收下时由本槽的 pipe_stall 扣住流水寄存器 (下一拍重发), 条目与发起严格一一对应 (丢 = 死锁)。
-    assign div_op_w  = div_op_all[0 +: 2];
-    assign div_a_w   = div_a_all[0 +: 32];
-    assign div_b_w   = div_b_all[0 +: 32];
-    assign div_prd_w = div_prd_all[0 +: PW];
-    assign div_rob_w = div_rob_all[0 +: RW];
+    // 发起仲裁与授权槽的载荷选取都在下方 "div 发起仲裁" 处 (用 generate, 须排在 genvar 声明之后)。
     div #(.PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_div (
         .clk(clk), .rst_n(rst_n),
         .start_valid(div_go_w), .start_op(div_op_w),
@@ -428,12 +422,51 @@ module cpu_top #(
     assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
     assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
 
-    // ---- div 发起仲裁 (W>1: 只有槽 0 能启动) ----
-    // 只让槽 0 启动是安全的: rs.v 的 W 级年龄仲裁是**稠密前缀** (第 k 级能选出候选 ⇒ 第 k-1 级
-    // 必然也选出了), 所以槽 0 每拍都在推进 (启动或扣住后重选) ⇒ 高槽的 div 必然在有限拍内移到槽 0。
-    // 忙时/冲刷中一律不启动: 忙时启动会丢这一发 (其 RS 条目已清) ⇒ 死锁;
-    // 冲刷中启动则可能让错路 div 逃过 kill —— rs 失效掩码只在 walker 拍生效, 而 walker 可能当拍就走完。
-    assign div_go_w = div_req_w[0] && !div_busy && !flushing_r;
+    // ---- div 发起仲裁 (**任意槽**可发起, 每拍至多收下一个: 最低请求槽优先) ----
+    // "收下"与"放行"必须同拍且一一对应: execute_slot 的 q_freeze = ... && !div_accept, div_accept 是
+    // Q 级唯一的放行条件 ⇒ 收下却不放行 = Q 级永久冻结; 放行却没被收下 = 这一发没人执行。
+    // 后者是致命的, 因为 RS 条目**在入选那拍就被清** (execute_slot.v 不变量 1), 冻结寄存器里的副本
+    // 就是唯一副本 —— 没有"重选"这回事。曾据此假定"只让槽 0 启动, 高槽的 div 会随槽 0 推进而移回
+    // 槽 0", **该推理是错的**: 槽 >= 1 上的 div 直接丢失, 而它在 ROB 里必须按序提交 ⇒ 全机挂死
+    // (ISSUE_WIDTH=2 实测 100M 拍超时)。现在任何槽都能被授权, 没轮上的槽下一拍重发, 无丢失路径。
+    // 忙时/冲刷中一律不授权: 忙时启动会丢这一发 (同上); 冲刷中启动则可能让错路 div 逃过 kill ——
+    // rs 失效掩码只在 walker 拍生效, 而 walker 可能当拍就走完。误预测当拍 Q 寄存器是被**清空**的
+    // (flush_hit), 故冲刷窗口结束后各槽都不会残留错路 div。
+    genvar gm, gs;
+    wire [ISSUE_WIDTH - 1 : 0] div_gnt_w;    // 授权槽 (one-hot)
+    // x & (-x) = 最低置位 ⇒ 多槽同时请求时按槽号仲裁, 每拍恰好一个
+    assign div_gnt_w = div_req_w & (~div_req_w + {{(ISSUE_WIDTH - 1){1'b0}}, 1'b1});
+    assign div_go_w  = (|div_gnt_w) && !div_busy && !flushing_r;
+    // 授权槽载荷: one-hot ⇒ 逐位 AND-OR 归约 (与 execute_slot 的字段取同法)。不用变量索引的
+    // 位段取: 它会综合成 mux 树且索引最低位落在最宽一级 (见 execute_slot 的注释)。
+    localparam PLW = 2 + 32 + 32 + PW + RW;      // op + a + b + prd + rob_tag
+    localparam O_DOP  = 0;                        // : 2
+    localparam O_DA   = O_DOP  + 2;               // : 32
+    localparam O_DB   = O_DA   + 32;              // : 32
+    localparam O_DPRD = O_DB   + 32;              // : PW
+    localparam O_DROB = O_DPRD + PW;              // : RW
+    wire [ISSUE_WIDTH * PLW - 1 : 0] div_pl_all;
+    wire [PLW - 1 : 0] div_pl;
+    generate
+        for (gs = 0; gs < ISSUE_WIDTH; gs = gs + 1) begin : dpl
+            assign div_pl_all[gs * PLW +: PLW] = {
+                div_rob_all[gs * RW +: RW], div_prd_all[gs * PW +: PW],
+                div_b_all[gs * 32 +: 32],   div_a_all[gs * 32 +: 32],
+                div_op_all[gs * 2 +: 2] };
+        end
+        for (gm = 0; gm < PLW; gm = gm + 1) begin : dsel
+            wire [ISSUE_WIDTH - 1 : 0] m;
+            for (gs = 0; gs < ISSUE_WIDTH; gs = gs + 1) begin : e
+                assign m[gs] = div_pl_all[gs * PLW + gm] & div_gnt_w[gs];
+            end
+            assign div_pl[gm] = |m;
+        end
+    endgenerate
+    assign div_op_w  = div_pl[O_DOP  +: 2];
+    assign div_a_w   = div_pl[O_DA   +: 32];
+    assign div_b_w   = div_pl[O_DB   +: 32];
+    assign div_prd_w = div_pl[O_DPRD +: PW];
+    assign div_rob_w = div_pl[O_DROB +: RW];
 
     // ---- 每槽胶水 ----
     generate
@@ -451,7 +484,12 @@ module cpu_top #(
             end else begin : rcn
                 assign rt_clear_c[s * PRF_SIZE +: PRF_SIZE] = rt_clear_c[(s - 1) * PRF_SIZE +: PRF_SIZE] | rtc_one;
             end
-            assign rob_push_valid[s] = issue_en;
+            // 必须带 f2i_valid[s]: issue_en 是**整批**决定 (W=1 时 f2i_valid 只有 1 位 ⇒ 二者等价),
+            // 而 f2i_valid 是**稠密前缀** —— 批内首个预测跳转之后的槽是错误路径 (fetch.v:225)。
+            // 漏掉这一项, 那些槽会用 d_* 的全 0 (decode 输出按 d_valid 门控) 压进 rob+rs:
+            // 幽灵条目 opcode=0 → 无功能单元认领 → ready 永不为 1 (rob.v 唯一置位源是 CDB)
+            // → ROB 头堵死。实测表现: 无分支的 naive 通过, 凡有预测跳转的程序全挂。
+            assign rob_push_valid[s] = issue_en && f2i_valid[s];
             assign rob_push_opcode[s * 7 +: 7]    = d_opcode[s * 7 +: 7];
             assign rob_push_rd[s * 5 +: 5]        = d_rd[s * 5 +: 5];
             assign rob_push_new[s * PW +: PW]     = ren_v ? alloc_val[s * PW +: PW] : {PW{1'b0}};
@@ -481,11 +519,7 @@ module cpu_top #(
             assign wr_acc[(s + 1) * 3 +: 3]  = wr_acc[s * 3 +: 3] + (f2i_valid[s] && d_writes_rd[s]);
             assign mem_acc[(s + 1) * 3 +: 3] = mem_acc[s * 3 +: 3] + (f2i_valid[s] && memop);
             assign sel_acc[(s + 1) * 3 +: 3] = sel_acc[s * 3 +: 3] + sel_valid[s];
-            // old_map 链段值 (批内同 rd 前递; 存于 old_map_chain; 末槽只读不求值, 防位段越界)
-            if (s < ISSUE_WIDTH - 1) begin : omc
-                assign old_map_chain[(s + 1) * PW +: PW] = (d_writes_rd[s] && (d_rd[s * 5 +: 5] == d_rd[(s + 1) * 5 +: 5]))
- ? alloc_val[s * PW +: PW] : old_map_chain[s * PW +: PW];
-            end
+            // (old_map 链段值改为在 generate 外统一生成 —— 见下方 omc 块)
 
             // ===== execute_slot 实例 (B3 字段取 / B1 旁路 / alu+branch / CDB 广播 / 访存 / B4 检测) =====
             wire [PW - 1 : 0] slot_rd1;
@@ -527,8 +561,8 @@ module cpu_top #(
             end else begin : rd1plain
                 assign rd1_preg[s * PW +: PW] = slot_rd1;
             end
-            // div 发起是否被收下 (只有槽 0 能启动, 见上方 div_go_w)
-            assign div_accept_w[s] = (s == 0) && div_go_w;
+            // div 发起是否被收下 (本槽拿到授权且除法器当拍空闲; 见上方 "div 发起仲裁")
+            assign div_accept_w[s] = div_gnt_w[s] && div_go_w;
             // CDB 标签/有效别名 (与 exec_valid 同源; load 槽由模块内排除)
             assign cdb_slot_valid_w[s] = cdb_exec_valid[s];
             assign cdb_tag_w[s * PW +: PW] = cdb_exec_prd[s * PW +: PW];
@@ -555,8 +589,28 @@ module cpu_top #(
     // load 完成槽 (CDB 槽 W): 有效 + 旁路标签
     assign cdb_slot_valid_w[ISSUE_WIDTH]   = load_cdb_valid;
     assign cdb_tag_w[ISSUE_WIDTH * PW +: PW] = load_cdb_prd;
-    // old_map 链初值 + mem_cnt_chain 链 (声明在顶部; 段值在 slt 内生成)
-    assign old_map_chain[0 * PW +: PW] = map_arch[d_rd[0 * 5 +: 5] * PW +: PW];
+    // old_map 链: 槽 s 的 old = "本批早于 s 的**最后一个同 rd 写者**产出的 preg, 无则取 RAT 当前映射"
+    // 逐级 j 递增比较, 最后匹配者 (j 最大) 赢 —— 与 rat.v 读口的批内转发同规则 (读口 i 看 rename j<i)。
+    // 旧实现只在"相邻槽同 rd"时前递, 否则回落到**前一槽的 old**, 那是**另一个 rd 的映射**:
+    // W>=2 时任何相邻槽写不同 rd 的批都会把 old 记错 ⇒ 提交回收的是别人的 preg (提前回收,
+    // 池内出现重复项 ⇒ 同一 preg 发给两条在飞指令, 后者的生产者标签对不上 ⇒ 依赖者永不就绪 ⇒
+    // 死锁), 冲刷回滚也会把两个 rd 写成同一 preg ⇒ RAT 失去单射性。实测 W=2 时 gcd 在 59 拍就开始
+    // 出现池内重复项 (preg 43/49/36), 最终卡在 0x111c 的 blt。W=1 无相邻槽 ⇒ 这条 bug 不可见。
+    wire [ISSUE_WIDTH * ISSUE_WIDTH * PW - 1 : 0] omc_c;      // [s][j] 级联
+    generate
+        for (s = 0; s < ISSUE_WIDTH; s = s + 1) begin : omc
+            assign omc_c[(s * ISSUE_WIDTH + 0) * PW +: PW] =
+                   ((s != 0) && d_writes_rd[0] && (d_rd[0 * 5 +: 5] == d_rd[s * 5 +: 5]))
+                   ? alloc_val[0 * PW +: PW] : map_arch[d_rd[s * 5 +: 5] * PW +: PW];
+            for (j = 1; j < ISSUE_WIDTH; j = j + 1) begin : fwd
+                assign omc_c[(s * ISSUE_WIDTH + j) * PW +: PW] =
+                       ((j < s) && d_writes_rd[j] && (d_rd[j * 5 +: 5] == d_rd[s * 5 +: 5]))
+                       ? alloc_val[j * PW +: PW] : omc_c[(s * ISSUE_WIDTH + j - 1) * PW +: PW];
+            end
+            assign old_map_chain[s * PW +: PW] =
+                   omc_c[(s * ISSUE_WIDTH + ISSUE_WIDTH - 1) * PW +: PW];
+        end
+    endgenerate
     assign mem_cnt_chain[0 * 3 +: 3]    = 3'd0;
     generate
         for (mm = 0; mm < ISSUE_WIDTH; mm = mm + 1) begin : isschain
@@ -634,11 +688,22 @@ module cpu_top #(
     endgenerate
 
     wire [ISSUE_WIDTH - 1 : 0] ce_w, is_store_w, is_memop_w, cmt_push_v, marker_acc;
+    // 提交槽是否**在 ROB 占用窗口内**: 占用量 = ROB_SIZE - free_count (rob.v 的 empty/full 也用它,
+    // 满/空不靠 head==last 区分)。槽 c 的索引是 head + c, 只有 c < 占用量时该条目才存在。
+    // 缺这一项时 c>=1 的槽会越过 last 提交"窗口外"的自由槽 —— 它的 ready 位是上一位租客的残留,
+    // 于是 head 越过 last ⇒ 占用量算成负 ⇒ **empty (free==ROB_SIZE) 永不成立** ⇒ 提交逻辑空转
+    // (实测 W=2: head 绕着整圈反复提交同一批陈旧槽, 停机锁存 ret_latched_r 永不置位)。
+    // W=1 无 c>=1 的槽 ⇒ 这条 bug 在 W=1 不可见。占用量当拍口径: free_r 是本拍提交前的值, 与
+    // "本拍提交在时钟沿发生"一致。
+    localparam [RCW - 1 : 0] ROB_FULL = ROB_SIZE;
+    wire [RCW - 1 : 0] rob_occ = ROB_FULL - rob_free_w;
     wire [ISSUE_WIDTH * PW - 1 : 0] cmt_push_p;
     wire [ISSUE_WIDTH * 32 - 1 : 0] sw_addr_c, sw_data_c;
     wire [ISSUE_WIDTH * 2 - 1 : 0]  sw_width_c;
     generate
         for (c = 0; c < ISSUE_WIDTH; c = c + 1) begin : cmt
+            localparam [RCW - 1 : 0] CMT_OFF = c;      // 槽序号 (位宽对齐, 免隐式截断)
+            wire cmt_in_win = (CMT_OFF < rob_occ);
             wire [RW - 1 : 0] eidx = rob_head_w + c;                    // 回绕
             // 本槽的 ROB 字段取: one-hot 译码 eidx → 逐位 AND-OR (置换了原来 6 处 `rob_xxx_w[eidx * W +: W]`)
             wire [ROB_SIZE - 1 : 0] cmt_oh;
@@ -667,11 +732,11 @@ module cpu_top #(
             if (c == 0) begin : ce0
                 // misp 拍禁提交: rob 内 set_last 优先于 set_head (head 不前进), 但提交副作用
                 // (free_list 回收 / RAT arch / 计数) 已发生 → 同一条目会再提交一次, free_list 出重
-                assign ce_w[0] = !flushing_r && !misp_valid && !rob_empty && cmt_rdy
-                                 && sw_ok_w;
+                assign ce_w[0] = !flushing_r && !misp_valid && cmt_in_win && cmt_rdy
+                                 && sw_ok_w;      // c==0: cmt_in_win ≡ !rob_empty (占用量 >= 1)
             end else begin : cen
-                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && cmt_rdy  // store 截断批
-                                 && sw_ok_w;
+                assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && cmt_in_win && cmt_rdy
+                                 && sw_ok_w;      // store 截断批; cmt_in_win 见上方说明
             end
             assign com_acc[(c + 1) * 3 +: 3] = com_acc[c * 3 +: 3] + ce_w[c];
             // free_list 回收: new_pnum!=0 才 push old_pnum
