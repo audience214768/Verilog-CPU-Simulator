@@ -21,7 +21,11 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
 [ -n "$ID" ] || { echo "用法: tools/sweep.sh <id> <标签> \"K=V,...\" ..."; exit 2; }
 TREE="$ROOT/runs/$ID"
-SWEEP_MAX_CYCLES=${SWEEP_MAX_CYCLES:-10000000}   # 见下方 run 里的说明
+SWEEP_MAX_CYCLES=${SWEEP_MAX_CYCLES:-10000000}   # 见下方 run 里的说明 (perf 用)
+# 正确性套件**不能**用 1e7: `pi` 是亿级周期 (docs/plan.md:52 记 1.5e8 拍; §15.2 已警告过
+# "1e6 上限会制造假失败, 须抬到 1e8")。1e7 会把 pi 变成一条必然的假失败 (实测 18 passed / 1 failed,
+# 且失败用例名只能在 stdout 缓冲刷出后按"哪个用例头后面没有 PASS"解析 —— FAIL 行走 stderr, 总是先刷)。
+SWEEP_TEST_MAX_CYCLES=${SWEEP_TEST_MAX_CYCLES:-100000000}
 
 if [ ! -d "$TREE" ]; then
     mkdir -p "$TREE"
@@ -57,9 +61,12 @@ while [ $# -ge 1 ]; do
     # SWEEP_TEST=1: 同一个变体树里先跑官方正确性套件 (make test, 官方 correctness_* 全集)。
     # 消融矩阵要的是"该参数点功能是否成立", 只有 perf 的 IPC 数字不能证明这一点。
     if [ "${SWEEP_TEST:-0}" = "1" ]; then
-        make -C "$TREE" CONFIG=config.local.mk MAX_CYCLES=$SWEEP_MAX_CYCLES test > "/tmp/sweep_test.log" 2>&1 || true
-        echo "SWEEP $label TEST $(grep -E '^Results:' /tmp/sweep_test.log | tail -1)"
-        grep -E '^\[.*\]$' -A1 /tmp/sweep_test.log | grep -B1 '^FAIL' | head -20
+        make -C "$TREE" CONFIG=config.local.mk MAX_CYCLES=$SWEEP_TEST_MAX_CYCLES test > "/tmp/sweep_test_$label.log" 2>&1 || true
+        echo "SWEEP $label TEST $(grep -E '^Results:' /tmp/sweep_test_$label.log | tail -1)"
+        # 失败用例名: FAIL 行走 stderr (无缓冲), 用例头走 stdout (有缓冲) ⇒ 不能按邻近行归属,
+        # 只能找"后面没有 PASS 的那个用例头"
+        awk '/^\[/{if(p!=""&&!ok)print "  失败用例: "p; p=$0; ok=0} /^PASS/{ok=1} END{if(!ok&&p!="")print "  失败用例: "p}' \
+            "/tmp/sweep_test_$label.log"
     fi
     # 周期上限 1e7 (不是官方的 1e8): 默认参数下最长的 perf 是 perf_rsort 的 655666 周期
     # ⇒ 15× 余量。官方 1e8 在这里是**陷阱** —— 一个卡死的参数组合要跑 18 分钟才报错
