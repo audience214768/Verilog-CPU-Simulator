@@ -1735,6 +1735,42 @@ assign set_last_val = misp_fs_w + 1'b1;   // 保留误预测那条自身, 只截
 3. 之后 C1（DIV/REM）的 G2 才有意义：修完本条后 16 条失败**才真正**全部等于"缺 DIV/REM"，
    即 **19/19 = 本条修复 + C1**，单靠 C1 达不到。
 
+#### 15.8 `make perf` 基线：从"取不到"变成"6 取 5"，剩一个**独立**的存储通路缺陷
+
+§15.5 修完后 `perf` 不再 `SystemExit` 在前两个点上，可以真跑了：
+
+```
+$ make CONFIG=config.local.mk perf        # MAX_CYCLES=1e6, LATENCY=10 (官方默认口径)
+benchmark                  instructions       cycles        IPC
+perf_median                        6961        28141     0.2474
+perf_multiply                     21722        37979     0.5719
+perf_qsort: exit result mismatch: expected 0, actual 541     ← SystemExit, geomean 仍打不出来
+```
+
+`perf_qsort` 是**真错**（6 个 perf 程序 **div/rem 全为 0**，与缺 C1 无关）。定位如下：
+
+| 观测 | 结果 |
+|---|---|
+| 同一镜像走 **TB 路径**（`core/memory.v`，不经 `mem_subsystem`/AXI） | `PASS: oj_pqsort ret=0 cycles=228073` ✅ |
+| 官方路径 **latency 扫描** `./build/sim ... <LAT>` | L=1 `PASS 0` / L=2 `FAIL 667` / L=3 `FAIL 541` / L=5 `FAIL 541` / L=10 `FAIL 541` |
+| 6 个 perf 程序 **L=1** | 全 PASS |
+| 6 个 perf 程序 **L=10**（官方口径） | **5 PASS**（median / multiply / rsort / towers / vvadd），只 `qsort` FAIL |
+
+**判词**：这是**官方存储通路（`mem_subsystem` + AXI）里一个与延迟相关的缺陷**，被 qsort 的访存模式触发：
+
+- **不是** §15.5 的冲刷逻辑 —— L=1 与 L=10 跑的是**同一条指令流**（误预测/冲刷次数相同），
+  只有访存时序不同；L=1 全绿而 L≥2 出错 ⇒ 变量在存储侧。
+- **不是**缺 DIV/REM —— 这 6 个程序 div/rem 计数为 0。
+- **不是** fetch 侧 —— 出错的是 `main` 比对的**数据**（返回 541 = 第 540 个 word 不匹配，
+  见 `perf_qsort/program.S:214-234` 的比对循环），不是控制流。
+
+⇒ **`make perf` 的 6 点基线目前只能取到 5 个**；`testcase.py` 在第一个失败点 `SystemExit`，
+所以**几何平均仍然打不出来**。G4（"6 个 IPC 逐位相同"）在这个缺陷修掉之前**依然不可测**。
+
+> 待办（独立于 C1）：修 `mem_subsystem`/AXI 的延迟相关访存缺陷。
+> 建议切入点：`docs/plan.md` 头部那条契约 —— "已提交 store 必须在队列里留到 **B 已握手
+> 且 该 B 之前发出的 load 都已回**"；qsort 是**先大量 store 再读回**的模式，正好压在这条上。
+
 ## 消融 + 综合（报告素材）
 
 - 矩阵：W{1,2,4} × ROB{16,32,64} × RS{8,16,24} × **PRF{64,96,128}** × LSQ{8,16,32} × BHT{16,32,128} ×
