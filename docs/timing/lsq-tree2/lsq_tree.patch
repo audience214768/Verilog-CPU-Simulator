@@ -1,0 +1,168 @@
+diff --git a/verilog/core/lsq.v b/verilog/core/lsq.v
+index d05440f..457036b 100644
+--- a/verilog/core/lsq.v
++++ b/verilog/core/lsq.v
+@@ -232,69 +232,110 @@ module lsq #(
+     wire [LW : 0] ddi = (mem_done_idx - head_r) & (LSQ_SIZE - 1);
+ 
+     // 字节 b 的最终值: 最年轻重叠未提交 store 的 data, 否则内存字节
+-    // 注意: 状态全部作为参数传入 (iverilog 连续赋值中的函数只对参数变化重算,
+-    // 对函数体引用的模块级信号不建立事件依赖 → 同拍状态变化会得到陈旧输出)
+-    function [7 : 0] merge_byte_f;
+-        input [7 : 0]     b;
+-        input [31 : 0]    la;
+-        input [LW : 0]    dd;
+-        input [31 : 0]    md;
+-        input [LSQ_SIZE - 1 : 0]      v, il, ar, drd;     // 条目状态
+-        input [LSQ_SIZE * 2 - 1 : 0]  wr;                 // 宽度
+-        input [LSQ_SIZE * 32 - 1 : 0] ad, dt;             // 地址/数据
+-        input [LW - 1 : 0]            hd;                 // head
+-        integer j;
+-        reg [LW - 1 : 0] bj;
+-        reg [LW : 0]     dj;
+-        reg [7 : 0]      bo;
+-        reg              found;      // found 标志: dj==0 (head 处 store) 也是合法匹配
++    //
++    // ★ 原实现是 merge_byte_f **例化 4 次** (mb0..mb3), 每次把整个 addr_r/data_r/width_r
++    //   (16 × 34 = 544 位) 当参数传进去, 内部再对 16 个条目做**串行**扫描 (found/dj 逐级
++    //   更新, 深度 ≈ 16 × (比较 + mux))。容器实测 (ASAP7 r28, CLOCK_PERIOD_NS=2.0):
++    //   该结构被 ABC 的 CSE 抽成一个 **49 级深、扇出 637** 的共享节点 —— 单级 4.07 ns,
++    //   再拖出下一级 8.78 ns 的输入摆率 (该级 4.10 ns), 两级合计 8.17 ns = 17.82 ns 的 46%。
++    //
++    // 改法四条 (行为不变, 由 6 条 perf IPC 逐位相同把关):
++    //   ① 4 份复制 → 1 份: 状态数组只读一遍, 完成 load 的地址也只选一次;
++    //   ② 宽比较**提到条目级** (16 份), 不许落进 (字节道 × 条目) 的叶子里 (64 份) ——
++    //      实测教训: 把 30 位归约按叶子复制, ABC 会抽出扇出 2631 的共享节点, 整版 37.43 ns
++    //      (见 docs/timing/results.csv 的 lsq-tree 行)。这里每条目只留 `off = la - ad`
++    //      的 32 位减法, 加 off[31:2] 的"全 0 / 全 1"两个 30 位归约;
++    //   ③ 串行优先链 → **锦标赛树** (heap 布局, 同 rs.v:117-155): 深度 16 级 → 4 级;
++    //   ④ 树的载荷直接带**字节**而非条目号: 叶子的字节取 data_r 的固定偏移 (纯连线, 零门),
++    //      于是树根就是结果 —— 省掉原实现那个 512 位、偏移可变的字节选择器。
++    //
++    // 命中判据推导: 令 pb = la + b, off = (la - ad) mod 2^32, hx = (off + b) mod 2^32。
++    //   因 ad < 2^32 且 0 <= la + b < 2^32 + 4, 有 pb - ad != hx - 2^32,
++    //   故 (pb >= ad && pb < ad + 字节数) <=> hx ∈ [0, 字节数)。
++    //   再把 hx 拆成低 2 位与高 30 位: s = off[1:0] + b (3 位), cy = s[2], 有
++    //   hx[1:0] = s[1:0], hx[31:2] = off[31:2] + cy (30 位加法的进位会整段传播),
++    //   所以 hx[31:2] == 0 <=> cy ? (off[31:2] 全 1) : (off[31:2] 全 0)。
++    // 注: 树要求 LSQ_SIZE 是 2 的幂 (原实现的 `& (LSQ_SIZE-1)` 年龄取模也要求这一点)。
++    localparam NW    = 4;                       // 一次 load 的字节道数 (memory 每拍回一个 32 位字)
++    localparam NODES = 2 * LSQ_SIZE - 1;        // 每道的树节点数 (LSQ_SIZE 叶 + LSQ_SIZE-1 内部)
++    localparam MTW   = 1 + LW + 8;              // 节点内容 {有效, 年龄, 字节}
++
++    function [2 : 0] wb_bytes;                  // 宽度编码 → 字节数
++        input [1 : 0] w;
+         begin
+-            found = 1'b0;
+-            bj = {LW{1'b0}};
+-            dj = {LW + 1{1'b0}};
+-            for (j = 0; j < LSQ_SIZE; j = j + 1) begin
+-                if (v[j] && !il[j] && ar[j] && drd[j]
+-                 && (((j - hd) & (LSQ_SIZE - 1)) < dd)
+-                 && ((la + b) >= ad[j * 32 +: 32])
+-                 && ((la + b) < (ad[j * 32 +: 32] + ((wr[j * 2 +: 2] == 2'b10) ? 32'd4
+-                                                    : (wr[j * 2 +: 2] == 2'b01) ? 32'd2
+-                                                                                : 32'd1)))) begin
+-                    if (!found || (((j - hd) & (LSQ_SIZE - 1)) >= dj)) begin
+-                        found = 1'b1;
+-                        dj = (j - hd) & (LSQ_SIZE - 1);
+-                        bj = j;
+-                    end
+-                end
+-            end
+-            bo = (la + b - ad[bj * 32 +: 32]) * 8;
+-            merge_byte_f = found ? dt[bj * 32 + bo +: 8]
+-                                 : md[b * 8 +: 8];
++            wb_bytes = (w == 2'b10) ? 3'd4 : (w == 2'b01) ? 3'd2 : 3'd1;
+         end
+     endfunction
+-    wire [7 : 0] mb0 = merge_byte_f(8'd0, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+-                                    valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
+-                                    addr_r, data_r, head_r);
+-    wire [7 : 0] mb1 = merge_byte_f(8'd1, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+-                                    valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
+-                                    addr_r, data_r, head_r);
+-    wire [7 : 0] mb2 = merge_byte_f(8'd2, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+-                                    valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
+-                                    addr_r, data_r, head_r);
+-    wire [7 : 0] mb3 = merge_byte_f(8'd3, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+-                                    valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
+-                                    addr_r, data_r, head_r);
++
++    wire [31 : 0] la_w = addr_r[mem_done_idx * 32 +: 32];   // 完成 load 的地址
++    // 每条目一份 (与字节道 b 无关)
++    wire [LSQ_SIZE - 1 : 0]      m_ok;    // 有资格前向: 有效 store + addr/data 就绪 + 比完成 load 老
++    wire [LSQ_SIZE - 1 : 0]      m_z0;    // off[31:2] 全 0
++    wire [LSQ_SIZE - 1 : 0]      m_z1;    // off[31:2] 全 1 (la 比 ad 小 1~3 字节, 加法回绕)
++    wire [LSQ_SIZE * 2 - 1 : 0]  m_lo;    // off[1:0]
++    wire [LSQ_SIZE * 3 - 1 : 0]  m_by;    // 覆盖字节数 1/2/4
++    wire [LSQ_SIZE * LW - 1 : 0] m_age;   // 距 head 的年龄 (越大越年轻)
++    wire [NW * NODES * MTW - 1 : 0] mt;   // 各道的锦标赛树
++    wire [NW - 1 : 0]            m_hit;   // 各道是否有命中
++    wire [31 : 0]                m_data;  // 合并后的 32 位结果 (未命中道取内存字节)
++
++    genvar gj, gb, gn;
++    generate
++        for (gj = 0; gj < LSQ_SIZE; gj = gj + 1) begin : ent
++            wire [31 : 0]     off = la_w - addr_r[gj * 32 +: 32];
++            wire [LW - 1 : 0] age = (gj[LW - 1 : 0] - head_r) & (LSQ_SIZE - 1);
++            assign m_z0[gj] = ~|off[31 : 2];
++            assign m_z1[gj] =  &off[31 : 2];
++            assign m_lo[gj * 2 +: 2] = off[1 : 0];
++            assign m_by[gj * 3 +: 3] = wb_bytes(width_r[gj * 2 +: 2]);
++            assign m_age[gj * LW +: LW] = age;
++            assign m_ok[gj] = valid_r[gj] && !is_load_r[gj] && addr_ready_r[gj]
++                           && data_ready_r[gj] && (age < ddi);
++        end
++        for (gb = 0; gb < NW; gb = gb + 1) begin : lane
++            // --- 叶: 本道字节是否落在该条目的覆盖范围内 ---
++            for (gj = 0; gj < LSQ_SIZE; gj = gj + 1) begin : lf
++                wire [2 : 0] s  = {1'b0, m_lo[gj * 2 +: 2]} + gb[2 : 0];   // off[1:0] + b
++                wire [2 : 0] by = m_by[gj * 3 +: 3];
++                wire         hi = s[2] ? m_z1[gj] : m_z0[gj];
++                wire         inr = (by == 3'd4) ? 1'b1                // s[1:0] < 字节数 (字节数 = 1/2/4)
++                                 : (by == 3'd2) ? ~s[1]
++                                                : ~|s[1 : 0];
++                // 取 store 数据字里的第几个字节: 命中时 hx = la + b - ad ∈ [0,4), 故就是 s[1:0]
++                // (不是 b —— store 的数据字是按 **store 地址** 对齐的, 原实现的 bo 正是此意)
++                wire [4 : 0] boff = {s[1 : 0], 3'b000};
++                wire         hit = m_ok[gj] && hi && inr;
++                assign mt[(gb * NODES + LSQ_SIZE - 1 + gj) * MTW +: MTW]
++                     = hit ? {1'b1, m_age[gj * LW +: LW], data_r[gj * 32 + boff +: 8]}
++                           : {MTW{1'b0}};
++            end
++            // --- 内部节点: 自底向上两两归并 (连续赋值与书写顺序无关) ---
++            for (gn = 0; gn < (LSQ_SIZE - 1); gn = gn + 1) begin : nd
++                wire [MTW - 1 : 0] lst = mt[(gb * NODES + 2 * gn + 1) * MTW +: MTW];
++                wire [MTW - 1 : 0] rst = mt[(gb * NODES + 2 * gn + 2) * MTW +: MTW];
++                // 右胜 = 右有效 && (左无效 || 右年龄更大)。年龄是槽号的旋转双射 ⇒ 不会平局,
++                // 平局留给左只是让判据有个确定含义。
++                assign mt[(gb * NODES + gn) * MTW +: MTW]
++                     = (rst[MTW - 1] && (!lst[MTW - 1] || (rst[8 +: LW] > lst[8 +: LW]))) ? rst : lst;
++            end
++            // --- 根: 命中则取胜者的字节, 否则取内存字节 ---
++            assign m_hit[gb] = mt[(gb * NODES) * MTW + MTW - 1];
++            assign m_data[gb * 8 +: 8] = m_hit[gb] ? mt[(gb * NODES) * MTW +: 8]
++                                                   : mem_done_data[gb * 8 +: 8];
++        end
++    endgenerate
+ 
+     assign load_cdb_valid    = ld_ok;
+     assign load_cdb_prd      = prs2_or_prd_r[mem_done_idx * PW +: PW];
+     assign load_cdb_rob_tag  = rob_tag_r[mem_done_idx * RW +: RW];
+     assign load_cdb_rob_wr   = ld_ok;
+     assign load_cdb_result   = (width_r[mem_done_idx * 2 +: 2] == 2'b10)
+-                             ? {mb3, mb2, mb1, mb0}
++                             ? m_data
+                              : (width_r[mem_done_idx * 2 +: 2] == 2'b01)
+-                               ? (is_unsigned_r[mem_done_idx] ? {16'd0, mb1, mb0}
+-                                                              : {{16{mb1[7]}}, mb1, mb0})
+-                               : (is_unsigned_r[mem_done_idx] ? {24'd0, mb0}
+-                                                              : {{24{mb0[7]}}, mb0});
++                               ? (is_unsigned_r[mem_done_idx] ? {16'd0, m_data[15 : 0]}
++                                                              : {{16{m_data[15]}}, m_data[15 : 0]})
++                               : (is_unsigned_r[mem_done_idx] ? {24'd0, m_data[7 : 0]}
++                                                              : {{24{m_data[7]}}, m_data[7 : 0]});
+ 
+     // ---- 输出 ----
+     assign head       = head_r;

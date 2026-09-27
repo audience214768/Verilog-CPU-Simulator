@@ -1,0 +1,55 @@
+Synthesis mode: diagnose (hierarchy preserved)
+
+Total area:           11,784.854 um^2
+  Combinational:      7,814.166 um^2
+  Sequential:         3,970.688 um^2
+  SRAM:               0.000 um^2
+
+Estimated frequency:  20.10 MHz
+Minimum period:       49.7402 ns
+Clock target:         2.000 ns
+Worst setup slack:    -47.7399 ns
+
+Module area (including children)    Area (um^2)   % total  Direct (um^2)
+student_top                          11,784.854   100.00%          0.131
+  u_cpu                               8,719.102    73.99%        386.560
+    u_lsq                             2,014.460    17.09%      2,014.460
+    u_rs                              1,692.388    14.36%      1,692.388
+    u_prf                             1,587.150    13.47%      1,587.150
+    u_rob                             1,192.265    10.12%      1,192.265
+    slt[0].u_slot                       968.899     8.22%        308.061
+      u_alu                             580.546     4.93%         66.514
+        umul                            483.939     4.11%        144.021
+          t2                             88.880     0.75%         88.880
+          t1                             75.641     0.64%         75.641
+          t3                             57.314     0.49%         57.314
+          t4                             44.440     0.38%         44.440
+          fin                            29.350     0.25%         29.350
+          t5                             22.249     0.19%         22.249
+          t6                             22.045     0.19%         22.045
+        uadd                             15.047     0.13%         15.047
+        usub                             15.047     0.13%         15.047
+      u_br                               80.292     0.68%         20.106
+        ucmp                             15.047     0.13%         15.047
+        ujal                             15.047     0.13%         15.047
+        ulnk                             15.047     0.13%         15.047
+        utgt                             15.047     0.13%         15.047
+    u_fetch                             346.625     2.94%        194.847
+      u_ras                             110.589     0.94%        110.589
+      u_bht                              41.189     0.35%         41.189
+    u_div                               176.199     1.50%        176.199
+    u_rat                               168.968     1.43%        168.968
+    u_fl                                107.061     0.91%        107.061
+    u_rt                                 37.704     0.32%         37.704
+    u_cdb                                29.116     0.25%         29.116
+    u_decode                             11.708     0.10%         11.708
+  u_mem                               3,065.620    26.01%      2,460.681
+    u_axi                               604.939     5.13%        604.939
+Direct area excludes children; parent and child totals overlap.
+This breakdown describes the diagnose netlist; opt may produce different area and timing.
+
+Critical path:
+  u_mem/_51198_/QN
+    -> u_cpu/u_rs/_25944_/D
+
+Reports: /work/build/synth_diag/diagnose/report.txt, report.json, timing.rpt
