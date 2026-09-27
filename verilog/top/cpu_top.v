@@ -67,7 +67,7 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  cdb_tag_w;
     wire [ISSUE_WIDTH : 0]           cdb_slot_valid_w;
     wire [ROB_SIZE - 1 : 0]            rob_ready_set_w;
-    wire [(ISSUE_WIDTH + 1) * PW - 1 : 0]  old_map_chain;
+    wire [ISSUE_WIDTH * PW - 1 : 0]  old_map_chain;      // 逐槽 old 映射 (实现见下方 omc 链)
     wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0]   mem_cnt_chain;
     reg                            halt_q_r, ret_latched_r;
     reg  [7 : 0]                     ret_val_r;

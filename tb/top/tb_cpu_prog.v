@@ -200,8 +200,31 @@ module tb_cpu_prog;
     // 表达式, 免得镜像错误掩盖真相); O(FREE_NUM^2) 每拍, 仅调试时开。
     integer flchk, fi, fj;
     initial flchk = 0;
+    integer nh, nrep;
+    initial begin nh = 0; nrep = 0; end
     always @(posedge clk) begin
         if (flchk && rst_n) begin
+            // 收支不变量: 池内空闲数 == 池容量 - 仍被持有的 preg 数 (持有 = 已分配且未回收)。
+            // 破了就是**漏回收/多回收**: sp 偏小 ⇒ 有 preg 永久泄漏 ⇒ 池耗尽后改名全停
+            // (ROB 空、commit=issue 也不动 = 死锁)。首次违反时把池与持有集全打出来定位。
+            nh = 0;
+            for (fi = 0; fi < PRF_SIZE_TB; fi = fi + 1)
+                nh = nh + preg_held[fi];
+            // 分配必须与本拍压入 ROB 的条目配对: 分配了却没进 ROB (或进的条目 new=0)
+            // ⇒ 该 preg 永远不会被回收 (提交/walker 都按 rob_new!=0 产生 push) ⇒ 永久泄漏
+            for (fi = 0; fi < ISSUE_WIDTH_TB; fi = fi + 1)
+                if (dut.rename_valid[fi] && !dut.rob_push_valid[fi])
+                    $display("FAIL: alloc without rob entry slot=%0d alloc=%0d cyc=%0d",
+                             fi, dut.alloc_val[fi * PW_TB +: PW_TB], cyc);
+            if ((dut.u_fl.sp != (PRF_SIZE_TB - 32 - nh)) && (nrep < 4)) begin
+                nrep = nrep + 1;
+                $display("FAIL: pool/held mismatch sp=%0d held=%0d expect_sp=%0d cyc=%0d",
+                         dut.u_fl.sp, nh, PRF_SIZE_TB - 32 - nh, cyc);
+                for (fi = 0; fi < PRF_SIZE_TB - 32; fi = fi + 1)
+                    $display("   pool[%0d]=%0d", fi, dut.u_fl.pool[fi]);
+                for (fi = 0; fi < PRF_SIZE_TB; fi = fi + 1)
+                    if (preg_held[fi]) $display("   held preg=%0d", fi);
+            end
             // RAT 必须是单射: 两个架构寄存器映到同一 preg ⇒ 两条在飞指令 old 相同 ⇒ 提交时
             // 同一 preg 被回收两次 ⇒ 池内出现重复项 ⇒ 同一 preg 发给两条在飞指令 ⇒ 死锁。
             // (preg 0..31 恒等映射且永不被分配, 故任意两路相等都是真违反)
@@ -345,8 +368,10 @@ module tb_cpu_prog;
                 cyc = cyc + 1;
                 if (dump_cyc > 0 && cyc == dump_cyc) $dumpoff;
                 if ((cyc % 20000) == 0)
-                    $display("   ... %0s cyc=%0d commit=%0d pc=%h", nm, cyc,
-                             commit_count, dut.u_fetch.pc_r);
+                    $display("   ... %0s cyc=%0d commit=%0d pc=%h robh=%0d robl=%0d empty=%b sp=%0d rdy=%b",
+                             nm, cyc, commit_count, dut.u_fetch.pc_r,
+                             dut.rob_head_w, dut.rob_last_w, dut.rob_empty,
+                             dut.u_fl.sp, dut.rob_ready_w[dut.rob_head_w]);
             end
             if ((perf_n > 0) && !dut.ret_latched_r) begin
                 // 性能模式: 只跑固定拍数, 报 IPC (提交数/拍); 不作对错判定
@@ -377,6 +402,13 @@ module tb_cpu_prog;
             $display("JUMP: %0s taken jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d | misp jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d",
                      nm, kj[0], kj[1], kj[2], kj[3], kj[4], kj[5],
                      mj[0], mj[1], mj[2], mj[3], mj[4], mj[5]);
+            // 自由表耗尽时的"谁占着 preg": 池容量=FREE_NUM, 但架构映射占用的 preg (>=32) 不会回池,
+            // 只有当该寄存器被**重写**时才借新写者的 old 回收 ⇒ #映射>=32 单调涨到"程序写过的不同寄存器数"
+            nh = 0;
+            for (fi = 0; fi < 32; fi = fi + 1)
+                if (dut.map_arch[fi * PW_TB +: PW_TB] >= 32) nh = nh + 1;
+            $display("FREELIST: %0s sp=%0d FREE_NUM=%0d mapped_ge32=%0d rob_empty=%b",
+                     nm, dut.u_fl.sp, PRF_SIZE_TB - 32, nh, dut.rob_empty);
         end
     endtask
 

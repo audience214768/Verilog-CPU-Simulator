@@ -2798,6 +2798,12 @@ RTL 侧无从下手。**寄存器是这个流程里唯一能把摆率归零的�
 其余单轴缩减全部 PASS。这是**先于本轮频率工作就存在**的功能缺陷（min-all 的 6.61 ns
 那条综合记录因此不可用），**待单独定位**，不计入频率结论。
 
+> **2026-09-27 补**：两条都已定位。`LD_INFLIGHT=2` 是**真 bug**（指针差值按 mod LD_INFLIGHT
+> 编码 ⇒ 满判据永不成立 ⇒ 在飞槽位被覆盖），已修，见 §15.10.15 §二/§六。
+> 而 `ROB_SIZE=8 & PRF_SIZE=40` 这一条**不是缺陷**：ROB_SIZE=8 完全无辜，全部责任在
+> `PRF_SIZE=40` —— 它是**结构性不可行点**，见 §15.10.15 §六。本表该行的"只 ROB_SIZE=8"
+> 应读作"只 PRF_SIZE=40"。
+
 #### 15.10.14 手法 4：`execute_slot` 加 W 级写回寄存器 —— **一半成功**，以及热点的完整归因（2026-09-27）
 
 **是什么**：在 Q 级之后再插一级写回寄存器 W（114 位 = valid/addr_req/data_req 三个 strobe +
@@ -2926,6 +2932,51 @@ W{1,2,4} × 20 程序的矩阵见下节。
 `div_gnt_w = div_req_w & (~div_req_w + 1)`（最低置位槽）、`div_go_w = (|div_gnt_w) && !div_busy && !flushing_r`、
 `div_accept_w[s] = div_gnt_w[s] && div_go_w`，载荷走 one-hot AND-OR。W≥2 的死锁正是"只有槽 0 能启动"
 这条设计引起的（高槽的 div 移不到槽 0 时 `q_freeze` 永不释放），故已按"任一槽发起"重做。
+
+##### 六、`min-all` 的第二个挂死 = **参数不可行点**，不是缺陷：`PRF_SIZE ≥ 64` 的结构性下限
+
+§15.10.13 §九 把这条记成"`ROB_SIZE=8 & PRF_SIZE=40` 挂死"。本轮把它拆开做**单变量对照**
+（Icarus 全 RTL，`gcd`，`+PROG=gcd +DUMP=0`）：
+
+| 配置 | 结果 | 冻结时状态（TB 新增 `FREELIST:` 行） |
+|---|---|---|
+| ROB=8, PRF=**40** | FAIL（timeout，commit 冻在 24）| `sp=0 FREE_NUM=8 mapped_ge32=8 rob_empty=1` |
+| ROB=8, PRF=**64** | **PASS** `ret=178 cycles=810` | — |
+| ROB=**64**, PRF=**40** | FAIL（同一状态、同一 pc） | `sp=0 FREE_NUM=8 mapped_ge32=8 rob_empty=1` |
+
+⇒ **ROB_SIZE=8 无辜**（配 PRF=64 直接过），挂死完全由 `PRF_SIZE=40` 决定，且与 ROB 大小无关。
+
+**机制（为什么这不是 bug）**：preg 0..31 是 RAT 复位恒等映射占用的身份区，**永不入池**；
+池容量 `FREE_NUM = PRF_SIZE - 32`。某条指令写 x 时分配的 preg，**只有等 x 被再次写**（后一个写者的
+`old_pnum`）才会回池 —— 所以"被架构映射占住的 preg"数**单调不减**，涨到"程序写过的不同寄存器数"为止。
+于是稳态恒有
+
+    sp = FREE_NUM - #{x : map_arch[x] >= 32}          (静默时刻, ROB 已排空)
+
+**永久死锁 ⇔ 池空且再没有任何东西能 push** ⇔ `#{x : map_arch[x] >= 32} == FREE_NUM`（实测冻结态正是
+`rob_empty=1, sp=0`，与判据逐项吻合）。又因 x0 只读不写，该计数**上界 31** ⇒
+
+> **`FREE_NUM ≥ 32`（即 `PRF_SIZE ≥ 64`）时该永久死锁态不可达。** `PRF_SIZE=40`（FREE_NUM=8）
+> 则在程序写到第 8 个不同目的寄存器时必然撞上 —— `gcd`/`expr` 会，`naive`（只写 6 个）不会。
+
+**两次独立验证**（不是拟合出来的规则，是先有规则再验中段）：
+
+| 程序 | 写过的不同目的寄存器数 | 结果 | 静默态 `sp` |
+|---|---|---|---|
+| `naive` @PRF=40 | 6 | PASS | `sp=2 = 8-6` ✓ |
+| `expr` @PRF=40 | 8 | FAIL | `mapped_ge32=8 = FREE_NUM` ✓ |
+| `gcd` @PRF=64 | 10 | PASS | `sp=22 = 32-10` ✓ |
+
+注：**在飞指令把 sp 压到 0 不是致命态**（提交会还 preg，且提交通路不依赖改名）；致命的是"排空后仍为 0"。
+故 `PRF_SIZE=40` 只是把"程序能写的寄存器数"限死在 7 个，属**参数选择错误**，RTL 无需改动。
+
+**顺带建立的两条不变量检查（`+FLCHK=1`，已进 TB，长期保留）**：
+1. **池/持有收支**：`u_fl.sp == FREE_NUM - popcount(preg_held)`（每拍查；破了就是漏回收/重复回收，
+   首次违反时打印整个池与持有集）。本轮它**一次都没报** ⇒ 排除了"free_list 自己算错"这条路，
+   才把矛头转到"架构映射合法占住 preg"上。
+2. **分配必须入 ROB**：`rename_valid[i] && !rob_push_valid[i]` 即报（分配了却没进 ROB ⇒ 该 preg 永久泄漏）。
+   同样零违反。
+3. 测试结束打印 `FREELIST: <prog> sp=… FREE_NUM=… mapped_ge32=… rob_empty=…`，一眼可判档位是否够用。
 
 ## 消融 + 综合（报告素材）
 
