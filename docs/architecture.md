@@ -413,10 +413,11 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 | `sw_valid/addr/data/width`、`sw_ready` | out/in | — | store 口（提交级 ≤1/周期；`sw_ready=0` ⇒ 本拍不提交该 store） |
 
 **内部组合块**（assign/generate，无新增模块）：
-- B1 操作数获取：`op = (prs==0)?0 : (cdb 槽标签匹配 ? 槽结果 : (rt_ready[prs] ? prf 索引读 : 0))`——读口地址由槽选择结果驱动
+- **B3-D 执行槽字段取**（D 级）：按 `rs.sel_idx` 做 one-hot → 对 144 位打包条目做 AND-OR 取字段（opcode/func3/func7/prs/prd/pc/imm/pred/rob_tag/lsq_tag/ras_snap）
+- **B1+B3-Q 操作数获取与执行**（Q 级，晚 D 级一拍）：`op = (prs==0)?0 : (cdb 槽标签匹配 ? 槽结果 : (rt_ready[prs] ? prf 索引读 : 0))`——读口地址由 D 级**锁存**的 `sel_all_q` 驱动 → 槽内 alu/branch。
+  切点寄存器 144+1 位（≈80 µm²）；D→Q 移交的扣住规则见 `execute_slot.v` 文件头四条不变量（RS 条目在入选当拍即被清 ⇒ 只能扣流水寄存器；`q_freeze` 与门控 `rs_clear` 的 `pipe_stall` 必须同条件；误预测当拍**清空**而非冻结）
 - B2 发射组合：W 条 prefix 门控（条件：rob/rs 有空间 && (!writes_rd ‖ free_list 够) && (!memop ‖ lsq 有空间)）；rat rename W + free_list pop W + ready_table clear W + rob/rs/lsq push W
-- B3 执行槽分发：按 rs.sel_idx 取字段 → 槽内 alu/branch 操作数/操作码
-- B4 误预测检测：branch: `taken != pred_taken`；jalr: `target != pred_target`；**多槽同拍误预测 → 取最老 tag**；同时驱动 fetch 重定向 + bht 更新 + ras 恢复 + rs/lsq flush_mask + rob set_last；**misp 周期抑制 issue**（见陷阱 #11）
+- B4 误预测检测（Q 级）：branch: `taken != pred_taken`；jalr: `target != pred_target`；**多槽同拍误预测 → 取最老 tag**；同时驱动 fetch 重定向 + bht 更新 + ras 恢复 + rs/lsq flush_mask + rob set_last；**misp 周期抑制 issue**（见陷阱 #11）
 - B5 walker FSM（flushing/walk_ptr/flush_fs）：每周期 W 条从 last 向 fs 回滚（rat.flush + free_list push new_pnum + ready_table flush_clear）；中途新误预测（更老）→ 扩展范围；walker 期间：issue 全抑制 + fetch stall + **commit 冻结**
 - B6 提交组合：ROB head 连续就绪，每周期 ≤W 条、**store ≤1**（第一个 store 之后截断本批）；free_list push（`new_pnum!=0` 的条目 push old_pnum）；store → memory.sw + lsq.invalidate；load → lsq.invalidate；标记指令（raw==TERM_RAW）提交 → halt 锁存
 - B7 无（lsq.v 内部）；B8 load 完成 → lsq.v 内部推 cdb 槽 W
@@ -645,6 +646,10 @@ tr: R 到达并捕获（= t1 的快照，不含 S）
 - **新增（C1，见 `docs/plan.md` §15.10）**：verilog/exec/div.v（多周期除法器）、tb/exec/tb_div.v、tb/top/div_corner.{s,data} + 两个脚本；
   修改：decode.v（div/rem 译码）、execute_slot.v（is_div / 发起请求 / exec_valid 门控）、alu.v（sel_prod 收窄 + default 显式 0）、
   cdb.v + prf.v（写回口 +1 → 槽 W+1）、cpu_top.v（div 例化 + 发起仲裁 + kill 判据）、verilog/filelist.f
+- **修改（频率，见 `docs/plan.md` §15.10.13）**：execute_slot.v 内部分成 **D 级**（B3 字段取 one-hot+AND-OR）
+  / **Q 级**（B1 操作数获取 + B3 执行 + B4 误预测检测），中间一个 144+1 位寄存器；新增端口
+  `flush_win`/`flush_hit`/`div_accept`/`sel_valid_q`/`pipe_stall`；cpu_top.v 的 `rs_clear_valid`
+  改为 `sel_valid & ~pipe_stall_w`、ret_sample 读口判据改用 `sel_valid_q[0]`（原 `div_hold_w` 机制随之退役）
 - 官方框架（根目录，**勿改**）：Makefile、config.mk、scripts/、docs/{axi4-lite,sram}.md、testcases/（submodule）；
   本机工具链路径写 `config.local.mk`（已 gitignore），用 `make CONFIG=config.local.mk <target>`
 - 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp

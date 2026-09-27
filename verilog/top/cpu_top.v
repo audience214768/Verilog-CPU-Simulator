@@ -1,10 +1,13 @@
 // 顶层: RV32IM 乱序多发射 Tomasulo CPU 总流水线
 // 三阶段结构 (与 C++ 参考 tick() 同构): 读端口 → 组合 assign → posedge 锁存
+//   + **执行级再切一刀** (§15.10.13): execute_slot 内分 D 级(字段取 one-hot+AND-OR) /
+//     Q 级(操作数获取 + alu/branch + CDB), 中间一个 144+1 位寄存器。rs 仲裁仍在 D 级当拍
+//     出 sel_idx, 只是它下游的字段取与执行晚一拍; 配套的 rs_clear/flush/div 扣住规则见该文件头
 // 组合块: B2 发射(全批 or 不批) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
-//         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → verilog/exec/execute_slot.v
+//         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → verilog/exec/execute_slot.v (Q 级)
 //         误预测汇出链(最老优先)与 fetch 重定向/rob 截断/ras 恢复在此
 // 多周期除法: div 槽只发起 (载荷取槽 0), 33 拍后由 div.v 经 CDB 槽 W+1 写回; 在飞条目靠
-//         div_hold_w 扣住 RS (没被收下就不能清), 错路靠 div_kill 作废 —— 两者都是死锁/写坏
+//         pipe_stall 扣住流水寄存器 (没被收下就不能清条目), 错路靠 div_kill 作废 —— 两者都是死锁/写坏
 //         空闲 preg 的关口, 见各自 assign 处注释
 module cpu_top #(
     parameter ISSUE_WIDTH  = 1,
@@ -81,7 +84,7 @@ module cpu_top #(
     wire [ISSUE_WIDTH - 1 : 0]        br_inc_w;
     wire [ISSUE_WIDTH : 0]            misp_any_c;   // misp_det 前缀 OR (段值在 slt 内)
     // div 发起 (载荷取槽 0 位段; 段值/门控在 slt 内, 实例在下方)
-    wire [ISSUE_WIDTH - 1 : 0]        div_req_w, div_hold_w;
+    wire [ISSUE_WIDTH - 1 : 0]        div_req_w;
     wire [ISSUE_WIDTH * 2 - 1 : 0]    div_op_all;
     wire [ISSUE_WIDTH * 32 - 1 : 0]   div_a_all, div_b_all;
     wire [ISSUE_WIDTH * PW - 1 : 0]   div_prd_all;
@@ -197,6 +200,9 @@ module cpu_top #(
     // ---- rs ----
     wire [ISSUE_WIDTH - 1 : 0]    sel_valid;
     wire [ISSUE_WIDTH * SRW - 1 : 0] sel_idx;
+    wire [ISSUE_WIDTH - 1 : 0]    sel_valid_q;    // execute_slot Q 级有效 (晚一拍)
+    wire [ISSUE_WIDTH - 1 : 0]    pipe_stall_w;   // execute_slot Q 级冻结
+    wire [ISSUE_WIDTH - 1 : 0]    div_accept_w;   // div 发起被收下 (只有槽 0 可能为 1)
     wire [ISSUE_WIDTH - 1 : 0]    rs_clear_valid;
     wire [ISSUE_WIDTH * SRW - 1 : 0] rs_clear_idx;
     wire [CSW - 1 : 0]            rs_free_w;
@@ -240,10 +246,11 @@ module cpu_top #(
         .flush_mask(rs_flush_mask)
     );
     // 执行槽清空 = 本拍选择结果 (rs 内部 posedge 应用)
-    // 例外: 本槽选中了 div 但**没被收下** (除法器忙 / 正在冲刷 / 让位给槽 0) 时条目必须扣住 ——
-    // 条目一清, 这条指令就再也不会被选中, 而它又没进除法器 ⇒ 永不执行 ⇒ 死锁。
-    // 扣住后它下一拍仍是同一条目 (rs 仲裁只看 ready/年龄), 会被重新选中。
-    assign rs_clear_valid = sel_valid & ~div_hold_w;
+    // 例外: 该槽的流水寄存器本拍**冻结** (pipe_stall) 时必须一起放过 —— 冻结期间 D 级选中
+    // 的条目既没进寄存器也(若还清)不会被重选, 指令就丢了。冻结的三种成因见 execute_slot.v 文件头:
+    // 冲刷窗口 / 本拍检出误预测 / 本槽的 div 没被除法器收下 (条目在入选那拍已清, 只能扣寄存器,
+    // 所以"条目扣住"这个旧手段在流水化后不成立了, 必须换成同一条件放过 rs_clear)。
+    assign rs_clear_valid = sel_valid & ~pipe_stall_w;
     assign rs_clear_idx   = sel_idx;
 
     // ---- ready_table / prf / cdb ----
@@ -288,7 +295,7 @@ module cpu_top #(
 
     // ---- div: 多周期除法器 (33 拍), 完成经 CDB 槽 W+1 ----
     // 只有槽 0 能启动 (仲裁见 div_go_w 处) ⇒ 载荷取槽 0 位段。
-    // 没被收下时由 div_hold_w 扣住 RS 条目 (下一拍重选), 条目与发起严格一一对应 (丢 = 死锁)。
+    // 没被收下时由本槽的 pipe_stall 扣住流水寄存器 (下一拍重发), 条目与发起严格一一对应 (丢 = 死锁)。
     assign div_op_w  = div_op_all[0 +: 2];
     assign div_a_w   = div_a_all[0 +: 32];
     assign div_b_w   = div_b_all[0 +: 32];
@@ -485,6 +492,8 @@ module cpu_top #(
             execute_slot #(.ISSUE_WIDTH(ISSUE_WIDTH), .RS_SIZE(RS_SIZE), .PRF_SIZE(PRF_SIZE),
                            .LSQ_SIZE(LSQ_SIZE), .ROB_SIZE(ROB_SIZE), .RAS_SIZE(RAS_SIZE),
                            .BHT_SIZE(BHT_SIZE), .SLOT_ID(s)) u_slot (
+                .clk(clk), .rst_n(rst_n),
+                .flush_win(flushing_r), .flush_hit(misp_valid), .div_accept(div_accept_w[s]),
                 .sel_valid(sel_valid[s]), .sel_idx(sel_idx[s * SRW +: SRW]),
                 .rs_entry_opcode(rs_entry_opcode), .rs_entry_func3(rs_entry_func3), .rs_entry_func7(rs_entry_func7),
                 .rs_entry_prs1(rs_entry_prs1), .rs_entry_prs2(rs_entry_prs2), .rs_entry_prd(rs_entry_prd),
@@ -508,16 +517,18 @@ module cpu_top #(
                 .misp_det(misp_det_w[s]), .misp_red(misp_red_w[s * 32 +: 32]),
                 .misp_fs(misp_fs_pay_w[s * RW +: RW]), .misp_ras(misp_ras_pay_w[s * RA +: RA]),
                 .br_inc(br_inc_w[s]),
+                .sel_valid_q(sel_valid_q[s]), .pipe_stall(pipe_stall_w[s]),
                 .upd_req(upd_req_w[s]), .upd_idx(upd_idx_w[s * BW +: BW]), .upd_taken(upd_taken_w[s])
             );
-            // 槽 0 读口复用为 ret_val 采样 (rob 空时 sel_valid[0]==0)
+            // 槽 0 读口复用为 ret_val 采样 (rob 空 ⇒ rs 已排空 ⇒ Q 级 sel_valid_q[0]==0)
+            // 判据必须是 Q 级 (rd1_preg 现在由 Q 级字段驱动), 用 D 级的 sel_valid[0] 会晚一拍判错
             if (s == 0) begin : rd1mux
-                assign rd1_preg[0 * PW +: PW] = sel_valid[0] ? slot_rd1 : (ret_sample ? map_arch[10 * PW +: PW] : {PW{1'b0}});
+                assign rd1_preg[0 * PW +: PW] = sel_valid_q[0] ? slot_rd1 : (ret_sample ? map_arch[10 * PW +: PW] : {PW{1'b0}});
             end else begin : rd1plain
                 assign rd1_preg[s * PW +: PW] = slot_rd1;
             end
-            // div 请求被扣住 (没被除法器收下) ⇒ rs_clear 放过它, 条目留到下拍重选
-            assign div_hold_w[s] = div_req_w[s] && !((s == 0) && div_go_w);
+            // div 发起是否被收下 (只有槽 0 能启动, 见上方 div_go_w)
+            assign div_accept_w[s] = (s == 0) && div_go_w;
             // CDB 标签/有效别名 (与 exec_valid 同源; load 槽由模块内排除)
             assign cdb_slot_valid_w[s] = cdb_exec_valid[s];
             assign cdb_tag_w[s * PW +: PW] = cdb_exec_prd[s * PW +: PW];

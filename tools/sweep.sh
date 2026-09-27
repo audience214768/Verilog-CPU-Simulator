@@ -21,6 +21,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
 [ -n "$ID" ] || { echo "用法: tools/sweep.sh <id> <标签> \"K=V,...\" ..."; exit 2; }
 TREE="$ROOT/runs/$ID"
+SWEEP_MAX_CYCLES=${SWEEP_MAX_CYCLES:-10000000}   # 见下方 run 里的说明
 
 if [ ! -d "$TREE" ]; then
     mkdir -p "$TREE"
@@ -53,8 +54,15 @@ while [ $# -ge 1 ]; do
     if grep -q "UNOPTFLAT" "/tmp/sweep_build.log"; then
         echo "SWEEP $label UNOPTFLAT!"; continue
     fi
-    make -C "$TREE" CONFIG=config.local.mk MAX_CYCLES=100000000 perf > "/tmp/sweep_perf.log" 2>&1 \
-        || { echo "perf 失败, 见 /tmp/sweep_perf.log"; exit 1; }
+    # 周期上限 1e7 (不是官方的 1e8): 默认参数下最长的 perf 是 perf_rsort 的 655666 周期
+    # ⇒ 15× 余量。官方 1e8 在这里是**陷阱** —— 一个卡死的参数组合要跑 18 分钟才报错
+    # (实测 ~93k 周期/秒), 12 个点的扫描会变成几小时。**卡死点标 TIMEOUT 而不是静默丢弃**。
+    # `|| true`: set -e 会在 make 非零退出时直接终止, 那样下面的 TIMEOUT 判定就永远走不到
+    make -C "$TREE" CONFIG=config.local.mk MAX_CYCLES=$SWEEP_MAX_CYCLES perf > "/tmp/sweep_perf.log" 2>&1 || true
+    if grep -q "timeout or finish before exit write response" "/tmp/sweep_perf.log"; then
+        echo "SWEEP $label TIMEOUT(cycles=$SWEEP_MAX_CYCLES) 卡死或极慢, IPC 无效"
+        continue
+    fi
     ips=$(awk '/^perf_/ {printf "%s ", $4}' "/tmp/sweep_perf.log")
     echo "SWEEP $label $ips"
 done
