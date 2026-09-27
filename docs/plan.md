@@ -60,6 +60,12 @@ RV32IM 无除法指令，GCC 调用 `__divsi3`/`__modsi3`（`pi.dump` 中可见�
 §7 的三种"超时"分类里它属于 **c 形态（只是慢/未定）**，既非 a 真死锁、也非 b 跑飞 ——
 **这一分类现已被实测判词证实**。
 
+> **2026-09-27 注（口径）**：本段与上表的 `pi` 是**旧本地测试集**（`tb/top/prog/` 体系）里的 pi ——
+> 93,403,298 条动态指令 / `ret=137` / `MEM_LATENCY=3`。官方 `testcases/correctness_pi` 是**另一个程序**
+> （`metrics.json` = 3,117,658 条指令，`expected=112`），HEAD × W=1 × LATENCY=10 实测
+> `PASS cycles=20,873,662`（占 1e8 上限 21%）。**两套周期数不可比**（`naive` 同理：本地 94 / 官方 97）；
+> 判据以**官方**为准 —— 见 §15.10.16 §一。
+
 基础程序阶段（75 分门槛）已过：`p1_sum` ret=86 / `p2_vecadd` ret=96 / `p3_vecmul` ret=72，
 拍数 **417 / 213 / 181**（`tb_cpu_top`，本轮实测；早期文档记的 224/192 拍是 §8.2 修复**之前**的数）。
 
@@ -101,6 +107,9 @@ hanoi 的停滞归因已定位到 free_list 容量（空闲池余量 **0** 个 p
 `pi` = 93403298 / 154707280 = **0.6037** —— 这是目前唯一一个"跑完整程序"量出的 IPC，
 且它恰好**压在第 1 档门槛 0.6000 上**（余量仅 0.6%）。**这条比 §8 那些定拍窗口数字更值得警惕**：
 定拍窗口（`+PERF`）测的是前 20 万拍的瞬时行为，全程序 IPC 才是评测口径。
+
+> **2026-09-27 注**：这里的 `pi` 同上（旧本地测试集，**非**官方用例）⇒ 0.6037 与 1.547 亿拍
+> 都不可与官方 `correctness_pi` 对照。口径澄清与官方 pi 的实测见 §15.10.16 §一。
 
 `pi` 的停滞构成（TB 的 STALL 行，三个分类**恰好配满**总拍数）：
 
@@ -3004,3 +3013,102 @@ W{1,2,4} × 20 程序的矩阵见下节。
     本仓库的 `+PERF=N` 只是内部对照，报告中须说明两者口径差异
 - 可选消融点（报告素材）：RAT 快照恢复 vs walker、值捕获 RS vs 状态式、
   I/D 分离 vs 统一 L1、写直达+不写分配 vs 写回、MSHR 数 vs 行大小
+
+---
+
+#### 15.10.16 官方口径校验（W=1）与 W{1,2,4} 矩阵的现状 —— **W≥2 仍有未修缺陷**（2026-09-27）
+
+##### 一、`pi` 的身份澄清：官方 pi 与本仓旧记录里的 pi **不是同一个程序**
+
+| | 动态指令 | expected | HEAD × W=1 实测（官方流程，LATENCY=10）|
+|---|---:|---:|---|
+| 官方 `testcases/correctness_pi` | **3,117,658**（`metrics.json`）| 112 | **PASS `cycles=20,873,662`**（占 1e8 上限 **21%**）|
+| 本仓 §15.9 表 / §11 记的 pi | 93,403,298 | 137 | 154,707,280 拍（`MEM_LATENCY=3` 口径）|
+
+后者来自**旧本地测试集**（`tb/top/prog/` 体系；`naive` 同理：本地 94 / 官方 97）⇒ 两套周期数**不可比**，
+旧表的"拍数"不能当官方用例的基线。**用户裁定（2026-09-27）：判据以官方为准 —— "只要过官方的 pi 就行了"。**
+⇒ 官方 pi 在 HEAD × W=1 下**通过**，且余量充足（2.09e7 / 1e8）。旧记录保留作历史，不再作为门禁。
+
+##### 二、W=1 官方口径正确性门禁：**19/19 PASS**（本轮实测；HEAD、LATENCY=10、上限 1e8）
+
+| 用例 | cycles | 用例 | cycles |
+|---|---:|---|---:|
+| `correctness_add_to_100` | 654 | `correctness_multiarray` | 6,259 |
+| `correctness_array_test1` | 777 | `correctness_naive` | 269 |
+| `correctness_array_test2` | 819 | `correctness_pi` | **20,873,662** |
+| `correctness_basicopt1` | 495,800 | `correctness_qsort` | 3,594,918 |
+| `correctness_bulgarian` | 1,034,439 | `correctness_queens` | 1,340,657 |
+| `correctness_expr` | 984 | `correctness_statement_test` | 2,635 |
+| `correctness_gcd` | 675 | `correctness_superloop` | 1,994,608 |
+| `correctness_hanoi` | 17,093 | `correctness_tak` | 5,751,104 |
+| `correctness_lvalue2` | 291 | | |
+| `correctness_magic` | 2,012,044 | | |
+| `correctness_manyarguments` | 266 | | |
+
+（前 18 条由 `runs/wdbg/build/sim` 逐条单跑取得，`expected` 取自各用例 `expected.txt`；pi 单跑。）
+**注意**：上表周期数与 §15.9 旧表**不可比**（不是同一批程序，见 §一）。
+
+##### 三、W=1 的 IPC 口径链（`perf_*` 六条 IPC 的几何平均）
+
+| 点 | 六条 IPC（median / multiply / qsort / rsort / towers / vvadd）| geomean | 出处 |
+|---|---|---|---|
+| `head`（`1158a98`，预取窗口读口落地）| 0.2474 / 0.5719 / 0.2537 / 0.2985 / 0.2810 / 0.5940 | **0.3484** | 记录（§15.10.12；`results.csv` 行 `head`）|
+| `pipe1`（手法 3）| 0.2317 / 0.5581 / 0.2397 / 0.2907 / 0.2760 / 0.5499 | **0.3332**（−4.4%）| 记录（`results.csv` 行 `pipe1`）|
+| `wb1`（手法 4）| 0.2287 / 0.5492 / 0.2306 / 0.2531 / 0.2745 / 0.5124 | **0.3178**（−4.6%）| `results.csv` 行 `wb1`（geomean 本轮现算）|
+| **HEAD × W=1**（默认参数）| 0.2402 / 0.5506 / 0.2361 / 0.2531 / 0.2748 / 0.5125 | **0.3219**（+1.3%）| **本轮实测**（官方 `make perf`）|
+
+两条结论：
+
+- **更正**：本轮 W=1 相对 0.3484 的 **−7.6%** **不属于预取窗口** —— 预取窗口 09-24（`07b42dd`）就落地了，
+  已含在 0.3484 基线内。这 −7.6% 应归给**手法 3 + 手法 4**（两轮频率改造）；而这两手法的频率收益
+  随后也被证伪（§15.10.13 净吞吐 +31.5%、§15.10.14 净 −57%）⇒ 频率线的总账见 §15.10.14 的表。
+- `wb1` → 本轮 **+1.3%**（逐程序 +0.0% … +5.0%，主要来自 `perf_median`）⇒ `f983bfe` 的四条 W≥2
+  修复对 W=1 **基本中性**，是"行为保持"的旁证。
+
+##### 四、两条口径陷阱（工具已修，`206d869`）
+
+- **正确性阶段不能用 1e7 上限**：官方 pi 需 **2.09e7** 拍 ⇒ 1e7 会把它变成一条**必然的假失败**
+  （实测 W=1 `18 passed / 1 failed`）。`tools/sweep.sh` 已加 `SWEEP_TEST_MAX_CYCLES=1e8`（perf 仍 1e7）。
+- **stdout/stderr 交错**：FAIL 行走 stderr（无缓冲）、用例头走 stdout（缓冲）⇒ 重定向日志里 FAIL 行
+  **总排在所有用例头之前**，不能按邻近行归属；只能找"后面没有 PASS 的那个用例头"（脚本已内置该解析）。
+
+##### 五、W{1,2,4} 矩阵现状：**W≥2 未通过**（矩阵缺第 2/4 行）
+
+| 证据 | W=1 | W=2 |
+|---|---|---|
+| 官方 `make test`（1e7 上限）| 18 passed / 1 failed（唯一失败 = pi，见 §四）| **≥8 条 `cycles=10000000` 超时**（测试阶段仍在跑，计数还在涨）|
+| 官方单跑 `correctness_add_to_100`（1e8）| PASS 654 拍 | **5.5 分钟 CPU 未返回**（被打断，未取到判词）⇒ 与 W=1 差 ≥5 个数量级 |
+| Icarus TB 小程序（`tb/top/prog/`，HEAD 重建的 `ISSUE_WIDTH_TB=2` 二进制）| 全过 | **`expr` 超时**（`halt=0 pc=00001150 commit=270`；W=1 时 984 拍跑完）；**`array_test1` 报池不变量违反**；其余 6 条（naive / gcd / array_test2 / statement_test / lvalue2 / manyarguments）通过 |
+
+`array_test1` 的完整现场（`vvp -N /tmp/w2h.vvp +PROG=array_test1 +DUMP=0 +FLCHK=1`）：
+
+```
+FAIL: push dup preg=37 slot=1 (pool[5]) flushing=1 cyc=151     ← 回收把已在池里的 preg=37 又推进池
+FAIL: pool/held mismatch sp=10 held=23 expect_sp=9 cyc=152     ← 收支差 1（池里多出 1 项）
+FAIL: PRF reused-while-held preg=52 slot=1 cyc=172             ← 后果: 仍在飞的 preg 被重新分配
+（池内容打印: 37 同时出现在 pool[5] 与 pool[9] ⇒ 确实是重复项）
+```
+
+- **定性**：**回收路径在 W≥2 会把同一个 preg 推入两次**（现象带 `flushing=1`，即误预测回滚期），
+  池中的重复项随后被重新分配 ⇒ 依赖者判就绪出错 / 生产者标签对不上 ⇒ **挂死**（`expr` 的形态）。
+  **机制未定位** —— 候选（待验证，勿当结论）：① walker 的回滚范围/指针在 W≥2 重复回滚同一条目；
+  ② 提交路径与 walker 同拍回收同一个 preg。
+- **结论**：`f983bfe` 修的四条**不是 W≥2 缺陷的全部**；报告 W{1,2,4} 消融矩阵的 **2/4 两行仍缺**，
+  现阶段只能以 W=1 单点 + "W≥2 待修"呈现。
+
+##### 六、未完成项（下一轮起点）
+
+1. **W≥2 池重复 / 挂死定性**：起点 `verilog/core/free_list.v` 的 push 路径 + `cpu_top.v` 的 flush 回收接线
+   （walker `push new_pnum` / 提交 `push old_pnum` 两条路径，见 `docs/architecture.md` B5/B6）。
+   重建 W≥2 的 TB 二进制（`MAX_CYCLE` 压到 30000 ⇒ 卡死用例 40 秒内就报超时）：
+
+   ```sh
+   iverilog -g2005 -s tb_cpu_prog -Ptb_cpu_prog.ISSUE_WIDTH_TB=2 -Ptb_cpu_prog.MAX_CYCLE=30000 \
+       -o /tmp/w2h.vvp $(ls verilog/*/*.v) tb/top/tb_cpu_prog.v
+   vvp -N /tmp/w2h.vvp +PROG=array_test1 +DUMP=0 +FLCHK=1     # 池重复现场
+   vvp -N /tmp/w2h.vvp +PROG=expr +DUMP=0                    # 挂死现场
+   ```
+
+   修好后 W=2/W=4 的 `make test` 须用 `SWEEP_TEST_MAX_CYCLES=1e8` 重跑。
+2. **W=2/W=4 的 perf IPC**：`tools/sweep.sh w14` 仍在跑（W=1 已出，见 §三）。
+3. **频率线**：拆 `rs.v:237` 的 `pvalid_w`（ABC CSE 共享使能热点，归因见 §15.10.14）。

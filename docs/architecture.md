@@ -268,6 +268,10 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
   `expr`(8 个) 挂死、`naive`(6 个) 通过且 `sp=2=8-6`；`PRF=40` 与 `ROB_SIZE` **无关**（ROB=64 照挂），
   `ROB_SIZE=8 + PRF=64` 通过。⇒ 旧记录"min-all 因 `ROB_SIZE=8 & PRF_SIZE=40` 挂死"应读作
   "因 `PRF_SIZE=40`"：那是**参数不可行点，不是缺陷**。
+- **已知缺陷（W>=2，2026-09-27 发现，未修）**：W=2 下回收路径会把**同一个 preg 推入两次**
+  （`array_test1` 实测 `push dup preg=37 ... flushing=1`，池里随即出现重复项；接着 `pool/held`
+  收支差 1），重复项被重新分配 ⇒ 仍在飞的 preg 被复用 ⇒ 挂死（`expr`）。W=1 无此现象。
+  现场与证据见 `docs/plan.md` §15.10.16 §五。
 
 ### core/rob.v
 | name | dir | width | 驱动方 | 说明 |
