@@ -1,4 +1,5 @@
-// 执行槽: 每槽一份, **两级流水** (D 级: B3 字段取 | Q 级: B1 操作数获取 + B3 执行 + B4 误预测检测)
+// 执行槽: 每槽一份, **三级流水** (D 级: B3 字段取 | Q 级: B1 操作数获取 + B3 执行 + B4 误预测检测
+//                                       | W 级: 消费者侧产物登记)
 // 内部实例化 alu + branch; 由 cpu_top 按 sel_idx 分发, 槽间除 CDB 标签/结果外无互连
 // misp 汇出链 (最老优先 = 跨槽拓扑) 在 cpu_top: 本模块只输出 misp_det (=smisp)
 // 与 smisp 级 payload (misp_red/misp_fs/misp_ras), cpu_top 侧 1-bit 前缀 OR 链汇出
@@ -23,6 +24,23 @@
 //   4. 冲刷窗口 (flush_win) 内冻结 D→Q 移交。若让 D 级继续移交, 进来的 div 会因条目已被清
 //      而逃过 rs 失效掩码, 等冲刷结束再启动 ⇒ 错路 div 完成时按 rob_tag 置 ready, 而那个
 //      tag 早已被新指令复用 ⇒ 真错。
+//
+// ---- 手法 4: Q/W 切点 (§15.10.14) ----
+// 切在**消费者侧产物**上: Q 级组合算出的 exec_valid/exec_prd/exec_result/exec_rob_tag 与
+// set_addr_req/idx/val、set_data_req/idx/val → W 级寄存器 (114 位) 输出。
+// 依据: 实测 99 级里第 91 级之后那 5.4 ns 全在**写口广播网**上 —— CDB → prf 2048 个 flop 的
+// 一位热译码 + AND 链、LSQ addr_r/data_r 512 个 flop 同理。它不需要更短的逻辑, 只需要一个
+// 寄存器输出让它从零重新起算 (官方 abc 无 -constr, 摆率只在寄存器处归零)。
+// 与 D/Q 切点的区别: 这里**不切控制**, misp_det / div 发起 / BHT 更新 / pipe_stall 全部留在
+// Q 级原样不动 —— 它们的载荷与误预测汇出链、rs_clear 门控耦合, 挪动会改冲刷时序。
+// W 级是**一次性脉冲**: 只在 Q 前进那一拍装载; 冻结那拍把三个 strobe 清 0 —— 若照 Q 级那样
+// 冻住保持, 同一条结果会在 CDB 上重复广播, 而它可能早已提交 (prd 被 free_list 回收后重新
+// 分配) ⇒ 把陈旧值写进新目的寄存器。装载的那一份在**下一拍**被 CDB/LSQ 消费 (消费者都在
+// 那个 posedge 采样), 所以"冻结拍清 0"不会丢任何一次写。
+// W 里那条指令**永远比 Q 里那条更老** ⇒ 不会被冲刷: misp 当拍 Q 被清而 W 照常装载 (误预测
+// 分支本人就在 Q 里, 它的 link 必须广播出去, 且它的 rs 条目当拍被清 = 原设计的"消费掉"),
+// 故 W 不需要任何 flush 相关的新逻辑。唯一要守的是装载条件必须与 Q 前进条件**同一个**
+// (q_freeze), 否则会出现"Q 没动而 W 重复装载同一条"(重复广播)。
 module execute_slot #(
     parameter ISSUE_WIDTH = 1,
     parameter RS_SIZE     = 16,
@@ -265,12 +283,59 @@ module execute_slot #(
                  .mode(br_mode), .br_op(func3), .taken(br_taken),
                  .target(br_target), .link(br_link));
 
-    // ---- CDB 生产者 (load 槽排除: 其 prd 是"地址", 依赖者不得匹配;
-    //      div 同样排除: 多周期, 其完成走 CDB 槽 W+1, 本拍广播的 alu_result 是无意义的占位) ----
-    assign exec_valid   = sel_valid_q_r && !is_load && !is_div;
-    assign exec_prd     = prd;
-    assign exec_result  = is_ctrl ? br_link : alu_result;
-    assign exec_rob_tag = rob_tag;
+    // ---- 消费者侧产物 (Q 级组合 → W 级寄存器, 手法 4 见文件头) ----
+    // CDB 生产者 (load 槽排除: 其 prd 是"地址", 依赖者不得匹配;
+    //      div 同样排除: 多周期, 其完成走 CDB 槽 W+1, 本拍广播的 alu_result 是无意义的占位);
+    // 访存: 地址 = alu 结果, store 数据 = rs2
+    wire         w_valid_in    = sel_valid_q_r && !is_load && !is_div;
+    wire [31 : 0] w_result_in  = is_ctrl ? br_link : alu_result;
+    wire         w_addr_req_in = sel_valid_q_r && is_mem;
+    wire         w_data_req_in = sel_valid_q_r && is_store;
+    reg          w_valid_r, w_addr_req_r, w_data_req_r;
+    reg [PW - 1 : 0] w_prd_r;
+    reg [RW - 1 : 0] w_rob_tag_r;
+    reg [LW - 1 : 0] w_lsq_tag_r;
+    reg [31 : 0]     w_result_r, w_addr_val_r, w_data_val_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            w_valid_r    <= 1'b0;
+            w_addr_req_r <= 1'b0;
+            w_data_req_r <= 1'b0;
+            w_prd_r      <= {PW{1'b0}};
+            w_result_r   <= 32'd0;
+            w_rob_tag_r  <= {RW{1'b0}};
+            w_lsq_tag_r  <= {LW{1'b0}};
+            w_addr_val_r <= 32'd0;
+            w_data_val_r <= 32'd0;
+        end else if (!q_freeze) begin
+            // 只在 Q 前进那拍装载 (与 Q 前进同条件, 否则同一条会被重复装载/重复广播)
+            w_valid_r    <= w_valid_in;
+            w_prd_r      <= prd;
+            w_result_r   <= w_result_in;
+            w_rob_tag_r  <= rob_tag;
+            w_addr_req_r <= w_addr_req_in;
+            w_data_req_r <= w_data_req_in;
+            w_lsq_tag_r  <= lsq_tag;
+            w_addr_val_r <= alu_result;
+            w_data_val_r <= op2;
+        end else begin
+            // 冻结: 载荷无需清 (只由 strobe 门控), 但三个脉冲位必须清
+            // (上一拍已广播过 ⇒ 再广播一次就可能落进被回收重分配的目的寄存器)
+            w_valid_r    <= 1'b0;
+            w_addr_req_r <= 1'b0;
+            w_data_req_r <= 1'b0;
+        end
+    end
+    assign exec_valid   = w_valid_r;
+    assign exec_prd     = w_prd_r;
+    assign exec_result  = w_result_r;
+    assign exec_rob_tag = w_rob_tag_r;
+    assign set_addr_req = w_addr_req_r;
+    assign set_addr_idx = w_lsq_tag_r;
+    assign set_addr_val = w_addr_val_r;
+    assign set_data_req = w_data_req_r;
+    assign set_data_idx = w_lsq_tag_r;
+    assign set_data_val = w_data_val_r;
 
     // ---- 除法发起: 仅"选中且非忙"时才真正被 div.v 收下 (cpu_top 侧门控) ----
     assign div_start_req = sel_valid_q_r && is_div;
@@ -279,14 +344,6 @@ module execute_slot #(
     assign div_b         = op2;
     assign div_prd       = prd;
     assign div_rob_tag   = rob_tag;
-
-    // ---- 访存: 地址 = alu 结果, store 数据 = rs2 ----
-    assign set_addr_req = sel_valid_q_r && is_mem;
-    assign set_addr_idx = lsq_tag;
-    assign set_addr_val = alu_result;
-    assign set_data_req = sel_valid_q_r && is_store;
-    assign set_data_idx = lsq_tag;
-    assign set_data_val = op2;
 
     // ---- B4 误预测检测 (汇出链在 cpu_top) ----
     assign misp_det = sel_valid_q_r && ((is_branch && (br_taken != pred_taken))

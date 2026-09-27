@@ -416,6 +416,9 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 - **B3-D 执行槽字段取**（D 级）：按 `rs.sel_idx` 做 one-hot → 对 144 位打包条目做 AND-OR 取字段（opcode/func3/func7/prs/prd/pc/imm/pred/rob_tag/lsq_tag/ras_snap）
 - **B1+B3-Q 操作数获取与执行**（Q 级，晚 D 级一拍）：`op = (prs==0)?0 : (cdb 槽标签匹配 ? 槽结果 : (rt_ready[prs] ? prf 索引读 : 0))`——读口地址由 D 级**锁存**的 `sel_all_q` 驱动 → 槽内 alu/branch。
   切点寄存器 144+1 位（≈80 µm²）；D→Q 移交的扣住规则见 `execute_slot.v` 文件头四条不变量（RS 条目在入选当拍即被清 ⇒ 只能扣流水寄存器；`q_freeze` 与门控 `rs_clear` 的 `pipe_stall` 必须同条件；误预测当拍**清空**而非冻结）
+- **B3-W 写回登记**（W 级，晚 Q 级一拍，114 位）：只登记**消费者侧产物** —— 推 CDB 的 `result`/`prd`/`rob_tag`、推 LSQ 的 `addr`/`data`/`lsq_tag`，以及 valid/addr_req/data_req 三个 strobe（`q_freeze ? 0 : in` 的普通 mux，其余 111 位使能恰为 `!q_freeze`）。
+  加它的**目的**是把"操作数获取+执行"与"写回驱动"拆开，把关键路径的**健康逻辑**压进 300 MHz 预算（实测 healthy_ns 4.0173 → 3.2339 ns < 3.333 ns，上限 A = 309 MHz）；
+  但实测**总长反而翻倍**（11.7275 → 25.0176 ns），因为 ABC 把 `rs.v` 的写使能 CSE 成扇出 1088 的共享节点 —— 归因见 `docs/plan.md` §15.10.14
 - B2 发射组合：W 条 prefix 门控（条件：rob/rs 有空间 && (!writes_rd ‖ free_list 够) && (!memop ‖ lsq 有空间)）；rat rename W + free_list pop W + ready_table clear W + rob/rs/lsq push W
 - B4 误预测检测（Q 级）：branch: `taken != pred_taken`；jalr: `target != pred_target`；**多槽同拍误预测 → 取最老 tag**；同时驱动 fetch 重定向 + bht 更新 + ras 恢复 + rs/lsq flush_mask + rob set_last；**misp 周期抑制 issue**（见陷阱 #11）
 - B5 walker FSM（flushing/walk_ptr/flush_fs）：每周期 W 条从 last 向 fs 回滚（rat.flush + free_list push new_pnum + ready_table flush_clear）；中途新误预测（更老）→ 扩展范围；walker 期间：issue 全抑制 + fetch stall + **commit 冻结**
