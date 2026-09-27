@@ -204,21 +204,76 @@ module mem_subsystem #(
     reg [PF_DEPTH - 1 : 0]      pf_pend_r;              // 在飞 (发起置位, 回包清)
     reg [31 : 0]                pf_next_r;              // 预取流: 下一个要取的地址
 
+    // ---- 窗口读口: **one-hot + AND-OR** (原为 `pf_xxx_r[idx * W +: W]`) ----
+    // 索引读综合出 PF_DEPTH 选 1 的 mux 树, 索引**最低位落在最宽的一级**:
+    // 扇出 = (PF_DEPTH/2) × (1 + 1 + 32 + 32) = 8 × 66 = 528。而 demand 走的是 imem_addr_q,
+    // 它同时喂 4 处读口, 实测峰值 797 —— 即容器报告里 13.24 ns 路径上最大的一级
+    // _148978_ (AND2x2, 797 扇出, **907 ps**)。
+    // 改成: 先把 4 个字段按格**重排**成 pf_ent[gp][PFW] (纯连线), 再把索引译成 one-hot
+    // 后逐位 AND-OR ⇒ 每条 one-hot 只驱动 PFW 个 AND, 峰值扇出 528/797 → 66。
+    // 索引最低位在 mux 树里落在最宽一级; 在 one-hot 里只驱动译码器 ⇒ 深度 15 级 → ~8 级。
+    localparam PFW = 1 + 1 + 32 + 32;       // valid + pend + tag + data
+    localparam PO_V = 0;                    // : 1
+    localparam PO_P = PO_V + 1;             // : 1
+    localparam PO_T = PO_P + 1;             // : 32
+    localparam PO_D = PO_T + 32;            // : 32
+    wire [PF_DEPTH * PFW - 1 : 0] pf_ent;
+    genvar gp, gb;
+    generate
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : pfpack
+            assign pf_ent[gp * PFW +: PFW] = {
+                pf_data_r[gp * 32 +: 32], pf_tag_r[gp * 32 +: 32],
+                pf_pend_r[gp], pf_valid_r[gp] };
+        end
+    endgenerate
+
     wire [31 : 0]        demand_a  = imem_addr_q[0 * 32 +: 32];   // 只对槽 0 做流控 (批内其它槽随后即到)
     wire [PF_IW - 1 : 0] dem_idx   = demand_a[2 +: PF_IW];
-    wire dem_hit  = pf_valid_r[dem_idx] && (pf_tag_r[dem_idx * 32 +: 32] == demand_a);
-    wire dem_pend = pf_pend_r[dem_idx] && (pf_tag_r[dem_idx * 32 +: 32] == demand_a);   // 同址在飞
+    // 读口 A: 按 demand (即 imem_addr_q 的槽 0) 取
+    wire [PF_DEPTH - 1 : 0] oh_dem;
+    wire [PFW - 1 : 0]      sel_dem;
+    generate
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohd
+            assign oh_dem[gp] = (dem_idx == gp[PF_IW - 1 : 0]);
+        end
+        for (gb = 0; gb < PFW; gb = gb + 1) begin : redd
+            wire [PF_DEPTH - 1 : 0] m;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+                assign m[gp] = pf_ent[gp * PFW + gb] & oh_dem[gp];
+            end
+            assign sel_dem[gb] = |m;
+        end
+    endgenerate
+    wire              dem_valid = sel_dem[PO_V];
+    wire [31 : 0]     dem_tag   = sel_dem[PO_T +: 32];
+    wire dem_hit  = dem_valid && (dem_tag == demand_a);
+    wire dem_pend = sel_dem[PO_P] && (dem_tag == demand_a);   // 同址在飞
     wire [31 : 0] pf_ahead_w = pf_next_r - demand_a;     // 无符号减: 流若落后会得到大数 ⇒ 自然不满足上界
     wire pf_stale_w = (pf_ahead_w >= (PF_DEPTH * 4));    // 流跑到缓冲区跨度外 (含"落后于 demand"的绕回)
     // 拉回流: 未命中且不在飞, 或流已跑到缓冲区跨度外 (后者让"向后跳"后能重新填窗, 也排除覆盖风险)
     wire pf_restart = !dem_pend && (pf_next_r != demand_a) && (!dem_hit || pf_stale_w);
     wire [PF_IW - 1 : 0] pf_idx_w = pf_next_r[2 +: PF_IW];
+    // 读口 B: 按预取流指针 pf_next_r 取
+    wire [PF_DEPTH - 1 : 0] oh_str;
+    wire [PFW - 1 : 0]      sel_str;
+    generate
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohs
+            assign oh_str[gp] = (pf_idx_w == gp[PF_IW - 1 : 0]);
+        end
+        for (gb = 0; gb < PFW; gb = gb + 1) begin : reds
+            wire [PF_DEPTH - 1 : 0] m;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+                assign m[gp] = pf_ent[gp * PFW + gb] & oh_str[gp];
+            end
+            assign sel_str[gb] = |m;
+        end
+    endgenerate
     // 流前方已是本地址的数据 (反向后跳回到命中行时常见) ⇒ 直接跨过去, 不重发 (重发会先把自己置无效)
-    wire pf_dup_w = pf_valid_r[pf_idx_w] && (pf_tag_r[pf_idx_w * 32 +: 32] == pf_next_r);
+    wire pf_dup_w = sel_str[PO_V] && (sel_str[PO_T +: 32] == pf_next_r);
     // 本格还有回包在飞时**绝不能**重发: 回包只带下标、不带地址, 重发会让"A 的回包"落进
     // 已被改写成 B 的格 ⇒ tag 说 B、数据却是 A (实测到过: 停车位 0x700 的数据被判给 0x440,
     // 二者同落格 0)。等回包回来再发, 只损失一趟往返, 不错绑。
-    wire pf_pend_w = pf_pend_r[pf_idx_w];
+    wire pf_pend_w = sel_str[PO_P];
     wire pf_issue = !pf_restart && !pf_dup_w && !pf_pend_w && (pf_ahead_w < (PF_WIN * 4));
     wire pf_hs = pf_issue && !ld_accept && rd_req_ready;   // 本拍真正被收下的取指请求
 
@@ -255,8 +310,21 @@ module mem_subsystem #(
         for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : idat
             wire [31 : 0]        a_g = imem_addr_q[g * 32 +: 32];
             wire [PF_IW - 1 : 0] i_g = a_g[2 +: PF_IW];
-            assign slot_hit[g] = pf_valid_r[i_g] && (pf_tag_r[i_g * 32 +: 32] == a_g);
-            assign inst_data[g * 32 +: 32] = pf_data_r[i_g * 32 +: 32];
+            // 读口 A': 按槽 g 的地址取 (g=0 时 i_g 与 dem_idx 是同一表达式, 译码器被 CSE 合并)
+            wire [PF_DEPTH - 1 : 0] oh_g;
+            wire [PFW - 1 : 0]      sel_g;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohg
+                assign oh_g[gp] = (i_g == gp[PF_IW - 1 : 0]);
+            end
+            for (gb = 0; gb < PFW; gb = gb + 1) begin : redg
+                wire [PF_DEPTH - 1 : 0] m;
+                for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+                    assign m[gp] = pf_ent[gp * PFW + gb] & oh_g[gp];
+                end
+                assign sel_g[gb] = |m;
+            end
+            assign slot_hit[g] = sel_g[PO_V] && (sel_g[PO_T +: 32] == a_g);
+            assign inst_data[g * 32 +: 32] = sel_g[PO_D +: 32];
         end
     endgenerate
     assign imem_valid = &slot_hit;
@@ -264,8 +332,23 @@ module mem_subsystem #(
     //   fetch 用它判断"能否把请求预先推到下一批" —— 只有期望批已在窗口里才允许超前,
     //   否则请求地址会随数据未回而乱翻, 预取流再也填不满 (见 fetch.v 的 pc_lead_w 注释)。
     //   这里比的是批的首字 (槽 0), 与预取流控用的 demand 同一口径。
-    assign imem_hit = pf_valid_r[imem_addr[2 +: PF_IW]]
-                   && (pf_tag_r[imem_addr[2 +: PF_IW] * 32 +: 32] == imem_addr[0 * 32 +: 32]);
+    // 读口 C: 按本拍 imem_addr 取 (非延迟一拍 ⇒ 与读口 A 不是同一个索引, 不能合用)
+    wire [PF_IW - 1 : 0]     cur_idx = imem_addr[2 +: PF_IW];
+    wire [PF_DEPTH - 1 : 0]  oh_cur;
+    wire [PFW - 1 : 0]       sel_cur;
+    generate
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohc
+            assign oh_cur[gp] = (cur_idx == gp[PF_IW - 1 : 0]);
+        end
+        for (gb = 0; gb < PFW; gb = gb + 1) begin : redc
+            wire [PF_DEPTH - 1 : 0] m;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+                assign m[gp] = pf_ent[gp * PFW + gb] & oh_cur[gp];
+            end
+            assign sel_cur[gb] = |m;
+        end
+    endgenerate
+    assign imem_hit = sel_cur[PO_V] && (sel_cur[PO_T +: 32] == imem_addr[0 * 32 +: 32]);
 
     // ==================== 4. 已提交 store 队列 ====================
     reg [SQ_DEPTH * 32 - 1 : 0] sq_addr_r, sq_data_r;
