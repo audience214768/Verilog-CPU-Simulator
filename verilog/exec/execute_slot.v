@@ -63,20 +63,73 @@ module execute_slot #(
     localparam RA  = $clog2(RAS_SIZE);
     localparam BW  = $clog2(BHT_SIZE);
 
-    // ---- B3 字段取 (按 sel_idx 位段) ----
-    wire [6 : 0]      opcode   = rs_entry_opcode[sel_idx * 7 +: 7];
-    wire [2 : 0]      func3    = rs_entry_func3[sel_idx * 3 +: 3];
-    wire [6 : 0]      func7    = rs_entry_func7[sel_idx * 7 +: 7];
-    wire [PW - 1 : 0] prs1     = rs_entry_prs1[sel_idx * PW +: PW];
-    wire [PW - 1 : 0] prs2     = rs_entry_prs2[sel_idx * PW +: PW];
-    wire [PW - 1 : 0] prd      = rs_entry_prd[sel_idx * PW +: PW];
-    wire [31 : 0]     pc       = rs_entry_pc[sel_idx * 32 +: 32];
-    wire [31 : 0]     imm      = rs_entry_imm[sel_idx * 32 +: 32];
-    wire [LW - 1 : 0] lsq_tag  = rs_entry_lsq_tag[sel_idx * LW +: LW];
-    wire [RW - 1 : 0] rob_tag  = rs_entry_rob_tag[sel_idx * RW +: RW];
-    wire              pred_taken  = rs_entry_pred_taken[sel_idx];
-    wire [31 : 0]     pred_target = rs_entry_pred_target[sel_idx * 32 +: 32];
-    wire [RA - 1 : 0] ras_snap    = rs_entry_ras_snap[sel_idx * RA +: RA];
+    // ---- B3 字段取: **one-hot + AND-OR** (原为 `rs_entry_xxx[sel_idx * W +: W]`) ----
+    // 直接写数组索引读会综合出 N 选 1 的 mux 树, 索引**最低位落在最宽的一级**:
+    // 扇出 = (N/2) × 位宽 = 8 × 144 = 1152 (实测 1152)。而官方综合流程的 abc 没带
+    // `-constr` ⇒ 不做 buffer/upsize (§15.10.8), 于是那一级实测 6.2 ns。
+    // 改成先把索引译成 one-hot 再对每一位做 AND-OR: sel_oh[ge] 只驱动条目 ge 的
+    // 位宽个门 (144), 峰值扇出 1152 → 144 (8 倍); 面积基本持平
+    // (mux ≈ 2 门, AND2 + OR2 ≈ 2 门)。
+    // 注: 144 是**不做译码器复制**时的下界 —— 复制会被 opt_merge 合并回去
+    // (实测: 同一个 `sel_idx == ge` 写三遍会被并成一条网), 故这里不做无谓的复制。
+    localparam TOTW = 7 + 3 + 7 + 3 * PW + 64 + LW + RW + 1 + 32 + RA;   // 13 个字段合计位宽
+    // 各字段在打包总线里的起始位 (逐行累加, 行尾注释即该字段宽度; 与下面拼接顺序一一对应)
+    localparam O_RAS  = 0;                          // : RA
+    localparam O_PTGT = O_RAS  + RA;                // : 32
+    localparam O_PTAK = O_PTGT + 32;                // : 1
+    localparam O_RTAG = O_PTAK + 1;                 // : RW
+    localparam O_LTAG = O_RTAG + RW;                // : LW
+    localparam O_IMM  = O_LTAG + LW;                // : 32
+    localparam O_PC   = O_IMM  + 32;                // : 32
+    localparam O_PRD  = O_PC   + 32;                // : PW
+    localparam O_PRS2 = O_PRD  + PW;                // : PW
+    localparam O_PRS1 = O_PRS2 + PW;                // : PW
+    localparam O_F7   = O_PRS1 + PW;                // : 7
+    localparam O_F3   = O_F7   + 7;                 // : 3
+    localparam O_OPC  = O_F3   + 3;                 // : 7
+
+    wire [RS_SIZE - 1 : 0] sel_oh;
+    wire [RS_SIZE * TOTW - 1 : 0] ent_all;
+    wire [TOTW - 1 : 0] sel_all;
+    genvar gd, gb, ge;
+    generate
+        // 索引 → one-hot (16 条, 每条只驱动一个条目的位宽)
+        for (gd = 0; gd < RS_SIZE; gd = gd + 1) begin : dec
+            assign sel_oh[gd] = (sel_idx == gd[SRW - 1 : 0]);
+        end
+        // 13 个字段按条目重排成 [ge][TOTW], 顺序与上面的 O_* 偏移一一对应
+        for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : pack
+            assign ent_all[ge * TOTW +: TOTW] = {
+                rs_entry_opcode[ge * 7 +: 7], rs_entry_func3[ge * 3 +: 3], rs_entry_func7[ge * 7 +: 7],
+                rs_entry_prs1[ge * PW +: PW], rs_entry_prs2[ge * PW +: PW], rs_entry_prd[ge * PW +: PW],
+                rs_entry_pc[ge * 32 +: 32], rs_entry_imm[ge * 32 +: 32],
+                rs_entry_lsq_tag[ge * LW +: LW], rs_entry_rob_tag[ge * RW +: RW],
+                rs_entry_pred_taken[ge], rs_entry_pred_target[ge * 32 +: 32],
+                rs_entry_ras_snap[ge * RA +: RA] };
+        end
+        // 逐位 AND-OR 归约 (一条 generate 覆盖全部 144 位)
+        for (gb = 0; gb < TOTW; gb = gb + 1) begin : red
+            wire [RS_SIZE - 1 : 0] m;
+            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : e
+                assign m[ge] = ent_all[ge * TOTW + gb] & sel_oh[ge];
+            end
+            assign sel_all[gb] = |m;
+        end
+    endgenerate
+
+    wire [6 : 0]      opcode      = sel_all[O_OPC  +: 7];
+    wire [2 : 0]      func3       = sel_all[O_F3   +: 3];
+    wire [6 : 0]      func7       = sel_all[O_F7   +: 7];
+    wire [PW - 1 : 0] prs1        = sel_all[O_PRS1 +: PW];
+    wire [PW - 1 : 0] prs2        = sel_all[O_PRS2 +: PW];
+    wire [PW - 1 : 0] prd         = sel_all[O_PRD  +: PW];
+    wire [31 : 0]     pc          = sel_all[O_PC   +: 32];
+    wire [31 : 0]     imm         = sel_all[O_IMM  +: 32];
+    wire [LW - 1 : 0] lsq_tag     = sel_all[O_LTAG +: LW];
+    wire [RW - 1 : 0] rob_tag     = sel_all[O_RTAG +: RW];
+    wire              pred_taken  = sel_all[O_PTAK];
+    wire [31 : 0]     pred_target = sel_all[O_PTGT +: 32];
+    wire [RA - 1 : 0] ras_snap    = sel_all[O_RAS  +: RA];
 
     wire is_r      = (opcode == 7'h33);
     wire is_i      = (opcode == 7'h13);
