@@ -502,7 +502,12 @@ module cpu_top #(
     // 冲刷中只接受"更老"的新误预测: 否则会按更新的条目截断 rob, 把 walker 正在回滚的窗口重新撑大
     // (那些错路条目不再被 walker 回滚, 却留在窗口内 → 可能被提交)
     assign set_last_valid = misp_valid && (!flushing_r || misp_older_w);
-    assign set_last_val   = misp_fs_w;
+    // +1: rob 的 last 是"空槽位"语义, 存活窗口是 [head, last) ⇒ set_last = fs 会把误预测的那条
+    // 自己也丢掉。而误预测只说明"它后面取的那串是错路", 它本身是必须提交的有效指令 ——
+    // 丢了它, jalr 写 rd 的副作用就没了 (官方题集用 jalr ra,off(ra) 做调用 ⇒ 返回地址丢失 ⇒ 死循环),
+    // 且它占的 preg 永远不回池 (free_list 逐次漏干 → 死锁, 见 docs/plan.md §15)。
+    // 与 RS/LSQ 失效掩码 (`> fs` 严格大于, 即"只废比它新的") 口径一致。
+    assign set_last_val   = misp_fs_w + 1'b1;
 
     // ==================== 4. flush 窗口 (rs/lsq 失效, 年龄 > fs) ====================
     // 掩码只用"已注册"的冲刷状态 (flushing_r/flush_fs_r), 不可用当拍 misp_valid/fs_eff_w:
