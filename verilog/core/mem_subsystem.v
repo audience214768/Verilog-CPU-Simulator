@@ -201,7 +201,12 @@ module mem_subsystem #(
     assign ld_done_idx   = ld_i_w;
 
     // ==================== 3. 取指预取窗口 ====================
-    reg [31 : 0]                imem_addr_q;            // ≡ fetch.v 的 imem_addr_d
+    // **逐槽**延迟一拍 (≡ fetch.v:54 的 imem_addr_d, 同宽同复位值): 交付逻辑按槽取地址
+    // imem_addr_q[g*32 +: 32], 只声明 32 位时 g>=1 会越界 —— Verilator 报 SELRANGE 并退化成
+    // 槽 0 的值 ⇒ 槽 1 复用槽 0 的窗口项, 把错指令当"命中"交付 (slot_hit 仍为全 1, CPU 无从察觉)。
+    // 实测 W=2: 取指在 pc=0x34/0x3C 之间每拍振荡, commit 数远超程序动态指令数, 永不触发停机 store。
+    // 复位那行本来就按 slot_init_f 的**全宽**值写 (逐槽 4*g), 只是声明窄了被截断 —— W=1 只需槽 0。
+    reg [ISSUE_WIDTH * 32 - 1 : 0] imem_addr_q;         // ≡ fetch.v 的 imem_addr_d
     reg [PF_DEPTH * 32 - 1 : 0] pf_tag_r;               // 发起时写: 该格正在取的地址
     reg [PF_DEPTH * 32 - 1 : 0] pf_data_r;              // 回包时写
     reg [PF_DEPTH - 1 : 0]      pf_valid_r;
@@ -255,6 +260,15 @@ module mem_subsystem #(
     wire [31 : 0] pf_ahead_w = pf_next_r - demand_a;     // 无符号减: 流若落后会得到大数 ⇒ 自然不满足上界
     wire pf_stale_w = (pf_ahead_w >= (PF_DEPTH * 4));    // 流跑到缓冲区跨度外 (含"落后于 demand"的绕回)
     // 拉回流: 未命中且不在飞, 或流已跑到缓冲区跨度外 (后者让"向后跳"后能重新填窗, 也排除覆盖风险)
+    // ★ 2026-09-28 留档 (勿直接重做): 本处流控曾改写为 "pf_addr_w = pf_out_w ? demand_a : pf_next_r"
+    //   (就地取 demand 而不拉回指针), 并把命中判定改成"逐槽全中" —— 两版**都回归**: W=2 官方
+    //   add_to_100 由 PASS(462 拍) 变成 1e8 拍不终止 (array_test1 同步失守, 819 拍 → 超时)。
+    //   下面是本轮在**修复版构建**上实测到的真死带 (array_test2, W=2, LATENCY=10):
+    //   稳定停在 pf_next_r=0xE4 / demand_a=0xBC ⇒ pf_ahead_w=0x28=40 ∈ [PF_WIN*4=32, PF_DEPTH*4=64)
+    //   —— 既 ≥ 上界不发、又 < 下界不拉回 ⇒ 流冻结, 期望批 {0xBC,0xC0} 永不凑齐
+    //   (pc_r 在 0xBC/0xC4 每拍翻转, 1396 次/1500 拍; exp_pc_r 自 t=457 冻结在 0xBC)。
+    //   死带是真的, 但改法必须**连同 demand 锚点一起改** —— "槽 0 口径"与"批口径"混用才是病根
+    //   (demand_a 只锚槽 0, 而 imem_valid/cap_w 要求整批到齐)。片段与证据见 docs/plan.md §15.10.17 §三。
     wire pf_restart = !dem_pend && (pf_next_r != demand_a) && (!dem_hit || pf_stale_w);
     wire [PF_IW - 1 : 0] pf_idx_w = pf_next_r[2 +: PF_IW];
     // 读口 B: 按预取流指针 pf_next_r 取
