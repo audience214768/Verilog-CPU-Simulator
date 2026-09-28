@@ -389,18 +389,20 @@ module cpu_top #(
     assign rt_flush_clear_req = flclr_c[(ISSUE_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];
 
     // ---- 计数链 (前缀累加; 段值在 slt/cmt generate 内生成) ----
-    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc;
-    wire [2 : 0] n_wr, n_mem, n_commit, n_branch, sel_cnt;
+    wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc, v_acc;
+    wire [2 : 0] n_wr, n_mem, n_commit, n_branch, sel_cnt, n_valid;
     assign wr_acc[0 * 3 +: 3]  = 3'd0;
     assign mem_acc[0 * 3 +: 3] = 3'd0;
     assign sel_acc[0 * 3 +: 3] = 3'd0;
     assign br_acc[0 * 3 +: 3]  = 3'd0;
     assign com_acc[0 * 3 +: 3] = 3'd0;
+    assign v_acc[0 * 3 +: 3]   = 3'd0;
     assign n_wr     = wr_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_mem    = mem_acc[ISSUE_WIDTH * 3 +: 3];
     assign sel_cnt  = sel_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_branch = br_acc[ISSUE_WIDTH * 3 +: 3];
     assign n_commit = com_acc[ISSUE_WIDTH * 3 +: 3];
+    assign n_valid  = v_acc[ISSUE_WIDTH * 3 +: 3];   // 本批有效指令数 = 本拍 ROB push 数
 
     // ---- 发射条件 (全批 or 不批; misp 周期抑制见约束 1) ----
     // halt 后不得再发射: fetch 冻结 → have_batch 常 1, 若不门控会把同一批反复压入 rob/rs (死循环)
@@ -409,7 +411,15 @@ module cpu_top #(
     // 若把本拍选中数 sel_cnt 也算作可用, 会放行一次注定被 rs.v 丢弃的 push
     // (指令入 rob 却无 rs 条目 → 永不执行 → 依赖链死锁; 详见 docs/plan.md §7.4)
     wire have_batch = |f2i_valid;
-    wire resources_ok = !rob_full && (rs_free_w >= ISSUE_WIDTH)
+    // ROB 必须按**本批实际 push 数** n_valid 预留: 原来只查 !rob_full (空闲 >= 1) 是 W=1 的口径,
+    // W>=2 时 rob 只剩 1 个空位也照收 2 条 —— free_r 是 RCW 位计数器, 1-2 下溢回绕成 63
+    // ⇒ 占用量 rob_occ = ROB_SIZE - free_r 越界 (33 > ROB_SIZE), 而 cmt_in_win = (c < rob_occ)
+    // 因此对**窗口外槽**也成立 (这条判据本就是为"越窗提交"打的补丁, 被回绕整条绕过);
+    // 同时 last_r 越过真实占用, walker 从 last_r-1 起回滚就走到**从未 push 过的残留槽**。
+    // 两条路径都把已回收过的 preg 又回收一次 (旧条目的 old_pnum / 残留槽的 new_pnum)
+    // ⇒ 池内重复项 ⇒ 同一 preg 发给两条在飞指令; 且 empty (free_r == ROB_SIZE) 长期不成立
+    // ⇒ 停机锁存永不置位。W=1 每批至多 1 条 ⇒ 该缺陷不可见。
+    wire resources_ok = (rob_free_w >= n_valid) && (rs_free_w >= ISSUE_WIDTH)
                      && (fl_count >= n_wr) && (lsq_free_w >= n_mem);
     wire issue_en = have_batch && !misp_valid && !flushing_r && !halt_q_r && resources_ok;
 
@@ -518,6 +528,7 @@ module cpu_top #(
             // 计数链段值
             assign wr_acc[(s + 1) * 3 +: 3]  = wr_acc[s * 3 +: 3] + (f2i_valid[s] && d_writes_rd[s]);
             assign mem_acc[(s + 1) * 3 +: 3] = mem_acc[s * 3 +: 3] + (f2i_valid[s] && memop);
+            assign v_acc[(s + 1) * 3 +: 3]   = v_acc[s * 3 +: 3] + f2i_valid[s];
             assign sel_acc[(s + 1) * 3 +: 3] = sel_acc[s * 3 +: 3] + sel_valid[s];
             // (old_map 链段值改为在 generate 外统一生成 —— 见下方 omc 块)
 

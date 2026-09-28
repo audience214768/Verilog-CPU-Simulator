@@ -255,6 +255,17 @@ module tb_cpu_prog;
                             fj = PRF_SIZE_TB;
                         end
                 end
+            // ROB 不得超发: 每拍接受的 push 数必须 <= 当拍空闲数 (free_r 是提交前的值)。
+            // 破了 free_r 会下溢回绕 (ROB_SIZE 位宽) ⇒ 占用量 rob_occ = ROB_SIZE - free_r 越界
+            // ⇒ (a) cmt_in_win 对窗口外槽也成立, 陈旧条目被当有效提交 ⇒ 其 old_pnum 被重复回收;
+            //    (b) walker 从 last_r-1 起回滚, 走到从未 push 过的残留槽 ⇒ 其 new_pnum 被重复回收;
+            //    (c) empty (free_r==ROB_SIZE) 长时间不成立 + last_r 越过真实占用 ⇒ 死锁。
+            if (dut.u_rob.free_r > ROB_SIZE_TB)
+                $display("FAIL: rob free_r underflow free=%0d head=%0d last=%0d cyc=%0d",
+                         dut.u_rob.free_r, dut.u_rob.head_r, dut.u_rob.last_r, cyc);
+            if (dut.issue_en && (dut.u_rob.free_r < dut.u_rob.push_cnt))
+                $display("FAIL: rob overpush free=%0d push_cnt=%0d cyc=%0d",
+                         dut.u_rob.free_r, dut.u_rob.push_cnt, cyc);
         end
     end
 
@@ -336,6 +347,7 @@ module tb_cpu_prog;
                       : (n == "pi")             ? 8'd137
                       : (n == "superloop")      ? 8'd134
                       : (n == "tak")            ? 8'd186
+                      : (n == "add100")         ? 8'd186      // 官方 correctness_add_to_100: expected 5050, 取低 8 位
                       : 8'h00;
         end
     endfunction
