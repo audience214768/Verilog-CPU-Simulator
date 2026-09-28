@@ -3349,3 +3349,106 @@ decode 的门控来源）。**不需修改**。
 
 1. 复核 §15.10.17 §五.1 的停机 store 操作数线索（取指已干净）——若仍复现则另开缺陷条目。
 2. 恢复 W{1,2,4} 消融矩阵：先 perf IPC（`tools/sweep.sh`，1e7 口径），再面积/频率（容器 `make synth`）。
+
+---
+
+#### 15.10.19 W≥2 第五轮：缺陷 7 拆成两条并双双修复 —— `correctness_basicopt1` 转绿（2026-09-28）
+
+§15.10.18 收尾时 W=2 全量卡在第 4 条 `correctness_basicopt1`。本轮把它拆成**两条互不相干**的
+缺陷（一条取指、一条后端），分别定位并落地修复，三用例 + `basicopt1` 四条定向用例齐绿。
+
+##### 一、7a 预取流"死带"：拉回触发只看槽 0 ⇒ 批内缺字永久取不回（`mem_subsystem.v`）
+
+W=2 官方 `basicopt1` 跑到 70 万拍时取指完全静止（VCD 末态，`T=2e6` 与 `T=3e6` **逐位相同**）：
+
+| 量 | 值 | 含义 |
+| --- | --- | --- |
+| `pc_r` / `exp_pc_r` / `imem_addr_d` | 0xE8 / 0xE8 / {0xEC, 0xE8} | 请求批恒为 {0xE8,0xEC} |
+| `arr_ok_w` / `imem_valid` / `imem_hit` | 1 / 0 / 0 | 槽 0 在、槽 1 缺 ⇒ `cap` 落空 |
+| `pf_next_r` / `demand_a` | 0x108 / 0xE8 ⇒ **`pf_ahead_w = 32`** | 恰在发起上界（`< 32`）之外 |
+| `dem_hit` / `pf_issue` / `pf_restart` | 1 / 0 / 0 | 不发（上界）也不拉回（旧触发只看 `dem_hit`）|
+| `pf_pend_r` / `pf_valid_r` | 0 / 0xffff | 无在飞、无泄漏 |
+| 窗口 idx 11 的 tag | **0xAC**（应为 0xEC）| 0xAC 与 0xEC 差 0x40 = 一整跨度，索引同为 11 |
+
+机制：流的指针**不只靠发起推进** —— `pf_dup_w`（前方已有数据）跳过时也推进，且**不受 `PF_WIN*4` 上界约束**
+⇒ 指针停在 `ahead ∈ [32, 64)` 是**可达**状态。该区间里"不发（上界）也不拉回（旧触发只比槽 0 的 `dem_hit`）"
+⇒ 批内缺的那个字（0xEC，被一次向后分支重走 0xA8 段时同格覆盖）**永远取不回**。后端随之空转：
+`rob_empty` 曾为 1、LSQ 空、AXI 读队列全空、`rd_req_valid` 恒 0 —— 全机只等取指。
+
+修正（`mem_subsystem.v:284`）：
+
+```verilog
+wire pf_beyond_w = (pf_ahead_w > ((ISSUE_WIDTH - 1) * 4));
+wire pf_restart = !dem_pend && (pf_next_r != demand_a)
+                  && (pf_stale_w || (!imem_valid && pf_beyond_w));
+```
+
+触发口径由"槽 0 未命中"改为"**期望批整批**未在窗口"（`imem_valid ≡ &slot_hit`，与接收侧同口径），
+并用 `pf_beyond_w` 限定"指针**已走过整批**才拉回" —— 少了这个限定词就是**活锁**：指针在批内朝缺字
+走时会被反复拉回，那一笔永远发不出。W=1 时 `(ISSUE_WIDTH-1)*4 = 0` 且 `imem_valid ≡ dem_hit`
+⇒ 与原表达式**逐位等价**。
+
+##### 二、7b 误预测当拍**全局**清 Q 级 ⇒ 冻结槽里的正确路指令被销毁（`execute_slot.v` + `cpu_top.v`）
+
+7a 修好后 `basicopt1` 越过取指挂点，又停在**另一个**现场（`T=2e6` 起逐位静止）：
+
+| 量 | 值 |
+| --- | --- |
+| `pc_r` / `imem_valid` | 0x14C / 1（**取指正常**，不是饿死）|
+| ROB 头 tag 17 = `0x02AE6E33` | `rem x6,x28,x10`，`ready_r[17]` 恒 0 |
+| `commit_count` / `halt` | 30481（冻结后不变）/ 0 |
+| RS 有效条目 | 只剩 tag 20/21/22/23（17 不在其中）|
+| 除法器 | 最后一次发起是 tag 29，**发起序列 1,5,13,25,29 跳过 17**，t=84135 后再没启动 |
+| `resources_ok` | 0（free_list/LSQ 闸）⇒ 谁也发不出去 ⇒ 死锁 |
+
+追踪（RS 逐条目逐拍 + Q 级逐槽）：
+
+1. cycle 41950：tag 17 被压入 RS 条目 6；**同拍入选** ⇒ `rs_clear_valid = sel_valid & ~pipe_stall`
+   把它清了（RS 条目在入选那拍就清，这是设计不变量 1）；同拍进入**槽 1 的 Q** ⇒ Q 是唯一副本。
+2. cycle 41951–41973：除法器忙（tag 13 在飞），`div_go_w=0` ⇒ `div_accept=0` ⇒ `q_freeze=1`，
+   槽 1 的 Q 一直**冻着**（`is_div[1]=1` 全程），同时槽 0 的 Q 前进了好几条。
+3. cycle 41972：**槽 0** 的 Q（tag 24 的一个分支）误预测 —— `misp_fs_w=24`、`rob_head_w=8`、
+   `fs_eff_w=24`；cycle 41973 `flushing_r` 起 ⇒ `flush_hit = misp_valid`（**全局广播**）把**两槽**
+   的 Q 都清了 ⇒ 槽 1 里 tag 17 的 Q 副本被销毁。
+
+关键点：**冻结让两槽 Q 失去年龄序**。槽 1 冻住期间槽 0 前进，于是槽 1 的 Q（tag 17）**比误预测分支
+（tag 24）更老** ⇒ 它是**正确路**（ROB 截断只丢 fs 之后的条目 ⇒ 17 留在 ROB 且成为卡住的头）。
+它的 RS 条目早已清掉、Q 副本又被销毁 ⇒ **指令凭空消失** ⇒ 它的 ROB 条目永不就绪 ⇒ 提交停摆 ⇒
+free_list 漏干 ⇒ `resources_ok=0` ⇒ 全机死锁。
+
+`execute_slot.v` 头部的**不变量 3**（"寄存器里那条就是检出误预测的分支本人"）**只在 W=1 成立**：
+W≥2 下另一槽可以冻着一条更老的。而 `pipe_stall` 的注释其实已经写明了同类推理（"它可能比误预测分支
+更老…清了就是指令丢失 ⇒ 死锁"），只是那条保护只加在 **D 级 `rs_clear`** 上，没加到 **Q 级 `flush_hit`**。
+
+修正：`flush_hit` 改由 cpu_top **逐槽**给出，口径与 `rs`/`lsq` 失效掩码、`div_kill` 完全一致
+（年龄 ≥ 冲刷点 ⇒ 分支本人/错路 ⇒ 清；更老 ⇒ 正确路 ⇒ 保住）：
+
+```verilog
+wire flush_hit_s = misp_valid
+    && (!q_freeze_s || ((q_rob_tag_s - rob_head_w) >= (fs_eff_w - rob_head_w)));
+```
+
+`!q_freeze` 那一支：本拍 W 级会收下它（结果/重定向照发，与旧行为一致），清掉只等于"不放新指令进来"。
+为此 `execute_slot` 新增两个输出 `q_freeze` / `q_rob_tag`（Q 级冻结标志与 Q 级条目的 rob_tag）。
+**死循环红线**（旧注释里"若改成冻住 ⇒ `misp_valid` 常 1"）仍然守住：一条**误预测的分支**必然
+要么是 fs 的来源槽（年龄相等 ⇒ `>=` ⇒ 清），要么槽号更高（更年轻 ⇒ 年龄更大 ⇒ 清）。
+
+W=1 差异只在**嵌套误预测**那一格：`flushing_r=1` 且当拍又有更老的误预测时，Q 里那条若更老
+（正确路）现在**保住**、旧写法会销毁它 ⇒ 是修好而非行为等价，故 W=1 全量必须重跑（见 §三）。
+
+##### 三、结果（官方口径，`LATENCY=10`）
+
+| 用例 | W=1 | W=2（B 之后，本轮前）| W=2（本轮 C′ + 逐槽 flush_hit）|
+| --- | --- | --- | --- |
+| `correctness_add_to_100` | PASS 654 | PASS 460 | **PASS 477** |
+| `correctness_array_test1` | PASS 777 | PASS 811 | **PASS 768** |
+| `correctness_array_test2` | PASS 819 | PASS 846 | **PASS 966** |
+| `correctness_basicopt1` | PASS 495800 | FAIL（5e6 拍不终止）| **PASS 546121** |
+
+两个补口都已落到工作树，且与所测变体树 `runs/w2d` **去注释后逐字节一致**（仅一处空行差）。
+W=2 / W=1 两套 19 条全量的结果见下一次提交（W=4 按指示本轮不跑）。
+
+##### 四、下一步
+
+1. 待 W=2 全量 19 条绿：恢复 W{1,2,4} 消融矩阵（先 perf IPC，再面积/频率）。
+2. 复核 §15.10.17 §五.1 的停机 store 操作数线索（若在全量里仍复现则另开缺陷条目）。

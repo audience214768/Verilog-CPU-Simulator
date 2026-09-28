@@ -532,13 +532,27 @@ module cpu_top #(
             assign sel_acc[(s + 1) * 3 +: 3] = sel_acc[s * 3 +: 3] + sel_valid[s];
             // (old_map 链段值改为在 generate 外统一生成 —— 见下方 omc 块)
 
+            // ===== 逐槽 flush_hit (误预测当拍销毁哪几槽的 Q 级) =====
+            // 不能全局广播 misp_valid: Q 级会被**冻结** (div 没被收下 / 冲刷窗口), 冻住那槽仍持有
+            // 它入选那拍的那条, 而另一槽在这期间已前进若干条 ⇒ 两槽 Q **不再是年龄序**, 冻住的
+            // 那条可能比误预测分支更老 ⇒ 正确路 (rs 条目在入选当拍已清 ⇒ Q 是唯一副本), 清了就是
+            // 指令丢失 ⇒ 它的 ROB 条目永不就绪 ⇒ 提交停摆 ⇒ free_list 漏干 ⇒ 全机死锁。
+            // 口径与 rs/lsq 失效掩码、div_kill 完全一致: 年龄 >= 冲刷点 ⇒ 分支本人/错路 ⇒ 清;
+            // 更老 ⇒ 正确路 ⇒ 保住。另一支 !q_freeze: 本拍 W 级会收下它 (结果/重定向照发), 清掉
+            // 只等于"不放新指令进来", 与旧行为一致 (旧行为对这类槽本就安全)。
+            wire              q_freeze_s;
+            wire [RW - 1 : 0] q_rob_tag_s;
+            wire              flush_hit_s = misp_valid
+                && (!q_freeze_s || ((q_rob_tag_s - rob_head_w) >= (fs_eff_w - rob_head_w)));
+
             // ===== execute_slot 实例 (B3 字段取 / B1 旁路 / alu+branch / CDB 广播 / 访存 / B4 检测) =====
             wire [PW - 1 : 0] slot_rd1;
             execute_slot #(.ISSUE_WIDTH(ISSUE_WIDTH), .RS_SIZE(RS_SIZE), .PRF_SIZE(PRF_SIZE),
                            .LSQ_SIZE(LSQ_SIZE), .ROB_SIZE(ROB_SIZE), .RAS_SIZE(RAS_SIZE),
                            .BHT_SIZE(BHT_SIZE), .SLOT_ID(s)) u_slot (
                 .clk(clk), .rst_n(rst_n),
-                .flush_win(flushing_r), .flush_hit(misp_valid), .div_accept(div_accept_w[s]),
+                .flush_win(flushing_r), .flush_hit(flush_hit_s), .div_accept(div_accept_w[s]),
+                .q_freeze(q_freeze_s), .q_rob_tag(q_rob_tag_s),
                 .sel_valid(sel_valid[s]), .sel_idx(sel_idx[s * SRW +: SRW]),
                 .rs_entry_opcode(rs_entry_opcode), .rs_entry_func3(rs_entry_func3), .rs_entry_func7(rs_entry_func7),
                 .rs_entry_prs1(rs_entry_prs1), .rs_entry_prs2(rs_entry_prs2), .rs_entry_prd(rs_entry_prd),

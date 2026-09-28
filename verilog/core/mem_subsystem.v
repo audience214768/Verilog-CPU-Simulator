@@ -271,7 +271,19 @@ module mem_subsystem #(
     //   (pc_r 在 0xBC/0xC4 每拍翻转, 1396 次/1500 拍; exp_pc_r 自 t=457 冻结在 0xBC)。
     //   死带是真的, 但改法必须**连同 demand 锚点一起改** —— "槽 0 口径"与"批口径"混用才是病根
     //   (demand_a 只锚槽 0, 而 imem_valid/cap_w 要求整批到齐)。片段与证据见 docs/plan.md §15.10.17 §三。
-    wire pf_restart = !dem_pend && (pf_next_r != demand_a) && (!dem_hit || pf_stale_w);
+    // ★ 死带补口 (2026-09-28, 缺陷 7): "ahead < PF_WIN*4 才发"与"ahead >= PF_DEPTH*4 才拉回"之间有一段
+    //   死带, 而指针的推进**不止**来自发起 —— `pf_dup_w` 跳过已有项也推进且不受上界约束 ⇒ 指针停在
+    //   ahead ∈ [PF_WIN*4, PF_DEPTH*4) 是**可达**状态。此时: 不发 (上界), 也不拉回 (旧触发只看 `dem_hit`,
+    //   而 dem_hit 只比槽 0) ⇒ 批内第二槽缺失时流永久冻结。
+    //   实测 (官方 basicopt1, W=2, LATENCY=10): pf_next_r=0x108 / demand_a=0xE8 ⇒ ahead=0x20=32;
+    //   批 {0xE8,0xEC} 的 0xEC 被 0xAC 同格覆盖 (0xAC 与 0xEC 差 0x40 = 一整个窗口跨度, 索引同为 11,
+    //   由一次向后分支重走 0xA8 段造成) ⇒ 取指永久停摆: 后端 rob_empty=1、LSQ 空、AXI 读队列全空、
+    //   rd_req_valid 恒 0。改法: 触发改"**期望批整批**未在窗口" (imem_valid ≡ &slot_hit, 与接收同口径),
+    //   但只在指针**已走过整批**时才拉回 (ahead > (ISSUE_WIDTH-1)*4) —— 否则指针在批内朝缺字走时会被
+    //   反复拉回、那一笔永远发不出 (活锁)。W=1 时 (ISSUE_WIDTH-1)*4 = 0 且 imem_valid ≡ dem_hit ⇒ 逐位等价。
+    wire pf_beyond_w = (pf_ahead_w > ((ISSUE_WIDTH - 1) * 4));
+    wire pf_restart = !dem_pend && (pf_next_r != demand_a)
+                      && (pf_stale_w || (!imem_valid && pf_beyond_w));
     wire [PF_IW - 1 : 0] pf_idx_w = pf_next_r[2 +: PF_IW];
     // 读口 B: 按预取流指针 pf_next_r 取
     wire [PF_DEPTH - 1 : 0] oh_str;

@@ -17,10 +17,17 @@
 //   2. 因此"扣寄存器"(`q_freeze`) 与"放过条目"(`pipe_stall` 门控 rs_clear) 必须同条件,
 //      否则会出现"条目被清但没进寄存器"(指令丢失) 或"没清却进了寄存器"(重复执行)。
 //      唯一的例外是 flush_hit, 见第 3 条。
-//   3. 误预测当拍 **清空**寄存器而不是冻结 —— 寄存器里那条就是检出误预测的分支本人
-//      (misp_det 是本模块的组合输出), 它本拍已执行完, 正对应原设计里"它的 rs 条目当拍被清"。
+//   3. 误预测当拍 **清空**寄存器而不是冻结 —— 被清的那条 (检出误预测的分支本人) 本拍已执行完
+//      (结果/重定向组合汇出, W 级照常装载), 正对应原设计里"它的 rs 条目当拍被清"。
 //      若改成冻住, misp_det 就由它自己持续产生 ⇒ misp_valid 常 1 ⇒ flushing_r 反复置位,
 //      死循环 (**实测踩过**, 见 §15.10.13)。清空与"不放它条目"必须成对, 故 pipe_stall 含 flush_hit。
+//      ★ W>=2 **不能**用全局 misp_valid 清所有槽: 冻结的槽 (div 没被收下) 会一直握着它入选
+//        那拍的那条, 另一槽却已前进若干条 ⇒ 两槽 Q **不再是年龄序**, 冻住的那条可能**比误预测
+//        分支更老** (= 正确路, 必须提交且 rs 条目在入选那拍已清 ⇒ Q 是唯一副本) ⇒ 清了就是
+//        指令丢失, 它的 ROB 条目永不就绪 ⇒ 提交停摆 ⇒ free_list 漏干 ⇒ 全机死锁。
+//        实测 basicopt1 W=2: 槽 1 自 cycle 41950 冻住 tag 17(rem, 除法器忙), 槽 0 前进到 tag 24
+//        的分支并于 41972 误预测 (head=8, fs=24) ⇒ 广播清空把 17 一并销毁 ⇒ 挂死。
+//        ⇒ flush_hit 由 cpu_top **逐槽**给出, 口径与 rs/lsq 失效掩码、div_kill 一致 (见其注释)。
 //   4. 冲刷窗口 (flush_win) 内冻结 D→Q 移交。若让 D 级继续移交, 进来的 div 会因条目已被清
 //      而逃过 rs 失效掩码, 等冲刷结束再启动 ⇒ 错路 div 完成时按 rob_tag 置 ready, 而那个
 //      tag 早已被新指令复用 ⇒ 真错。
@@ -65,7 +72,8 @@ module execute_slot #(
     input  [RS_SIZE * $clog2(RAS_SIZE) - 1 : 0] rs_entry_ras_snap,
     // ---- Q 级流水控制 ----
     input                          flush_win,   // cpu_top 的 flushing_r: 冲刷窗口, Q 级冻结
-    input                          flush_hit,   // cpu_top 的 misp_valid: 本拍检出误预测, 同上
+    input                          flush_hit,   // 本槽 Q 级本条该被误预测销毁 (cpu_top **逐槽按年龄**算,
+                                                 // 不是全局 misp_valid —— 理由见文件头不变量 3)
     input                          div_accept,  // 本槽的 div 发起被收下 (cpu_top 的 div_go_w)
     // ---- 操作数 (B1: CDB 旁路 + ready_table→PRF 索引读) ----
     input  [PRF_SIZE - 1 : 0]                 rt_ready,
@@ -77,6 +85,8 @@ module execute_slot #(
     // ---- 输出: 读口地址 / CDB 生产者 / 访存 / 误预测 / BHT / 分支计数 ----
     output                         sel_valid_q, // Q 级有效 (cpu_top 的 ret_sample 读口判据)
     output                         pipe_stall,  // Q 级冻结 ⇒ cpu_top 必须同时放过 rs_clear
+    output                         q_freeze,    // Q 级被扣住 (cpu_top 逐槽算 flush_hit 用)
+    output [$clog2(ROB_SIZE) - 1 : 0] q_rob_tag, // Q 级条目的 rob_tag (同上, 年龄判据)
     output [$clog2(PRF_SIZE) - 1 : 0]         rd1_preg, rd2_preg,
     output                                    exec_valid,
     output [$clog2(PRF_SIZE) - 1 : 0]         exec_prd,
@@ -164,12 +174,13 @@ module execute_slot #(
 
     // ---- D/Q 流水寄存器 ----
     // freeze 与 clear 是两回事, 条件也不一样 (依赖 is_div, 故 q_freeze 定义在译码之后):
-    //   flush_hit ⇒ **清空**: 寄存器里那条就是检出误预测的分支本人, 它本拍已执行完 (结果/重定向
+    //   flush_hit ⇒ **清空**: 本条是检出误预测的分支本人 (或错路), 它本拍已执行完 (结果/重定向
     //     都已组合汇出), 原设计里它的 rs 条目也正是这拍被清的 —— 所以这里对应"消费掉"。
     //     若改成冻住, misp_det 就由它自己产生 ⇒ misp_valid 常 1 ⇒ flushing_r 反复置位, 死循环。
+    //     ★ W>=2 由 cpu_top 逐槽判定 (年龄 >= 冲刷点), 不再收全局 misp_valid —— 理由见文件头 3。
     //   q_freeze  ⇒ 冻结: 冲刷窗口 (不放新指令进来) 或 div 没被收下 (本条还没被任何单元接走)。
     assign sel_valid_q = sel_valid_q_r;
-    wire q_freeze;      // 赋值在译码之后 (依赖 is_div); iverilog 要求先声明后用
+    assign q_rob_tag   = rob_tag;   // Q 级条目的 rob_tag (端口; cpu_top 逐槽算 flush_hit 的年龄判据)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             sel_all_q     <= {TOTW{1'b0}};
@@ -216,6 +227,7 @@ module execute_slot #(
     // q_freeze 的两个成因: 冲刷窗口 (不放新指令进执行级, 否则它会逃过 rs 失效掩码) 与
     // div 没被收下 (条目在入选那拍已清 ⇒ 只能扣寄存器; 不扣就丢掉这一发 ⇒ 永不执行)。
     assign q_freeze   = flush_win || (sel_valid_q_r && is_div && !div_accept);
+    //   (端口 q_freeze/q_rob_tag 的声明在端口表; 赋值只能在这里 —— 依赖 is_div 与 rob_tag)
     // pipe_stall 是给 cpu_top 用的 **rs_clear 放过条件**, 比 q_freeze 多一个 flush_hit:
     // 误预测当拍 D 级选中的那条本拍**没有**进执行级 (寄存器被清), 所以它的条目绝不能清 ——
     // 它可能比误预测分支更老 (仲裁选的是最老**就绪**项, 一条当拍才被 CDB 唤醒的可以更老),

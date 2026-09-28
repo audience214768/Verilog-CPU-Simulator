@@ -282,8 +282,17 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
   `imem_valid = &slot_hit` 的整批口径打架 ⇒ W≥2 下 `pc_r` 每拍在 `N / N+4W` 翻转、预取流锚点被撕扯 ⇒
   期望批永远凑不齐。改成逐槽全中（`assign imem_hit = &hit_cur`）后 W=2 三用例转绿（`array_test2`
   由永久停摆变 PASS 846）。根因/证据见 `docs/plan.md` §15.10.18。
-  W≥2 现存的拦路虎是**第二条独立缺陷**：官方 `correctness_basicopt1` 在 W=2 挂死（B 之前的构建同样挂，
-  W=1 只要 49.6 万拍）—— 记作缺陷 7，下一轮定位。
+  **缺陷 7 已定位并修复（W≥2，2026-09-28，本轮）** —— 它其实是**两条**互不相干的缺陷：
+  ① 预取流"死带"：流的指针靠 `pf_dup_w` 跳过已有项时**不受前瞻上界约束**地推进 ⇒ 停在
+  `pf_ahead_w ∈ [PF_WIN*4, PF_DEPTH*4)` 是可达状态，而旧 `pf_restart` 只看槽 0 (`dem_hit`) ⇒
+  "批内第二槽缺失"时既不发起也不拉回 ⇒ 取指永久停摆。改成"期望批**整批**未在窗口 (`!imem_valid`)
+  且指针已走过整批 (`pf_ahead_w > (ISSUE_WIDTH-1)*4`，防活锁)"，W=1 逐位等价。
+  ② 误预测当拍**全局**清 Q 级：`flush_hit = misp_valid` 广播给所有槽，而 W≥2 下被 `q_freeze`
+  扣住的槽仍持有更早选中的那条（另一槽已前进若干条 ⇒ **两槽 Q 不再有年龄序**）⇒ 比冲刷点更老的
+  **正确路**指令被销毁（RS 条目在入选那拍已清，Q 是唯一副本）⇒ 它的 ROB 条目永不就绪 ⇒ 提交停摆
+  ⇒ free_list 漏干 ⇒ 死锁。改成 cpu_top **逐槽按年龄**给 `flush_hit`（口径与 rs/lsq 掩码、`div_kill`
+  一致）。`correctness_basicopt1` 由挂死转 PASS 546121（W=1 为 495800）。根因/证据链见
+  `docs/plan.md` §15.10.19。
 
 ### core/rob.v
 | name | dir | width | 驱动方 | 说明 |
@@ -678,6 +687,10 @@ tr: R 到达并捕获（= t1 的快照，不含 S）
   / **Q 级**（B1 操作数获取 + B3 执行 + B4 误预测检测），中间一个 144+1 位寄存器；新增端口
   `flush_win`/`flush_hit`/`div_accept`/`sel_valid_q`/`pipe_stall`；cpu_top.v 的 `rs_clear_valid`
   改为 `sel_valid & ~pipe_stall_w`、ret_sample 读口判据改用 `sel_valid_q[0]`（原 `div_hold_w` 机制随之退役）
+- **修改（正确性，见 `docs/plan.md` §15.10.19，2026-09-28）**：`flush_hit` 不再收全局 `misp_valid`，
+  改由 cpu_top **逐槽按年龄**给出（`!q_freeze || (q_rob_tag - rob_head) >= (fs_eff - rob_head)`）；
+  为此 execute_slot.v 新增两个输出 `q_freeze`/`q_rob_tag`。理由：W≥2 下被 `q_freeze` 扣住的槽
+  仍持有更早选中的一条，两槽 Q **不再有年龄序**，全局清空会销毁比冲刷点更老的**正确路**指令
 - 官方框架（根目录，**勿改**）：Makefile、config.mk、scripts/、docs/{axi4-lite,sram}.md、testcases/（submodule）；
   本机工具链路径写 `config.local.mk`（已 gitignore），用 `make CONFIG=config.local.mk <target>`
 - 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp
