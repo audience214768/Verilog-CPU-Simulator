@@ -1,4 +1,5 @@
 // tb_rob: 段 1 小规模+极端 (push 批/环形回绕/set_ready/set_head 释放/set_last 截断与清空/
+//        满窗 + 截断点落在 head 前一条时的回绕歧义消解/
 //        优先级 set_last>set_head>set_ready>push/满判据/empty 判据/越界槽位回绕);
 //        段 2 随机模型对照 (300 拍, 指针/条目全字段逐拍断言)
 `timescale 1ns/1ps
@@ -103,7 +104,11 @@ module tb_rob;
             if (set_last_valid) begin
                 d_old = RB - m_free;                 // 窗口大小 (empty→0, full→RB)
                 d_new_rw = set_last_val - m_head;    // RW 位回绕后再零扩展
-                d_new = {1'b0, d_new_rw};
+                // d_new_rw = 0 (截断点落在 head 前一条) 有歧义, 用占用量消解:
+                // 窗口满 ⇒ 该条目就是窗口内最年轻的 (还活着) ⇒ 保留整窗; 否则它已提交 ⇒ 清空
+                d_new = (d_new_rw != 0)     ? {1'b0, d_new_rw}
+                      : (d_old == RB)       ? d_old
+                      :                       0;
                 if (d_new <= d_old) begin
                     m_last = set_last_val;
                     m_free = RB - d_new;
@@ -291,6 +296,21 @@ module tb_rob;
             $display("PASS: C8 truncate from full + wrap push");
         end
 
+        // C10 满窗口 + 截断点 == head (被冲刷的分支正好是窗口内最年轻的条目): 没有更年轻的条目
+        //     可杀 ⇒ 整窗保留 (head/last 不变, free 仍 0)。修复前 d_new 回绕成 0 ⇒ 满窗被判成
+        //     空窗 (free=32), 31 条更老的条目连同上层的 RS/LSQ 有效性一起丢失 ⇒ LSQ 头永久卡死
+        //     (W=4 `perf_vvadd` 现场: robh=robl=15 free=0 fs=14)。
+        clr();
+        set_last_valid = 1'b1; set_last_val = 5'd2;
+        tick();
+        check_all();
+        if (head !== 5'd2 || last !== 5'd2 || free_count !== 6'd0 || full !== 1'b1) begin
+            $display("FAIL: C10 full-window truncate at head (h/l/f=%0d/%0d/%0d expect 2/2/0)",
+                     head, last, free_count); errors = errors + 1;
+        end else begin
+            $display("PASS: C10 full-window truncate keeps whole window");
+        end
+
         // C9a 满窗口 set_last 截到 head 之后跨回绕点 (val=0 < head=2): 窗口 [2,0)=30 槽, free=2
         clr();
         set_last_valid = 1'b1; set_last_val = 5'd0;
@@ -311,6 +331,20 @@ module tb_rob;
             $display("FAIL: C9 set_ready>push"); errors = errors + 1;
         end else begin
             $display("PASS: C9 set_ready beats push (same entry)");
+        end
+
+        // C10b 非满窗口 + 截断点 == head: 同样 d_new_rw=0, 但窗口没满 ⇒ 该条目已提交 (head 已越过
+        //      它) ⇒ 窗口内全部更年轻 ⇒ 一条不留 (清空)。与 C10 的指针结果相同, 只有 free 不同
+        //      (0 vs 32) —— 这正是只能靠占用量消解歧义的原因。
+        clr();
+        set_last_valid = 1'b1; set_last_val = 5'd2;
+        tick();
+        check_all();
+        if (head !== 5'd2 || last !== 5'd2 || free_count !== 6'd32 || empty !== 1'b1) begin
+            $display("FAIL: C10b non-full truncate at head clears (h/l/f=%0d/%0d/%0d expect 2/2/32)",
+                     head, last, free_count); errors = errors + 1;
+        end else begin
+            $display("PASS: C10b non-full truncate at head clears");
         end
 
         if (errors == 0)

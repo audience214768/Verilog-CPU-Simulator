@@ -180,7 +180,6 @@ module execute_slot #(
     //     ★ W>=2 由 cpu_top 逐槽判定 (年龄 >= 冲刷点), 不再收全局 misp_valid —— 理由见文件头 3。
     //   q_freeze  ⇒ 冻结: 冲刷窗口 (不放新指令进来) 或 div 没被收下 (本条还没被任何单元接走)。
     assign sel_valid_q = sel_valid_q_r;
-    assign q_rob_tag   = rob_tag;   // Q 级条目的 rob_tag (端口; cpu_top 逐槽算 flush_hit 的年龄判据)
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             sel_all_q     <= {TOTW{1'b0}};
@@ -207,6 +206,11 @@ module execute_slot #(
     wire              pred_taken  = sel_all_q[O_PTAK];
     wire [31 : 0]     pred_target = sel_all_q[O_PTGT +: 32];
     wire [RA - 1 : 0] ras_snap    = sel_all_q[O_RAS  +: RA];
+
+    // Q 级条目的 rob_tag (端口; cpu_top 逐槽算 flush_hit 的年龄判据)
+    // ★ 必须写在 rob_tag 的声明**之后**: Icarus 拒绝"先用后声明"(implicit net), Verilator 容忍 ——
+    //   放在上面会让 make -f Makefile.tb 整条 TB 流程编译不过 (与 W 无关)。
+    assign q_rob_tag = rob_tag;
 
     wire is_r      = (opcode == 7'h33);
     wire is_i      = (opcode == 7'h13);

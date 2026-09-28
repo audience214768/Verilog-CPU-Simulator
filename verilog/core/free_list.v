@@ -1,7 +1,7 @@
 // 空闲物理寄存器池: LIFO 栈 (FREE_NUM 项 × PW 位真实存储)
 // 复位 sp=FREE_NUM, 栈顶 pool[FREE_NUM-1]=BASE → 首次分配得 preg 32, 依次递增
-// 只回收 preg >= BASE (32): RAT 复位恒等映射占用 0..31, 被覆盖即永久退休, 池中无法表示,
-//   计入 count 会使计数虚高 → 头指针绕圈时会分配出仍在使用的 preg (旧实现缺陷)
+// 只挡 preg 0 (x0 的恒等映射, 永不复用): 恒等映射区 1..31 在被架构 RAT 放弃 (提交改写) 时
+//   照常回池 —— 池是真实栈, 能表示任何 preg; 详见下方 push_ok 处的缺陷 8 说明
 // 存真实值而非"head+i 组合计算": 回收 (commit 的 old_pnum / walker 的 new_pnum) 不按分配序
 //   到达 (同批内不同 rd 的 old 次序任意), 空闲集不是环形连续区间 → 组合计算会算错
 // 同拍 push/pop: pop 读 pool[sp-1-pc_pre[i]], push 写 pool[sp-pop_cnt+ps_pre[i]] ——
@@ -27,14 +27,26 @@ module free_list #(
     reg [PW - 1 : 0]  pool [0 : FREE_NUM - 1];
     reg [PCW - 1 : 0] sp;                     // 栈内空闲数 (= 栈顶下标 + 1)
 
-    // ---- 有效回收 (仅可分配区) + 逐槽前缀计数 ----
+    // ---- 有效回收 + 逐槽前缀计数 ----
+    // ★ 2026-09-28 (W=4 缺陷 8): 原来只回收 preg >= BASE(32), 整个恒等映射区 0..31 被排除,
+    //   理由是"复位恒等映射占用它, 被覆盖即永久退休, 池中无法表示"。但本实现是**真实栈**
+    //   (pool[] 存真值, 不靠 head+i 组合计算), 任何 preg 都能表示 ⇒ 该排除纯属浪费:
+    //   架构 RAT 每把一个寄存器改写到池 preg 上, 就永久占住池里一项, 32 项池最多只剩 1 项。
+    //   实测 (官方 correctness_hanoi, W=4): map_arch 占 29 项 ⇒ sp=3, 而冻结处批
+    //   {addi a5,s0,0 / addi a5,a5,-1 / addi a0,a5,0 / addi s1,a1,0} 是 4 条全写 rd ⇒
+    //   fl_count(3) < n_wr(4) 恒成立, ROB 已空、pc 冻结在 0x190 ⇒ 永久死锁。
+    //   (W<=3 时 n_wr<=3 恰好不超过 3, 侥幸不触发 —— 幸存者偏差, 不是正确性。)
+    //   改法: 只挡 preg 0 (x0 的恒等映射, 永不复用) —— walker 侧 walked_valid 不排除
+    //   new_pnum==0 的条目 (cpu_top 的 fl_push_valid 直接用 walked_valid), 必须留这一挡,
+    //   否则 preg 0 进池后被分配出去, x0 不再恒为 0。其余 1..31 在架构映射放弃它时照常回池,
+    //   空机时池恒为 PRF_SIZE - 32 = 32 项 >= ISSUE_WIDTH ⇒ 结构性死锁消失。
     wire [ISSUE_WIDTH - 1 : 0] push_ok;
     wire [ISSUE_WIDTH * PCW - 1 : 0] pc_pre, ps_pre;   // 槽 i 之前的 pop/push 数 (排他前缀)
     wire [ISSUE_WIDTH * PCW - 1 : 0] pc_inc, ps_inc;   // 含槽 i 的累计
     genvar i, c;
     generate
         for (c = 0; c < ISSUE_WIDTH; c = c + 1) begin : ok
-            assign push_ok[c] = push_valid[c] && (push_preg[c * PW +: PW] >= BASE);
+            assign push_ok[c] = push_valid[c] && (push_preg[c * PW +: PW] != {PW{1'b0}});
         end
         for (i = 0; i < ISSUE_WIDTH; i = i + 1) begin : cnt
             // 槽 i 之前 = 前一槽的含己累计

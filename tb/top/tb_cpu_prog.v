@@ -166,14 +166,17 @@ module tb_cpu_prog;
     // 看不出来 (两个槽读到的都是本拍前的值), 故同拍也要比。
     localparam PW_TB = $clog2(PRF_SIZE_TB);
     localparam RW_TB = $clog2(ROB_SIZE_TB);
+    // 影子"持有集"初值 = 复位恒等映射占用的 0..31 (池初值 = 32..63); 此后 push 清、alloc 置。
     reg [PRF_SIZE_TB - 1 : 0] preg_held;
     integer pi, pj;
     always @(posedge clk) begin
-        if (!rst_n) preg_held <= {PRF_SIZE_TB{1'b0}};
+        if (!rst_n) preg_held <= {{(PRF_SIZE_TB - 32){1'b0}}, {32{1'b1}}};
         else begin
             // 先回收 (commit/walker 的 push), 再分配 —— 与本拍语义一致 (分配读的是旧池)
+            // 回收条件与 free_list.push_ok **逐字一致** (只挡 preg 0): 恒等映射区 1..31 被架构
+            //   RAT 放弃时照常回池 (W=4 缺陷 8 的新策略), 旧影子模型在这里多挡了一道 `>= 32`。
             for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1)
-                if (dut.fl_push_valid[pi] && (dut.fl_push_preg[pi * PW_TB +: PW_TB] >= 32))
+                if (dut.fl_push_valid[pi] && (dut.fl_push_preg[pi * PW_TB +: PW_TB] != {PW_TB{1'b0}}))
                     preg_held[dut.fl_push_preg[pi * PW_TB +: PW_TB]] <= 1'b0;
             for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1) begin
                 if (dut.rename_valid[pi]) begin
@@ -202,9 +205,19 @@ module tb_cpu_prog;
     initial flchk = 0;
     integer nh, nrep;
     initial begin nh = 0; nrep = 0; end
+    integer lsq_orphan_n, qi;
+    initial lsq_orphan_n = 0;
+    // 年龄差必须在 RW_TB 位宽内回绕: 写成 (tag - head) >= (ROB_SIZE - free) 会因上下文位宽
+    // 先扩到 32 位再相减 ⇒ tag<head 时得到巨大无符号数 ⇒ 全是假违反 (函数内参数位宽=返回值位宽, 截断正确)
+    function [RW_TB - 1 : 0] age5_f;
+        input [RW_TB - 1 : 0] t, h;
+        begin age5_f = t - h; end
+    endfunction
     always @(posedge clk) begin
         if (flchk && rst_n) begin
-            // 收支不变量: 池内空闲数 == 池容量 - 仍被持有的 preg 数 (持有 = 已分配且未回收)。
+            // 收支不变量: 池内空闲数 == PRF 总量 - 仍被持有的 preg 数 (持有 = 已分配且未回收),
+            // 即"池 ∪ 持有 = 全部 PRF_SIZE 个" —— 新策略下恒等映射区也会回池, 故基数不再是 FREE_NUM
+            // 而是 PRF_SIZE (空机: 持有=32 架构映射, 池=32)。
             // 破了就是**漏回收/多回收**: sp 偏小 ⇒ 有 preg 永久泄漏 ⇒ 池耗尽后改名全停
             // (ROB 空、commit=issue 也不动 = 死锁)。首次违反时把池与持有集全打出来定位。
             nh = 0;
@@ -216,10 +229,10 @@ module tb_cpu_prog;
                 if (dut.rename_valid[fi] && !dut.rob_push_valid[fi])
                     $display("FAIL: alloc without rob entry slot=%0d alloc=%0d cyc=%0d",
                              fi, dut.alloc_val[fi * PW_TB +: PW_TB], cyc);
-            if ((dut.u_fl.sp != (PRF_SIZE_TB - 32 - nh)) && (nrep < 4)) begin
+            if ((dut.u_fl.sp != (PRF_SIZE_TB - nh)) && (nrep < 4)) begin
                 nrep = nrep + 1;
                 $display("FAIL: pool/held mismatch sp=%0d held=%0d expect_sp=%0d cyc=%0d",
-                         dut.u_fl.sp, nh, PRF_SIZE_TB - 32 - nh, cyc);
+                         dut.u_fl.sp, nh, PRF_SIZE_TB - nh, cyc);
                 for (fi = 0; fi < PRF_SIZE_TB - 32; fi = fi + 1)
                     $display("   pool[%0d]=%0d", fi, dut.u_fl.pool[fi]);
                 for (fi = 0; fi < PRF_SIZE_TB; fi = fi + 1)
@@ -227,7 +240,7 @@ module tb_cpu_prog;
             end
             // RAT 必须是单射: 两个架构寄存器映到同一 preg ⇒ 两条在飞指令 old 相同 ⇒ 提交时
             // 同一 preg 被回收两次 ⇒ 池内出现重复项 ⇒ 同一 preg 发给两条在飞指令 ⇒ 死锁。
-            // (preg 0..31 恒等映射且永不被分配, 故任意两路相等都是真违反)
+            // (任何时刻 32 个架构映射必互不相同 —— 与 preg 落在恒等区还是池区无关)
             for (fi = 0; fi < 31; fi = fi + 1)
                 for (fj = fi + 1; fj < 32; fj = fj + 1)
                     if (dut.map_arch[fi * PW_TB +: PW_TB] == dut.map_arch[fj * PW_TB +: PW_TB]) begin
@@ -266,6 +279,41 @@ module tb_cpu_prog;
             if (dut.issue_en && (dut.u_rob.free_r < dut.u_rob.push_cnt))
                 $display("FAIL: rob overpush free=%0d push_cnt=%0d cyc=%0d",
                          dut.u_rob.free_r, dut.u_rob.push_cnt, cyc);
+            // LSQ 孤儿条目: 有效条目的 rob_tag 必须落在 ROB 占用窗口 [head, head+occ) 内。
+            // 落到窗口外 ⇒ 它的 ROB 条目已不存在 (已被提交或被 walker 回滚), 于是既不会被
+            // commit 失效 (那条 ROB 条目永不再出现), 也不会再被 flush_mask 命中 ⇒ 永久有效
+            // ⇒ lsq 的 dead=(~valid|kill)&~issued 恒 0 ⇒ head 不再前进 ⇒ 占满后全机死锁。
+            // W=4 实测: 缺陷 9 (满窗被截断成"空窗", 31 条老条目的 ROB 有效性一并丢失) 就是本条
+            // 在 cyc=3296 首次报出的 —— occ 归零后所有有效条目都落在窗口外。
+            // 只在非冲刷拍查 (冲刷中窗口本就在被逐拍截断, 有 1 拍级的正常时序偏斜)。
+            for (fi = 0; fi < LSQ_SIZE_TB; fi = fi + 1)
+                if (rst_n && !dut.flushing_r && !dut.misp_valid && dut.u_lsq.valid_r[fi]
+                    && (lsq_orphan_n < 4)) begin
+                    if (age5_f(dut.u_lsq.rob_tag_r[fi * RW_TB +: RW_TB], dut.rob_head_w)
+                        >= (ROB_SIZE_TB - dut.u_rob.free_r)) begin
+                        lsq_orphan_n = lsq_orphan_n + 1;
+                        $display("FAIL: lsq orphan idx=%0d rob_tag=%0d head=%0d occ=%0d iss=%b ld=%b ar=%b dr=%b dn=%b cyc=%0d",
+                                 fi, dut.u_lsq.rob_tag_r[fi * RW_TB +: RW_TB], dut.rob_head_w,
+                                 ROB_SIZE_TB - dut.u_rob.free_r, dut.u_lsq.issued_r[fi],
+                                 dut.u_lsq.is_load_r[fi], dut.u_lsq.addr_ready_r[fi],
+                                 dut.u_lsq.data_ready_r[fi], dut.u_lsq.done_r[fi], cyc);
+                        if (lsq_orphan_n == 1) begin
+                            $display("   LSQDUMP head=%0d last=%0d winlen=%0d free=%0d inv=%h kill=%h dead=%h",
+                                     dut.u_lsq.head_r, dut.u_lsq.last_r, dut.u_lsq.winlen,
+                                     dut.u_lsq.free_count_w, dut.lsq_invalidate,
+                                     dut.lsq_flush_mask, dut.u_lsq.dead);
+                            for (qi = 0; qi < LSQ_SIZE_TB; qi = qi + 1)
+                                $display("   LSQE[%0d] v=%b kl=%b ld=%b ar=%b dr=%b dn=%b iss=%b tag=%0d robv=%b pc=%h",
+                                         qi, dut.u_lsq.valid_r[qi], dut.u_lsq.kill[qi],
+                                         dut.u_lsq.is_load_r[qi], dut.u_lsq.addr_ready_r[qi],
+                                         dut.u_lsq.data_ready_r[qi], dut.u_lsq.done_r[qi],
+                                         dut.u_lsq.issued_r[qi],
+                                         dut.u_lsq.rob_tag_r[qi * RW_TB +: RW_TB],
+                                         dut.rob_ready_w[dut.u_lsq.rob_tag_r[qi * RW_TB +: RW_TB]],
+                                         dut.rob_raw_w[dut.u_lsq.rob_tag_r[qi * RW_TB +: RW_TB] * 32 +: 32]);
+                        end
+                    end
+                end
         end
     end
 
@@ -414,8 +462,8 @@ module tb_cpu_prog;
             $display("JUMP: %0s taken jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d | misp jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d",
                      nm, kj[0], kj[1], kj[2], kj[3], kj[4], kj[5],
                      mj[0], mj[1], mj[2], mj[3], mj[4], mj[5]);
-            // 自由表耗尽时的"谁占着 preg": 池容量=FREE_NUM, 但架构映射占用的 preg (>=32) 不会回池,
-            // 只有当该寄存器被**重写**时才借新写者的 old 回收 ⇒ #映射>=32 单调涨到"程序写过的不同寄存器数"
+            // 自由表分布 (诊断): 池内空闲 sp / 架构映射落在池区的个数 mapped_ge32。
+            // 空机时 sp 恒为 FREE_NUM (架构映射全在恒等区 0..31) —— 恒等区被放弃时也会回池, 不再是泄漏
             nh = 0;
             for (fi = 0; fi < 32; fi = fi + 1)
                 if (dut.map_arch[fi * PW_TB +: PW_TB] >= 32) nh = nh + 1;

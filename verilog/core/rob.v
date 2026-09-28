@@ -73,12 +73,18 @@ module rob #(
     // 注意 d_new 须先在 RW 位内回绕再零扩展 (6 位上下文会得到 62 而非 30)
     wire [RCW - 1 : 0] d_old = ROB_SIZE - free_r;
     wire [RW - 1 : 0]  d_new_rw = set_last_val - head_r;
-    wire [RCW - 1 : 0] d_new = {1'b0, d_new_rw};
+    // d_new_rw 为 0 (分支正好落在 head 前一条) 时有回绕歧义: 分支还活着 ⇒ 保留整窗 (ROB_SIZE 条),
+    // 分支已提交 ⇒ 一条不留 (清空)。用截断前的占用量消解 —— 只有窗口本来就满时该分支才还活着
+    // (窗口 [head, last) 满时最年轻的条目就在 head-1)。漏了这一支会把满窗截成"空窗": 31 条老条目
+    // 连同它们的 RS/LSQ 有效性一起丢失 (掩码按年龄差算, 此时也恒不命中) ⇒ LSQ 头永久卡死。
+    wire [RCW - 1 : 0] d_new = (d_new_rw != {RW{1'b0}}) ? {1'b0, d_new_rw}
+                             : (d_old == ROB_SIZE)      ? d_old
+                             :                            {RCW{1'b0}};
     wire              keep_head = (d_new <= d_old);
     wire [RW - 1 : 0] head_after_last = keep_head ? head_r : (set_last_val + 1);
     wire [RW - 1 : 0] last_after_last = keep_head ? set_last_val : (set_last_val + 1);
-    wire [RW - 1 : 0] d_f = last_after_last - head_after_last; // 截断后窗口大小 (回绕; 清空时为 0)
-    wire [RCW - 1 : 0] free_after_last = ROB_SIZE - d_f;
+    // 保留条数由 d_new 直接给出 (不能再拿 head/last 相减: 满窗与空窗指针相同, 差都是 0)
+    wire [RCW - 1 : 0] free_after_last = ROB_SIZE - (keep_head ? d_new : {RCW{1'b0}});
     wire [RCW - 1 : 0] free_next = set_last_valid ? free_after_last
                                  : set_head_valid ? free_after_head
                                  : free_r - push_cnt;
