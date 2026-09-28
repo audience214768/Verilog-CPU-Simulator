@@ -11,7 +11,7 @@
 ## 背景 (Context)
 
 verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**`verilog/filelist.f` 里 23 个模块已全部实现**，且**官方链路已打通**（`student_top` + AXI4-Lite，`make build` 通过、
-`correctness_add_to_100` 官方镜像 PASS；单元 TB 15 个全绿，`make test` 19/19 PASS）。**RV32IM 指令集已补齐**
+`correctness_add_to_100` 官方镜像 PASS；单元 TB 15 个全绿，`make test` **W=1 与 W=2 两档各 19/19 PASS**）。**RV32IM 指令集已补齐**
 （DIV/DIVU/REM/REMU 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）；仍未实现的是 **Cache**。
 本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
 
@@ -293,6 +293,10 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
   ⇒ free_list 漏干 ⇒ 死锁。改成 cpu_top **逐槽按年龄**给 `flush_hit`（口径与 rs/lsq 掩码、`div_kill`
   一致）。`correctness_basicopt1` 由挂死转 PASS 546121（W=1 为 495800）。根因/证据链见
   `docs/plan.md` §15.10.19。
+  ⇒ **W≥2 正确性门禁已通过**：W=2 与 W=1 两套官方 19 条全量均 `19 passed, 0 failed`（2026-09-28，
+  逐条周期数见 §15.10.19 §三）。**遗留的反常（非正确性）**：同一套 19 条里 W=2 的周期数在 **15/19**
+  条上比 W=1 **高**（几何平均 1.099×，最差 `superloop` 1.321×），即多发射目前**反而更慢** ——
+  本轮范围只到正确性、未处理，已列为恢复消融矩阵后的第一优先排查项。
 
 ### core/rob.v
 | name | dir | width | 驱动方 | 说明 |
