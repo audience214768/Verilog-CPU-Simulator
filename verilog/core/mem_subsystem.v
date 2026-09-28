@@ -255,9 +255,7 @@ module mem_subsystem #(
             assign sel_dem[gb] = |m;
         end
     endgenerate
-    wire              dem_valid = sel_dem[PO_V];
     wire [31 : 0]     dem_tag   = sel_dem[PO_T +: 32];
-    wire dem_hit  = dem_valid && (dem_tag == demand_a);
     wire dem_pend = sel_dem[PO_P] && (dem_tag == demand_a);   // 同址在飞
     wire [31 : 0] pf_ahead_w = pf_next_r - demand_a;     // 无符号减: 流若落后会得到大数 ⇒ 自然不满足上界
     wire pf_stale_w = (pf_ahead_w >= (PF_DEPTH * 4));    // 流跑到缓冲区跨度外 (含"落后于 demand"的绕回)
@@ -280,7 +278,8 @@ module mem_subsystem #(
     //   由一次向后分支重走 0xA8 段造成) ⇒ 取指永久停摆: 后端 rob_empty=1、LSQ 空、AXI 读队列全空、
     //   rd_req_valid 恒 0。改法: 触发改"**期望批整批**未在窗口" (imem_valid ≡ &slot_hit, 与接收同口径),
     //   但只在指针**已走过整批**时才拉回 (ahead > (ISSUE_WIDTH-1)*4) —— 否则指针在批内朝缺字走时会被
-    //   反复拉回、那一笔永远发不出 (活锁)。W=1 时 (ISSUE_WIDTH-1)*4 = 0 且 imem_valid ≡ dem_hit ⇒ 逐位等价。
+    //   反复拉回、那一笔永远发不出 (活锁)。W=1 时 (ISSUE_WIDTH-1)*4 = 0 且 imem_valid ≡ 槽 0 命中
+    //   (原来的 `dem_hit`) ⇒ 逐位等价; 那个只看槽 0 的信号随之成了死码, 已删。
     wire pf_beyond_w = (pf_ahead_w > ((ISSUE_WIDTH - 1) * 4));
     wire pf_restart = !dem_pend && (pf_next_r != demand_a)
                       && (pf_stale_w || (!imem_valid && pf_beyond_w));

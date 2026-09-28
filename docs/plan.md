@@ -3388,6 +3388,11 @@ wire pf_restart = !dem_pend && (pf_next_r != demand_a)
 走时会被反复拉回，那一笔永远发不出。W=1 时 `(ISSUE_WIDTH-1)*4 = 0` 且 `imem_valid ≡ dem_hit`
 ⇒ 与原表达式**逐位等价**。
 
+顺带清掉被这次改写**孤立**的两条 wire：`dem_valid = sel_dem[PO_V]` 与 `dem_hit = dem_valid &&
+(dem_tag == demand_a)` —— 改口径后全仓再无读者（Verilator `UNUSEDSIGNAL: dem_hit` 也是这么报的），
+`dem_tag` / `dem_pend` 保留。删除后定向用例周期数与删除前**逐位相同**（W=2 四条 477 / 768 / 966 /
+546121，W=1 三条 654 / 777 / 819）⇒ 纯死码清理，无行为影响；`UNUSEDSIGNAL: dem_hit` 随之消失。
+
 ##### 二、7b 误预测当拍**全局**清 Q 级 ⇒ 冻结槽里的正确路指令被销毁（`execute_slot.v` + `cpu_top.v`）
 
 7a 修好后 `basicopt1` 越过取指挂点，又停在**另一个**现场（`T=2e6` 起逐位静止）：
