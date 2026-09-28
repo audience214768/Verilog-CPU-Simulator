@@ -84,7 +84,6 @@ module rs #(
     wire [ISSUE_WIDTH - 1 : 0] sel_valid_w;
     wire [ISSUE_WIDTH * SRW - 1 : 0] sel_idx_w;
     wire [ISSUE_WIDTH * SRW - 1 : 0] pidx;         // push 分配条目
-    wire [ISSUE_WIDTH - 1 : 0] pvalid_w;           // 分配有效
 
     genvar ge, gj, gk, gn;
 
@@ -182,21 +181,6 @@ module rs #(
             assign pidx[gk * SRW +: SRW] = ecst[(gk * RS_SIZE + RS_SIZE - 1) * SRW +: SRW];
         end
     endgenerate
-    // pvalid_w: 候选存在 (逐位 OR 链)
-    wire [ISSUE_WIDTH * RS_SIZE - 1 : 0] pvc;
-    generate
-        for (gk = 0; gk < ISSUE_WIDTH; gk = gk + 1) begin : pv
-            for (ge = 0; ge < RS_SIZE; ge = ge + 1) begin : bg
-                wire cand_p = !valid_r[ge] && (prec[ge * CSW +: CSW] == gk);
-                if (ge == 0) begin : b0
-                    assign pvc[gk * RS_SIZE + 0] = cand_p;
-                end else begin : bn
-                    assign pvc[gk * RS_SIZE + ge] = pvc[gk * RS_SIZE + ge - 1] || cand_p;
-                end
-            end
-            assign pvalid_w[gk] = pvc[gk * RS_SIZE + RS_SIZE - 1];
-        end
-    endgenerate
 
     // ---- 空槽计数 (free_count) ----
     wire [RS_SIZE * CSW - 1 : 0] fcnt;
@@ -233,8 +217,16 @@ module rs #(
             end
         end else begin
             // 1) push: 写分配条目全字段
+            // 写使能**不再**带 "该槽找到空位了" (原 `&& pvalid_w[k2]`) 这个合取项 —— 它恒真:
+            // prec 是 !valid_r 的前缀和 (规范压缩计数) ⇒ 第 gk 个空槽恰好归端口 gk ⇒
+            // pvalid_w[gk] = (gk < free_count); 而 rs 的 push_valid 接的是 rob_push_valid
+            // = issue_en && f2i_valid (cpu_top.v), issue_en 里的 resources_ok 含
+            // (rs_free_w >= ISSUE_WIDTH) ⇒ push_valid[k]=1 时必有 pvalid_w[k]=1。
+            // 去掉它是为了拆掉 ABC 跨 16 槽 × 68 位 CSE 出的**共享写使能字面量**
+            // (扇出 1088 的深锥节点, 见 docs/plan.md §15.10.14/§15.10.21)；`pidx[k]` 在
+            // push_valid[k]=0 时是无主索引, 但那时本就不写。
             for (k2 = 0; k2 < ISSUE_WIDTH; k2 = k2 + 1) begin
-                if (push_valid[k2] && pvalid_w[k2]) begin
+                if (push_valid[k2]) begin
                     opcode_r[pidx[k2 * SRW +: SRW]]   <= push_opcode[k2 * 7 +: 7];
                     func3_r[pidx[k2 * SRW +: SRW]]    <= push_func3[k2 * 3 +: 3];
                     func7_r[pidx[k2 * SRW +: SRW]]    <= push_func7[k2 * 7 +: 7];
