@@ -3093,6 +3093,9 @@ FAIL: PRF reused-while-held preg=52 slot=1 cyc=172             ← 后果: 仍�
   池中的重复项随后被重新分配 ⇒ 依赖者判就绪出错 / 生产者标签对不上 ⇒ **挂死**（`expr` 的形态）。
   **机制未定位** —— 候选（待验证，勿当结论）：① walker 的回滚范围/指针在 W≥2 重复回滚同一条目；
   ② 提交路径与 walker 同拍回收同一个 preg。
+  > **后续（§15.10.17 §一，2026-09-28）**：机制已定位 —— 根因**不在**这两条回收路径本身，而在
+  > **ROB 的占用计数**：`free_r` 未按本批 push 数预留 ⇒ `1-2` 下溢回绕 63 ⇒ 提交越窗 + walker 回滚到
+  > 从未 push 的残留槽，两条路径**共同**推出重复 preg。已修（`3b71fd7`）；`array_test1` 在 W=2 转 PASS。
 - **结论**：`f983bfe` 修的四条**不是 W≥2 缺陷的全部**；报告 W{1,2,4} 消融矩阵的 **2/4 两行仍缺**，
   现阶段只能以 W=1 单点 + "W≥2 待修"呈现。
 
@@ -3112,3 +3115,124 @@ FAIL: PRF reused-while-held preg=52 slot=1 cyc=172             ← 后果: 仍�
    修好后 W=2/W=4 的 `make test` 须用 `SWEEP_TEST_MAX_CYCLES=1e8` 重跑。
 2. **W=2/W=4 的 perf IPC**：`tools/sweep.sh w14` 仍在跑（W=1 已出，见 §三）。
 3. **频率线**：拆 `rs.v:237` 的 `pvalid_w`（ABC CSE 共享使能热点，归因见 §15.10.14）。
+
+#### 15.10.17 W≥2 第三轮：缺陷 5/6 定位修复（两条），取指流控的两处改写**回归并退回**（2026-09-28）
+
+**本轮目标**（用户裁定）：只做**正确性门禁**（不碰 IPC / 面积 / 频率消融）；根因需要时允许结构性改动。
+
+##### 一、缺陷 5（已提交 `3b71fd7`）：ROB 未按本批 push 数预留 —— `free_r` 下溢回绕
+
+根因与后果见该提交信息，要点：`resources_ok` 只查 `!rob_full`（空闲 ≥ 1）是 **W=1 口径**，W≥2 一批 2 条
+可以塞进只剩 1 个空位的 ROB；`free_r` 是 RCW 位计数器，`1-2` 下溢回绕成 63 ⇒ 占用量
+`rob_occ = ROB_SIZE - free_r` 越界（33 > ROB_SIZE）⇒ (a) `cmt_in_win = (c < rob_occ)` 这条**越窗提交补丁**
+（§15.10.15 §三）被回绕整条绕过、(b) `last_r` 越过真实占用 ⇒ walker 从 `last_r-1` 起回滚会走到
+**从未 push 过的残留槽** ⇒ 其 `new_pnum` 被重复回收。两条路径都产生池内重复项，且 `empty`
+（`free_r == ROB_SIZE`）长期不成立 ⇒ 停机锁存永不置位。修法：按住本批实际有效指令数预留
+`rob_free_w >= n_valid`（W=1 时与 `!rob_full` 逐值等价）。
+
+**本轮结案**：§15.10.16 §五 的"池内重复 preg"现场（`array_test1`）**不是** walker / 提交两条回收路径
+各自的缺陷（当时的候选①/②都不对），而是 **ROB 占用计数被回绕打穿后的共同后果**。
+
+**验证**：缺陷 5+6 都生效的构建里，官方 W=2 `array_test1` **PASS 819 拍**（该用例正是缺陷 5 的现场；
+缺陷 5 单独生效的旁证是 Icarus TB 由 `push dup preg=37` 转 PASS ret=123 cycles=245，见该提交信息）。
+
+##### 二、缺陷 6（本轮提交）：`mem_subsystem.imem_addr_q` 未按 `ISSUE_WIDTH` 声明
+
+```verilog
+- reg [31 : 0]                   imem_addr_q;      // ≡ fetch.v 的 imem_addr_d
++ reg [ISSUE_WIDTH * 32 - 1 : 0] imem_addr_q;      // 复位那行本来就写 slot_init_f 的全宽值 (逐槽 4*g)
+```
+
+交付逻辑（读口 A'）按槽取 `imem_addr_q[g * 32 +: 32]`，只声明 32 位时 **g≥1 越界** —— Verilator 报
+`SELRANGE` 并退化成槽 0 的值（**W=1 只有槽 0，表达式逐位等价 ⇒ 不可见**）。后果：槽 1 用槽 0 的窗口项
+判命中 / 取数据，而 `slot_hit` 仍为全 1 ⇒ `imem_valid` 说"这批对"，实际交付的是别的字。
+
+**验证**（`runs/w2f2` = HEAD + 上面这一行；官方判据，LATENCY=10）：
+
+| 用例 | W=1（§15.10.16 §二）| W=2（本轮）|
+|---|---:|---:|
+| `correctness_add_to_100` | PASS 654 | **PASS 462**（result=5050）|
+| `correctness_array_test1` | PASS 777 | **PASS 819**（result=123）|
+| `correctness_array_test2` | PASS 819 | FAIL（1500 拍内不终止，见 §四）|
+
+构建日志：`SELRANGE` 只剩 `exec/execute_slot.v:236` 一条（`resv` 的 `(j < ISSUE_WIDTH) ? … : load_cdb_result`
+mux）—— 那是**设计使然**的越界选择告警，非缺陷；`mem_subsystem` 的 SELRANGE **归零**。
+
+##### 三、取指流控的两处改写：都**回归**，已从工作树退回（留档，勿直接重做）
+
+**（真）死带**：`pf_issue` 的上界是 `pf_ahead_w < PF_WIN*4`（=32），而"拉回流"的门限是
+`pf_stale_w = pf_ahead_w >= PF_DEPTH*4`（=64）⇒ 超前量落在 **[32, 64)** 时**既不取新的、也不拉回**。
+本轮在**缺陷 6 修复版构建**上实测（W=2、官方 `array_test2`、LATENCY=10，t=1493 采样）：
+
+```
+pc_r = 0xC4 / exp_pc_r = 0xBC (自 t=457 冻结) / cap_w = 0
+demand_a = 0xBC (imem_addr_q 槽 0)，pf_next_r = 0xE4 ⇒ pf_ahead_w = 0x28 = 40 ∈ [32, 64)
+⇒ pf_issue 恒 0、流冻结 ⇒ 期望批 {0xBC, 0xC0} 永不凑齐 ⇒ pc_r 在 0xBC/0xC4 每拍翻转 (1396 次 / 1500 拍)
+```
+
+**为什么"按槽 0"与"按批"会互相打架**：`demand_a` 只锚 `imem_addr_q` 的**槽 0**（`mem_subsystem.v:240`），
+而 `imem_valid = &slot_hit`、`cap_w` 要求**整批**到齐 —— W≥2 时两套口径不一致：流只要把槽 0 那一行弄进
+窗口，`imem_hit=1` 就允许 `pc_lead` 把请求推到下一批，而下一批的**槽 1** 可能还没进窗口 ⇒ 下一拍 `cap_w`
+落空 ⇒ `pc_next` 退回 `exp_pc_r` ⇒ 请求地址每拍翻转 ⇒ 流控被反复触发（这正是 W=1 看不到的形态）。
+
+**尝试 A：流地址改写**（把"拉回指针 + 本拍不发"拆成"本拍就地取 demand"）：
+
+```verilog
+wire pf_out_w  = (pf_ahead_w >= (PF_WIN * 4)) || !dem_hit;
+wire [31 : 0] pf_addr_w = pf_out_w ? demand_a : pf_next_r;
+wire pf_issue = !pf_dup_w && !pf_pend_w;            // 上界改由 pf_addr_w 的选择隐含
+// 时序侧: pf_next_r <= pf_addr_w + 4；pf_tag_r[pf_idx_w * 32 +: 32] <= pf_addr_w
+```
+
+动机是消掉上面的死带（原写法隐含假设"流不可用期间 demand 静止"—— W=1 成立：未命中 ⇒ `imem_valid=0`
+⇒ fetch 冻结 PC；W≥2 下 demand 会被 `pc_lead` 推着每拍变）。**实测：W=2 三用例全红** ——
+`add_to_100`/`array_test1` 由 PASS 变成 200000 拍不终止。
+
+**尝试 B：`imem_hit` 逐槽全中**（`assign imem_hit = &hit_cur;`，逐槽按 `imem_addr[g*32 +: 32]` 查 V/T 两位）：
+
+```verilog
+generate for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ihit
+    wire [PF_DEPTH - 1 : 0] mv, mt;                 // oh_g[gp] = (imem_addr[g*32+2 +: PF_IW] == gp)
+    assign mv[gp] = pf_ent[gp * PFW + PO_V] & oh_g[gp];
+    assign mt[gp] = (pf_ent[gp * PFW + PO_T +: 32] == imem_addr[g * 32 +: 32]) & oh_g[gp];
+    assign hit_cur[g] = (|mv) & (|mt);
+end endgenerate
+```
+
+**实测**：`array_test2` 的 PC 振荡**消失**（推进到 0x3C 的停机自环、逐拍提交 1 条），但 `add_to_100`
+由 PASS(462 拍) 变成 1e8 拍不终止（波形 `pc_r` 在 0x34/0x3C 每拍翻转）⇒ 单独收紧会把流指针挡在
+批内第二字之外：流只按槽 0 的 demand 走，收紧后没有任何一拍能满足"整批都在窗口里"。
+
+**共同结论（下一轮起点）**：W≥2 的取指必须**以批为单位**流控。两条候选：
+① `demand_a` 取**批内最后一槽**（锚点搬到批尾，让批内所有字都落在流的后方 —— 需同时允许流回退到批首）；
+② 命中判定改"整批 W 个地址都在窗口" **且**前瞻窗口以批尾为锚（**A 与 B 必须同拍落地**，单独做任一条都回归）。
+
+##### 四、W=2 门禁现状（`runs/w2f2` = HEAD + 缺陷 6；官方判据 LATENCY=10）
+
+| 用例 | W=1 | W=2 | 备注 |
+|---|---:|---:|---|
+| `correctness_add_to_100` | PASS 654 | **PASS 462** | |
+| `correctness_array_test1` | PASS 777 | **PASS 819** | 缺陷 5 的现场用例 |
+| `correctness_array_test2` | PASS 819 | **FAIL** | `pc_r` 0xBC/0xC4 每拍翻转（§三 死带）|
+
+其余 16 条未重跑（W≥2 全绿前不做 W{1,2,4} 矩阵，见 §15.10.16 §六）。
+
+##### 五、未决线索（**证据不足，勿当结论**）
+
+1. **停机 store 的操作数疑似出错**：在**尝试 B 的构建**（该构建取指本身在振荡）下观测到 W=2 `array_test2`
+   的 `sw x10, 0(x5)`（PC=0x38）提交时 `sw_addr_c = 0x34`（= x1/ra 的值；而 0x34 处的 `lui x5, 0x80000`
+   本该先写 x5）、`sw_data_c = 0`（整轮未变）⇒ AXI 上 `wr_req_addr = 0x34`、`wr_req_data = 0`，
+   官方停机判据（对 0x80000000 做 WSTRB=0xf 的 store）永不触发。**但**：错乱可能只是取指回归的后果；
+   且 `set_addr_idx=10` / `set_data_req` 都对准了停机 store 的 LSQ 条目 ⇒ **尚未**定位到操作数路径本身。
+   **待取指干净后复核**，再决定是否另开缺陷条目。
+2. **`lsq_push_valid[s] = issue_en && memop` 漏 `f2i_valid[s]`**（`cpu_top.v:522`）—— 与 `rob_push_valid`
+   （`:502`）、`mem_cnt_chain`（`:625`）、`mem_acc`（`:530`）的口径不一致。本轮 `array_test2` 里每个 memop
+   压入时 `f2i_valid` 都是 `11` ⇒ **没有**触发幽灵压入（不是当前挂死的原因）；但批内有预测跳转时，
+   高槽 memop 会以全 0 的宽/地址/数据幽灵压入 LSQ ⇒ 应修，**本轮未动**（避免与在改的取指问题混淆）。
+
+##### 六、下一步
+
+1. 按 §三 的共同结论做**以批为单位**的取指流控（`demand_a` 锚点 + 命中判据**同拍**落地）。
+   验证顺序：W=2 三用例 → W=2 全 19 条（`SWEEP_TEST_MAX_CYCLES=1e8`）→ W=4 → W=1 回归。
+2. 修 §五.2 的 `lsq_push_valid`。
+3. 复核 §五.1 的操作数线索。
