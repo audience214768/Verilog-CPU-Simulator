@@ -174,6 +174,10 @@ module fetch #(
     //   下一拍到达的不是期望批 → 退回 → 再超前 → 请求地址每拍翻转, 预取流永远重启, 一个字也取不回来
     //   (实测: 官方 add_to_100 的失败运行 VCD 里 pc_r 每拍在两个相邻批地址间翻转 —— 1e6 拍内变化 999988 次;
     //    AR 只发出 286 条后再无一条 (最后一次在全程的约 1/1600 处), 提交停在 414/421 条)
+    // ★ 这里的 imem_hit 必须是**整批 W 个字**都可取 (与接收侧的 imem_valid = &slot_hit 同口径, 见
+    //   mem_subsystem.v 该输出的注释): W≥2 下只比批首时, "槽 0 已回、槽 1 未回"也会放行超前 ⇒
+    //   下一拍 arr_ok 成立但 imem_valid=0 ⇒ cap 落空 ⇒ pc 退回 exp_pc_r ⇒ 又超前 ⇒ 同样每拍翻转。
+    //   W=1 时整批 == 批首, 与原判据逐位等价。
     wire pc_lead_w = pc_behind_w && imem_hit && !stall;
     wire [31 : 0] pc_next = redirect_valid ? redirect_pc
                           : rewind_w       ? exp_pc_r

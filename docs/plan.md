@@ -3203,9 +3203,17 @@ end endgenerate
 由 PASS(462 拍) 变成 1e8 拍不终止（波形 `pc_r` 在 0x34/0x3C 每拍翻转）⇒ 单独收紧会把流指针挡在
 批内第二字之外：流只按槽 0 的 demand 走，收紧后没有任何一拍能满足"整批都在窗口里"。
 
+> **更正（§15.10.18，2026-09-28）**：上面这段"尝试 B 回归"是**误判**。当时工作树里同时躺着 A
+> （`pf_addr_w` 改写），实测到的"B 回归"其实是 **A+B** 与 **A 单独**两个构建；把 A 彻底退回后
+> **B 单独**重测，W=2 三用例全过（`add_to_100` 460 / `array_test1` 811 / `array_test2` 846）。
+> 真正回归的是 A。本段的机制解释（"收紧后没有任何一拍能满足整批都在窗口里"）作废。
+
 **共同结论（下一轮起点）**：W≥2 的取指必须**以批为单位**流控。两条候选：
 ① `demand_a` 取**批内最后一槽**（锚点搬到批尾，让批内所有字都落在流的后方 —— 需同时允许流回退到批首）；
 ② 命中判定改"整批 W 个地址都在窗口" **且**前瞻窗口以批尾为锚（**A 与 B 必须同拍落地**，单独做任一条都回归）。
+
+> **更正（§15.10.18）**：候选 ② 的**前半条**（`imem_hit` 改整批口径）就是解，**单独落地即可**；
+> `demand_a` 锚点**无需改动**（A 已完全退回），"必须同拍落地"的结论不成立。
 
 ##### 四、W=2 门禁现状（`runs/w2f2` = HEAD + 缺陷 6；官方判据 LATENCY=10）
 
@@ -3230,9 +3238,114 @@ end endgenerate
    压入时 `f2i_valid` 都是 `11` ⇒ **没有**触发幽灵压入（不是当前挂死的原因）；但批内有预测跳转时，
    高槽 memop 会以全 0 的宽/地址/数据幽灵压入 LSQ ⇒ 应修，**本轮未动**（避免与在改的取指问题混淆）。
 
+   > **撤回（§15.10.18 §五，2026-09-28）**：**不是缺陷，不需修改**。`memop = d_is_load[s] || d_is_store[s]`
+   > 来自 decode，而 decode 的 `is_load/is_store` 已被 `valid = d_valid[i] && …` 门控，`d_valid` 就是
+   > `f2i_valid`（`cpu_top.v:135` 组合直连、同拍同源）⇒ `memop` **已含** `f2i_valid[s]`，与
+   > `rob_push_valid` 本就同口径。上轮记为"漏项"是只比对了字面表达式、没追 decode 的门控来源。
+
 ##### 六、下一步
 
 1. 按 §三 的共同结论做**以批为单位**的取指流控（`demand_a` 锚点 + 命中判据**同拍**落地）。
    验证顺序：W=2 三用例 → W=2 全 19 条（`SWEEP_TEST_MAX_CYCLES=1e8`）→ W=4 → W=1 回归。
 2. 修 §五.2 的 `lsq_push_valid`。
 3. 复核 §五.1 的操作数线索。
+
+#### 15.10.18 W≥2 第四轮：取指流控**根因落地修复**（单点改 `imem_hit`）—— W=2 转绿（2026-09-28）
+
+##### 一、根因：`imem_hit` 是"槽 0 口径"，而交付/接收是"批口径"
+
+fetch.v 的三个口径（`docs/architecture.md` 取指一节同款）：
+
+| 量 | 含义 |
+|---|---|
+| `pc_r` | **本拍**发给存储的批地址（`imem_addr[g*32 +: 32] = pc_r + 4g`）|
+| `exp_pc_r` | **下一拍**要交付/接收的批地址 |
+| `imem_addr_d` | 本拍 `inst_data` 对应的批地址（= 上一拍的 `pc_r`）|
+
+- 接收: `cap_w = arr_ok_w && cap_ok_w && !halt && imem_valid`；其中 `arr_ok_w = (imem_addr_d[0*32 +: 32] == exp_pc_r)`
+  只比**批首**，而 `imem_valid = &slot_hit`（W 个槽逐槽 V+tag 全中）要**整批**。
+- 超前: `pc_lead_w = pc_behind_w && imem_hit && !stall` —— 原 `imem_hit` 只比**槽 0**
+  （`imem_addr[0*32 +: 32]` 在窗口里有 V 且 tag 相等），**与 `imem_valid` 不同口径**。
+
+⇒ "槽 0 已回、槽 1 未回"时: `pc_lead=1` 把本拍请求推到 `pc_r + 4W`；下一拍 `arr_ok=1`（批首对得上）
+但 `imem_valid=0`（整批没凑齐）⇒ `cap_w = rewind_w = pc_jmp_w = 0` ⇒ `pc_next` 落到末支 `exp_pc_r`
+⇒ `pc_r` **退回** N；再下一拍槽 0 仍在窗口里 ⇒ `pc_lead` 又把它推走 ⇒ **请求地址每拍在 N / N+4W
+之间翻转**，而存储每拍重复交付 `exp_pc_r` 那一批（永远凑不齐）。
+
+实测（修复前的构建，W=2，`correctness_array_test2`，LATENCY=10）:
+`exp_pc_r` 自 t=457 冻结在 `0xBC`；`pc_r` 在 `0xBC`/`0xC4` 每拍翻转（1500 拍里变了 1396 次）。
+预取流锚点 `demand_a = imem_addr_q[槽 0]` 随之每拍翻转 ⇒ 流控的两个判据（`pf_ahead_w < PF_WIN*4`
+放行、`>= PF_DEPTH*4` 拉回）都在**相对量**上被绕开 ⇒ 流稳定停在 `pf_next_r = 0xE4` / `demand_a = 0xBC`
+（ahead = 40 ∈ [32, 64)）⇒ 期望批 {0xBC, 0xC0} 的缺字**永远取不回** ⇒ 取指永久停摆。
+
+**更正 §15.10.17 §三**: 那个"死带"不是流自己跑出去的**绝对**位置，而是被 `pc_r` 抖动撕扯出来的
+**相对**位置 ⇒ `imem_hit` 改批口径（= 该节的"尝试 B"）**单独就是解**。§三里把 B 判为回归是**误判** ——
+当时工作树里同时躺着 A（`pf_addr_w` 改写），实测到的"B 回归"其实是 **A+B** 与 **A 单独**；本轮把 A
+彻底退回后重测 B 单独，三用例全过（§四）。§三 "单独收紧会把流指针挡在批内第二字之外" 的解释作废，
+"以批为单位流控需要锚点与判据同拍落地" 的结论也**不成立**（锚点仍只锚槽 0，无需改动）。
+
+##### 二、修复（`mem_subsystem.v`，单点）
+
+```verilog
+wire [ISSUE_WIDTH - 1 : 0] hit_cur;
+generate
+    for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ihit
+        wire [31 : 0]           ac_g = imem_addr[g * 32 +: 32];
+        wire [PF_IW - 1 : 0]    ic_g = ac_g[2 +: PF_IW];
+        wire [PF_DEPTH - 1 : 0] oh_g;                       // 索引 one-hot (原读口 C 同构)
+        wire [PF_DEPTH - 1 : 0] mv, mt;
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohc
+            assign oh_g[gp] = (ic_g == gp[PF_IW - 1 : 0]);
+        end
+        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+            assign mv[gp] = pf_ent[gp * PFW + PO_V] & oh_g[gp];
+            assign mt[gp] = (pf_ent[gp * PFW + PO_T +: 32] == ac_g) & oh_g[gp];
+        end
+        assign hit_cur[g] = (|mv) & (|mt);
+    end
+endgenerate
+assign imem_hit = &hit_cur;              // 整批 W 个字都在窗口里才为 1
+```
+
+- **语义**: `pc_lead` 是"把请求预先推到下一批"，前提必须是**下一拍交付的正是整批**；批没凑齐时请求停在
+  `exp_pc_r` 上重复请求（`pc_next` 末支），存储每拍重复交付它 ⇒ 一旦补齐即可立即接收。
+- **性能不损**: 批补齐的那一拍 `pc_behind_w=1` 且 `imem_hit=1` ⇒ `pc_lead` 与 `cap_w` **同拍**成立
+  （cap 优先级更高，但两个分支算出的下一 PC 都是 `pc_r + 4W`）⇒ 超前请求照发，流水线仍是一批/拍。
+- **W=1 逐位等价**: `&hit_cur` 退化成槽 0 的 V/tag 比对（与原表达式同构）⇒ W=1 行为不变（§四回归佐证）。
+- **面积**: 读口 C 从 1 槽变 W 槽（逐槽 one-hot 16 + AND-OR 34 位），W=4 时 4 份 ⇒ 进 W{1,2,4} 面积消融看增量。
+
+##### 三、A 为什么回归（留档，勿重做）
+
+A（`pf_addr_w = pf_out_w ? demand_a : pf_next_r`，把 demand 就地取而不拉回指针）的回归**未定位到根因**
+（A+B 同拍落地也实测不通过）⇒ 本轮**完全退回**，不再保留任何 A 的痕迹。B 单独即修复 ⇒ 无需 A。
+
+##### 四、门禁（官方 `make test`，LATENCY=10，`MAX_CYCLES=1e8`）
+
+三用例（官方单跑，判词与拍数）：
+
+| 用例 | W=1 | W=2（缺陷 6 版，B 前）| W=2（B 后）|
+|---|---:|---:|---:|
+| `correctness_add_to_100` | PASS 654 | PASS 462 | **PASS 460** |
+| `correctness_array_test1` | PASS 777 | PASS 819 | **PASS 811** |
+| `correctness_array_test2` | PASS 819 | FAIL（`pc_r` 翻转 / 流停摆）| **PASS 846** |
+
+W=2 全量 19 条（`runs/w2b`，`make test`，1e8 上限）：**跑到第 4 条 `correctness_basicopt1` 挂死**
+（前 3 条 PASS 460/811/846；`basicopt1` 在 5e6 拍上限下单跑判 `FAIL cycles=5000000`）⇒ **全量门禁未过**。
+
+归因：**不是 B 引入的** —— B 之前的构建 `runs/w2f2`（HEAD + 缺陷 6）在同一用例上同样 5e6 拍不终止，
+而 W=1 只要 49.6 万拍（§15.10.16 表）⇒ **W≥2 还有第二条独立缺陷**（记作缺陷 7，下一轮定位）。
+
+W=4 全量 19 条 / W=1 全量 19 条（回归对照）：**本轮已挂起后台门禁（`/tmp/gateB2.sh`），结果见下一次提交**。
+
+##### 五、撤回一条"未决线索"（原 §15.10.17 §五.2）
+
+`lsq_push_valid[s] = issue_en && memop`（`cpu_top.v:522`）**不是缺陷**：`memop = d_is_load[s] || d_is_store[s]`
+来自 decode，而 decode 的 `is_load/is_store` 已被 `valid = d_valid[i] && ...` 门控，`d_valid` 就是
+`f2i_valid`（`cpu_top.v:135` 组合直连，两信号同拍同源）⇒ `memop` 里**已经含** `f2i_valid[s]`，
+与 `rob_push_valid`（`:502`）本就同口径。上轮把它记为"漏项"是**误判**（只比对了字面表达式，没追
+decode 的门控来源）。**不需修改**。
+
+##### 六、下一步
+
+1. 复核 §15.10.17 §五.1 的停机 store 操作数线索（取指已干净）——若仍复现则另开缺陷条目。
+2. 恢复 W{1,2,4} 消融矩阵：先 perf IPC（`tools/sweep.sh`，1e7 口径），再面积/频率（容器 `make synth`）。

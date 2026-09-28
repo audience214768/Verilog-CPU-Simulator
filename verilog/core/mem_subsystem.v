@@ -57,7 +57,9 @@ module mem_subsystem #(
     output [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
     input  [ISSUE_WIDTH * 32 - 1 : 0] imem_addr,
     output                            imem_valid,   // 本拍 inst_data 确实是对应地址上的指令
-    output                            imem_hit,     // 本拍 imem_addr 上的数据已在窗口里 (供 fetch 判能否预先发下一批请求)
+    output                            imem_hit,     // 本拍 imem_addr **整批 W 个字**都已在窗口里
+                                                   //  (供 fetch 判能否预先发下一批请求; 必须与 imem_valid 同口径,
+                                                   //   只比批首会让 W≥2 的 pc 每拍翻转, 见文件内该 assign 的注释)
 
     // ---- CPU 侧: load (发起 ≤1/周期, 完成 ≤1/周期) ----
     input                             ld_start_valid,
@@ -350,23 +352,29 @@ module mem_subsystem #(
     //   fetch 用它判断"能否把请求预先推到下一批" —— 只有期望批已在窗口里才允许超前,
     //   否则请求地址会随数据未回而乱翻, 预取流再也填不满 (见 fetch.v 的 pc_lead_w 注释)。
     //   这里比的是批的首字 (槽 0), 与预取流控用的 demand 同一口径。
-    // 读口 C: 按本拍 imem_addr 取 (非延迟一拍 ⇒ 与读口 A 不是同一个索引, 不能合用)
-    wire [PF_IW - 1 : 0]     cur_idx = imem_addr[2 +: PF_IW];
-    wire [PF_DEPTH - 1 : 0]  oh_cur;
-    wire [PFW - 1 : 0]       sel_cur;
+    // ★ 逐槽全中: pc_lead 超前的前提是"下一拍交付的正是整批"。imem_valid = &slot_hit 是逐槽的,
+    //   只比槽 0 时"槽 0 已回、槽 1 未回"也放行 ⇒ 下一拍 arr_ok 成立但 imem_valid=0 ⇒ cap 落空
+    //   ⇒ pc_next 退回 exp_pc_r ⇒ 请求地址每拍在 N / N+4W 之间翻转 ⇒ 预取流锚点（demand_a）被
+    //   每拍撕扯 ⇒ 期望批永远凑不齐。（W=1 时逐槽 ≡ 槽 0, 逐位等价。）
+    // 读口 C: 按本拍 imem_addr 逐槽取 (非延迟一拍 ⇒ 与读口 A 不是同一个索引, 不能合用)
+    wire [ISSUE_WIDTH - 1 : 0] hit_cur;
     generate
-        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohc
-            assign oh_cur[gp] = (cur_idx == gp[PF_IW - 1 : 0]);
-        end
-        for (gb = 0; gb < PFW; gb = gb + 1) begin : redc
-            wire [PF_DEPTH - 1 : 0] m;
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
-                assign m[gp] = pf_ent[gp * PFW + gb] & oh_cur[gp];
+        for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ihit
+            wire [31 : 0]           ac_g = imem_addr[g * 32 +: 32];
+            wire [PF_IW - 1 : 0]    ic_g = ac_g[2 +: PF_IW];
+            wire [PF_DEPTH - 1 : 0] oh_g;
+            wire [PF_DEPTH - 1 : 0] mv, mt;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohc
+                assign oh_g[gp] = (ic_g == gp[PF_IW - 1 : 0]);
             end
-            assign sel_cur[gb] = |m;
+            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
+                assign mv[gp] = pf_ent[gp * PFW + PO_V] & oh_g[gp];
+                assign mt[gp] = (pf_ent[gp * PFW + PO_T +: 32] == ac_g) & oh_g[gp];
+            end
+            assign hit_cur[g] = (|mv) & (|mt);
         end
     endgenerate
-    assign imem_hit = sel_cur[PO_V] && (sel_cur[PO_T +: 32] == imem_addr[0 * 32 +: 32]);
+    assign imem_hit = &hit_cur;
 
     // ==================== 4. 已提交 store 队列 ====================
     reg [SQ_DEPTH * 32 - 1 : 0] sq_addr_r, sq_data_r;
