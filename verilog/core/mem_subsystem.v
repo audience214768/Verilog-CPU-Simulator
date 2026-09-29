@@ -186,12 +186,37 @@ module mem_subsystem #(
     end
 
     // 回包与请求同序 (AXI 保证按 AR 序) ⇒ 读指针所指即本条
-    wire [31 : 0]      ld_a_w   = ld_addr_r[ld_rd_p[LD_IW - 1 : 0] * 32 +: 32];
-    wire [1 : 0]       ld_w_w   = ld_width_r[ld_rd_p[LD_IW - 1 : 0] * 2 +: 2];
-    wire [LIW - 1 : 0] ld_i_w   = ld_idx_r[ld_rd_p[LD_IW - 1 : 0] * LIW +: LIW];
-    wire [31 : 0]      ld_raw_w = rd_resp_data >> {ld_a_w[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
+    // (组合部分: 三个 8 选 1 + 桶形移位器 —— 见下面的 C1 交付寄存级)
+    wire [31 : 0]      ld_a_c   = ld_addr_r[ld_rd_p[LD_IW - 1 : 0] * 32 +: 32];
+    wire [31 : 0]      ld_raw_c = rd_resp_data >> {ld_a_c[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
+    wire [1 : 0]       ld_w_c   = ld_width_r[ld_rd_p[LD_IW - 1 : 0] * 2 +: 2];
+    wire [LIW - 1 : 0] ld_i_c   = ld_idx_r[ld_rd_p[LD_IW - 1 : 0] * LIW +: LIW];
 
-    assign ld_done_valid = ld_resp_hs;
+    // ---- C1 交付寄存级 (提频; 依据 docs/plan.md §15.10.30) ----
+    // 三个 8 选 1 的选择位 ld_rd_p 是整个设计关键路径的**唯一来源**: 普查里 8758 个终点中有
+    // 6191 个 (70.7%) 的最差路径都从它出发。选择位每位要驱动 32/16/8 个 mux 位 (实测扇出
+    // 57/111/73), 而本流程的 ABC 不做 buffer/upsize (§15.10.28) ⇒ 这段被全额惩罚
+    // (实测 9 级 2.77 ns)。寄存一拍后该段整体挪到触发器之前, 关键路径改由 ld_*_w 出发。
+    // ★ ld_a_w 必须一起寄存: 它参与下面 sq_merge_byte_f 的字节地址, 若留在组合侧, 交付拍
+    //   拿到的会是**下一条** load 的地址 (ld_rd_p 已在本拍推进) ⇒ 静默错数。
+    // 契约不变: ld_resp_hs 每拍至多 1 次 ⇒ 每笔被接受的 load 仍恰好回 1 个 ld_done_valid。
+    reg [31 : 0]      ld_a_w;
+    reg [1 : 0]       ld_w_w;
+    reg [LIW - 1 : 0] ld_i_w;
+    reg [31 : 0]      ld_raw_w;
+    reg               ld_hs_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) ld_hs_r <= 1'b0;
+        else        ld_hs_r <= ld_resp_hs;
+    end
+    always @(posedge clk) begin
+        ld_a_w   <= ld_a_c;
+        ld_w_w   <= ld_w_c;
+        ld_i_w   <= ld_i_c;
+        ld_raw_w <= ld_raw_c;
+    end
+
+    assign ld_done_valid = ld_hs_r;
     assign ld_done_idx   = ld_i_w;
 
     // ==================== 3. L1 指令缓存 ====================
@@ -338,7 +363,11 @@ module mem_subsystem #(
                 sq_ticket_r[wr_resp_tag * 16 +: 16] <= ld_issue_cnt_r;
             end
             if (ld_accept)  ld_issue_cnt_r <= ld_issue_cnt_r + 16'd1;
-            if (ld_resp_hs) ld_done_cnt_r  <= ld_done_cnt_r + 16'd1;
+            // ★ 必须记在**交付拍** (ld_hs_r) 而不是回包拍 (ld_resp_hs): sq_ret_ok (见下) 用它
+            //   判定"该 B 之前发出的 load 都已回", 而本拍起的 load 数据要到下一拍才被 LSQ 消化
+            //   (C1 交付寄存级)。记在回包拍会让已提交 store 早一拍退役 ⇒ 该 load 的字节合并
+            //   读到已消失的 store 条目。
+            if (ld_hs_r)    ld_done_cnt_r  <= ld_done_cnt_r + 16'd1;
         end
     end
     always @(posedge clk) begin

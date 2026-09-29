@@ -155,10 +155,44 @@ module lsq #(
     endfunction
     wire [LW - 1 : 0] pdist = first_one_f(cand);              // 距 head 的距离
     wire [LW - 1 : 0] pidx  = (head_r + pdist) & (LSQ_SIZE - 1);   // 实际条目号
-    assign ld_start_valid = |cand && !ld_busy;
-    assign ld_start_addr  = addr_r[pidx * 32 +: 32];
-    assign ld_start_width = width_r[pidx * 2 +: 2];
-    assign ld_start_idx   = pidx;
+
+    // ---- S1 发起指针状态化 (提频; 依据 docs/plan.md §15.10.30) ----
+    // 原式把 pidx 当组合量直接喂给 addr_r[pidx * 32 +: 32] —— 那是 16 选 1 × 32 位变量位选,
+    // 选择位每位要驱动 8/4/2/1 × 32 = 256/128/64/32 个 mux 位 (实测扇出 279/130, 那两级
+    // 就吃掉 2.20 ns); 而 pidx 本身是 100 级链的**末端** ⇒ 整棵译码树被顶在关键路径尾部,
+    // 单点切割对它无效。改成"本拍只算下一个该发的条目号并寄存, 译码改由触发器驱动"。
+    // 握手不变: ld_start_valid 仍与 ld_start_addr 同拍给出, ld_busy==0 当场兑现; 差别只是
+    // 若本拍 ld_busy=1 或寄存条目已失效, 则不发起、指针原地保留, 下一拍重试 (保守方向)。
+    reg [LW - 1 : 0] ld_ptr_r;
+    wire [LW - 1 : 0] gptr = (ld_ptr_r - head_r) & (LSQ_SIZE - 1);  // 寄存指针距 head 的距离
+    // 寄存条目此刻仍可发? 必须逐条复刻 cand 的全部条件 —— 特别是 in_win 与 store_ok:
+    // 少了 store_ok 会让 load 越过更老的**未执行 store** 取数 (静默错数);
+    // 少了 in_win 会在 head 已跳过该槽、槽位又被新 push 复用时发出一条身份错位的请求。
+    wire ptr_ok = (gptr < winlen) && valid_r[ld_ptr_r] && is_load_r[ld_ptr_r]
+               && addr_ready_r[ld_ptr_r] && !issued_r[ld_ptr_r] && !done_r[ld_ptr_r]
+               && !kill[ld_ptr_r] && store_ok[gptr];
+    assign ld_start_valid = ptr_ok && !ld_busy;
+    assign ld_start_addr  = addr_r[ld_ptr_r * 32 +: 32];
+    assign ld_start_width = width_r[ld_ptr_r * 2 +: 2];
+    assign ld_start_idx   = ld_ptr_r;
+    // 只因"存储忙"而暂缓时保持指针 (否则会丢掉本拍已选中的那个条目); 其余情况跟到最新候选。
+    // 注: 保持期间比它更老的 load 可能变就绪 —— 允许 (load 之间无序, 与 store 的次序由
+    // store_ok 单独保证), 至多让发射次序略微不按年龄, 不影响正确性。
+    // 本拍若发起了 ld_ptr_r, 必须把它从"下一拍候选"里剔除 —— 否则 pidx 仍指向它
+    // (它此刻尚是 cand), 指针原地不动, 下一拍又因 issued_r 不可发 ⇒ 退化成**两拍发一条**
+    // load (实测 TB 用例 L3c/L6 抓出)。剔除后取"次老候选"; 若它已是唯一候选则原地保留。
+    // ★ 掩码必须按**距离** gptr 译码: cand 是按距离索引的, 而 ld_ptr_r 是**物理条目号**,
+    //   两者只在 head_r==0 时相等 —— 用条目号译码会在 head_r!=0 时掩错位, 指针可能一直停
+    //   在自己那个已发起 (issued_r 永不回 0) 的条目上 ⇒ 该 load 永不发射, 整机死锁。
+    wire [LSQ_SIZE - 1 : 0] ptr_onehot = {{(LSQ_SIZE - 1){1'b0}}, 1'b1} << gptr;
+    wire [LSQ_SIZE - 1 : 0] cand_nx    = cand & ~ptr_onehot;
+    wire [LW - 1 : 0] pidx_nx = (head_r + first_one_f(cand_nx)) & (LSQ_SIZE - 1);
+    wire ptr_hold = ptr_ok && ld_busy;
+    wire [LW - 1 : 0] ptr_nxt = ptr_hold ? ld_ptr_r : (|cand_nx ? pidx_nx : ld_ptr_r);
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) ld_ptr_r <= {LW{1'b0}};
+        else        ld_ptr_r <= ptr_nxt;
+    end
 
     // ---- posedge 写 (优先级: flush > invalidate > push > set_*; 指针更新) ----
     integer i;
@@ -215,7 +249,8 @@ module lsq #(
                 end
             end
             // 4) 发起置位 (ld_start_valid 当拍被 memory 接收 → 该条目转为 in-flight, 不再进 cand)
-            if (ld_start_valid) issued_r[pidx] <= 1'b1;
+            // 置位对象是**寄存的发起指针** (S1), 不再是组合的 pidx
+            if (ld_start_valid) issued_r[ld_ptr_r] <= 1'b1;
             // 5) 完成: 清 in-flight (无条件清 —— 已被 flush 的条目也靠它放开 head 跳过),
             //    有效条目再置 done 抑制重复发起。同拍 4)/5) 命中同一条目时 5) 胜 (完成后不再在飞)
             if (mem_done_valid) issued_r[mem_done_idx] <= 1'b0;

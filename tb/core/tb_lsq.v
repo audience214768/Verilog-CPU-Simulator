@@ -83,6 +83,7 @@ module tb_lsq;
     reg [LSQ * PW - 1 : 0] m_preg;
     reg [LSQ * 2 - 1 : 0]  m_wid;
     reg [LW - 1 : 0] m_head, m_last;
+    reg [LW - 1 : 0] m_ptr;          // 镜像 DUT 的 ld_ptr_r (S1: 发起指针是状态)
     reg [LCW - 1 : 0] m_free;
     // 期望值 (tick 后重算)
     reg              e_ldv;
@@ -152,6 +153,7 @@ module tb_lsq;
             m_issued = 0;
             m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
             m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
+            m_ptr = 0;
         end
     endtask
 
@@ -190,9 +192,11 @@ module tb_lsq;
         reg [LW - 1 : 0] ph, pls;
         reg [LW : 0]     win;
         reg [LSQ : 0]    sok;
-        reg [LSQ - 1 : 0] cand;
+        reg [LSQ - 1 : 0] cand, cand_mx;
         reg              acc_v;
         reg [LW - 1 : 0] acc_idx;
+        reg [LW - 1 : 0] pgptr, egptr, cand_idx, ptr_nxt;
+        reg              ptr_ok, eptr_ok;
         reg [7 : 0]      b0, b1, b2, b3;
         reg [31 : 0]     la;
         reg [LW : 0]     dd;
@@ -216,12 +220,21 @@ module tb_lsq;
                  k2 = k2 + 1)
                 fskip = fskip + 1'b1;
             pcnt = push_valid[0] + push_valid[1];
-            // ---- 发起条件用 pre 状态算 (DUT 的 ld_start_valid 是寄存器输出) → 决定 issued 置位 ----
+            // ---- 发起条件用 pre 状态算 (镜像 S1: 发起指针是状态, 组合只判"它此刻可发否") ----
             calc_cand(pv, pl, piss, ph, pwin, sok, cand);
-            acc_v = (|cand) && !ld_busy;
-            acc_idx = 0;
+            pgptr = (m_ptr - ph) & (LSQ - 1);
+            ptr_ok = (pgptr < pwin) && pv[m_ptr] && pl[m_ptr] && m_ardy[m_ptr]
+                  && !piss[m_ptr] && !m_done[m_ptr]
+                  && !(flush_mask[m_ptr] || invalidate[m_ptr]) && sok[pgptr];
+            acc_v = ptr_ok && !ld_busy;
+            acc_idx = m_ptr;
+            // 指针推进 (DUT: hold ? 保持 : (剔除本拍发起条目后仍有候选 ? 次老候选 : 保持))
+            // 掩码按**距离** pgptr 译码 (cand 按距离索引, m_ptr 是条目号, head!=0 时二者不同)
+            cand_mx = cand & ~({{(LSQ - 1){1'b0}}, 1'b1} << pgptr);
+            cand_idx = m_ptr;
             for (k2 = LSQ - 1; k2 >= 0; k2 = k2 - 1)
-                if (cand[k2]) acc_idx = (ph + k2[LW - 1 : 0]) & (LSQ - 1);
+                if (cand_mx[k2]) cand_idx = (ph + k2[LW - 1 : 0]) & (LSQ - 1);
+            ptr_nxt = (ptr_ok && ld_busy) ? m_ptr : ((|cand_mx) ? cand_idx : m_ptr);
             // ---- 1) flush / invalidate 失效 ----
             m_valid = m_valid & ~flush_mask & ~invalidate;
             // ---- 2) push (last + psum; psum[1] = push_valid[0]) ----
@@ -257,9 +270,10 @@ module tb_lsq;
                 m_issued[mem_done_idx] = 1'b0;
                 if (pv[mem_done_idx] && pl[mem_done_idx]) m_done[mem_done_idx] = 1'b1;
             end
-            // ---- 6) 指针更新 (head 推进跳过 head 处连续死条目) ----
+            // ---- 6) 指针更新 (head 推进跳过 head 处连续死条目; S1 发起指针) ----
             m_head = ph + fskip;
             m_last = pls + pcnt;
+            m_ptr = ptr_nxt;
             // ---- 期望 (post 状态): free 导出 + 发起链 ----
             win = (m_last - m_head) & (LSQ - 1);
             // free_count 是组合导出量 (无寄存器): 本拍可 push 数 = (LSQ-1) - 占用 + head 处连续死条目
@@ -272,12 +286,13 @@ module tb_lsq;
                 fpost = fpost + 1'b1;
             m_free = (LSQ - 1) - win + fpost;
             calc_cand(m_valid, m_is_load, m_issued, m_head, win, sok, cand);
-            e_ldv = (|cand) && !ld_busy;
-            // cand 按"距 head 的距离"索引, 而 ld_start_idx 是物理条目号
-            // (= (head + 距离) & (LSQ-1), 与 DUT 的 pidx 一致); head != 0 时两者不同
-            e_pidx = 0;
-            for (k2 = LSQ - 1; k2 >= 0; k2 = k2 - 1)
-                if (cand[k2]) e_pidx = (m_head + k2[LW - 1 : 0]) & (LSQ - 1);
+            // post 期望: ld_start_valid 直接由**寄存的发起指针**导出 (S1)
+            egptr = (m_ptr - m_head) & (LSQ - 1);
+            eptr_ok = (egptr < win) && m_valid[m_ptr] && m_is_load[m_ptr] && m_ardy[m_ptr]
+                   && !m_issued[m_ptr] && !m_done[m_ptr]
+                   && !(flush_mask[m_ptr] || invalidate[m_ptr]) && sok[egptr];
+            e_ldv = eptr_ok && !ld_busy;
+            e_pidx = m_ptr;
             e_la = m_addr[e_pidx * 32 +: 32];
             e_lw = m_wid[e_pidx * 2 +: 2];
             // ---- 期望: load_cdb ----
@@ -393,6 +408,7 @@ module tb_lsq;
         m_issued = 0;
         m_addr = 0; m_data = 0; m_rob = 0; m_preg = 0; m_wid = 0;
         m_head = 0; m_last = 0; m_free = LSQ - 1;   // 保留 1 槽
+        m_ptr = 0;
         e_ldv = 0; e_pidx = 0; e_la = 0; e_lw = 0; e_ok = 0; e_prd = 0; e_rob = 0; e_res = 0;
 
         clr_all();
@@ -499,6 +515,8 @@ module tb_lsq;
         set_addr_req[1] = 1'b1;
         set_addr_idx[1 * LW +: LW] = 4'd1;
         set_addr_val[1 * 32 +: 32] = 32'h100;
+        // S1: 发起指针是**状态** ⇒ 新就绪的条目要在下一拍才被指针相中, 故比旧实现晚一拍
+        tick();
         tick();
         check_all();
         if (ld_start_valid !== 1'b1 || ld_start_idx !== 4'd1) begin
@@ -523,7 +541,8 @@ module tb_lsq;
         set_addr_req[1] = 1'b1;
         set_addr_idx[1 * LW +: LW] = 4'd1;
         set_addr_val[1 * 32 +: 32] = 32'h200;
-        tick();
+        tick();                       // S1: 指针相中槽1
+        tick();                       // S1: 下一拍才从指针发起
         check_all();
         if (ld_start_valid !== 1'b1 || ld_start_idx !== 4'd1) begin
             $display("FAIL: L6a younger issues (v=%b idx=%0d)", ld_start_valid, ld_start_idx);
@@ -531,7 +550,8 @@ module tb_lsq;
         end
         clr_all();
         set_a(0, 32'h200);
-        tick();
+        tick();                       // 槽0 就绪
+        tick();                       // S1: 指针回退到更老的槽0
         check_all();
         if (ld_start_valid !== 1'b1 || ld_start_idx !== 4'd0) begin
             $display("FAIL: L6b oldest wins (v=%b idx=%0d)", ld_start_valid, ld_start_idx);
@@ -676,7 +696,8 @@ module tb_lsq;
         tick();
         clr_all();
         set_a(2, 32'h40);
-        tick();
+        tick();                       // S1: 指针相中槽2
+        tick();                       // S1: 下一拍才从指针发起
         check_all();
         if (ld_start_valid !== 1'b1 || ld_start_idx !== 4'd2) begin
             $display("FAIL: L11 load not issuable"); errors = errors + 1;
