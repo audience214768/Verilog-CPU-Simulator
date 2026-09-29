@@ -55,6 +55,35 @@ tools/path.py docs/timing/<tag> --top 20 [--netlist <mapped.v>]
 
 300 MHz 的判据是 `级数 ≤ 71 且 每级扇出 ≤ 15`。
 
+### `pathsrc.py` —— 把 `timing.rpt` 的匿名 cell 反查回 RTL 行号（位置对齐 join）
+
+`path.py` 能把路径**解剖**开，但 `timing.rpt` 里的 cell 全叫 `_141944_` 这种匿名名，
+回答不了"这条路径是哪两个模块之间的"。
+
+`design.json`（`write_json`）和 `mapped.v`（`write_verilog`）是**同一张 ABC 后网表的两种序列化**：
+前者用 `$abc$686060$auto$blifparse.cc:397:parse_blif$686061` 名，后者用合法化后的 `_141944_` 名，
+**名字零重叠**，按名字 join 不可能。可行的办法是按**位置** join：
+
+```sh
+tools/pathsrc.py runs/<id>/build/synth_<id>/opt [--path N] [--all] [--only-src]
+```
+
+`mapped.v` 里第 k 个实例 ↔ `design.json` 里第 k 个 cell ↔ 该 cell 的 `attributes.src`。
+脚本**逐个核对两侧的 cell 类型**，有一个不符就退出（顺序假设不成立时绝不出数）。
+
+实测对 `ic1k` 复现：73480/73480 类型全同，最差路径起点 `_141944_` ←
+`core/mem_subsystem.v:171.5-179.8`，终点 `_142968_` ← `core/axi_lite_master.v:121.5-131.8`。
+
+**限制（不知道会得出错误结论）**：ABC 自己造的组合门**没有 `src`**，只有触发器还留着
+Yosys 从 RTL 继承的 `src`。所以本工具只能回答"**首尾两个时序元件来自哪一行**"，
+中间 100 级组合级一律显示 `?` —— 那是"没有 src"，不是"查表失败"。
+要归因组合级，用 `MODE=diagnose`（保层次、出 `u_mem/_NNNN_` 限定名）配 `path.py`。
+
+**独立佐证（别只看 src 字符串，行号可能撞车）**：脚本会额外报告"网表里紧挨着同 src 的一整段"。
+`ic1k` 起点那段是**恰好 8 个** `DFFASRHQNx1`（= `ld_wr_p` 4 位 + `ld_rd_p` 4 位，
+与 `LD_INFLIGHT=8 ⇒ 指针 4 位` 对上，异步复位风格也对上），终点那段是 **1040 个** `DFFHQNx1`。
+位宽对得上，才说明归因没认错人。
+
 ### `snap.py` —— 把一次综合的产物归档进仓库
 
 ```sh
@@ -93,7 +122,16 @@ tools/run.sh <id> --no-synth       # 只造树不打综合
 7. **残留容器会 100% 烧 CPU 数小时**：容器里的 `make` 被终止后 `docker` 进程不一定退出
    （实测有一个跑了 5 小时、`SYNTH_OUT=build/synth_f3ctl`）。每轮结束 `docker ps` 核一遍。
 8. **`timeout` 在 macOS 上没有**（`command not found`）。
-9. **`docs/timing/filelist_t4tmp.f`** 是冻结口径的 22 文件列表 = 官方 `verilog/filelist.f`
+9. **`run.sh <id>` 不带参数 = 提交默认值 `ROB=32/RS=16/BHT=32/SQ=8/WR=8`，不是 `ic1k` 那台机器。**
+   `ic1k`/`t1d`/`hd16` 等归档行都是 ROB=16，由 `run.sh` 的**参数补丁**生成；`student_top.v` 的
+   提交默认值自 `8998ca2` 起一直是 ROB=32。跑"与归档基线对比"的实验时**必须把参数补上**，
+   否则综合出来的是另一台机器（面积差 41%、周期差 30%，看起来像改动引起的，其实不是）。
+   同理，`make perf`（在仓库根跑）用的也是提交默认值 —— 要测归档行的配置，就用
+   `run.sh <id> --no-synth` 造树（它会把参数补丁写进 `student_top.v`），再
+   `make -C runs/<id> CONFIG=<绝对路径>/config.local.mk TESTCASES=<绝对路径>/testcases FILELIST=verilog/filelist_ic.f perf`。
+10. **`results.csv` 的 `ipc6` 列与 `params` 列可能不对应。** `ic1k` 行记的是 ROB=16 的面积/频率，
+   但它那串 `ipc6` 经逐位复现是 **ROB=32** 配置的数字。据 `ipc6` 做结论前先确认它测的是哪台机器。
+11. **`docs/timing/filelist_t4tmp.f`** 是冻结口径的 22 文件列表 = 官方 `verilog/filelist.f`
    去掉 `core/memory.v`（已核对是**唯一**差异）。没有任何模块例化 `memory`，
    `hierarchy -top student_top` 会剪掉它 ⇒ 两个列表出同一份网表。冻结成文件是为了与已归档
    基线**逐位可比**；用它的行必须在 `results.csv` 里标注。

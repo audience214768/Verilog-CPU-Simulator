@@ -203,6 +203,11 @@ module mem_subsystem #(
     // ★ 填充为 load 让路: load 被收下的那拍绝不接受填充请求。icache 只在 fill_hs 那拍推进
     //   fill_word_r, 被抢走就原地重试 ⇒ 让路不丢位置、不重发 (重发会让 A 的回包落进 B 的格)。
     wire          fill_req_ready_w = rd_req_ready && !ld_accept;
+    // icache 的 fill_busy 是纯观测量, 本模块不用。**必须接一根真实导线**, 不能写 `.fill_busy()`:
+    // 空连接在 MODE=diagnose 的 OPT_HIER (-hieropt) 下会报 "Port fill_busy ... not found in
+    // module $paramod$...\icache" —— 该 pass 会重写参数化模块的端口表, 空连接项处理不了。
+    // (MODE=opt 走 -flatten, 没有这个 pass, 所以一直没暴露)
+    wire          unused_fill_busy_w;
     // 回包分流: tag 最高位 (=TW-1) 为 0 ⇒ 取指填充, 为 1 ⇒ load (与第 5 节仲裁同源)
     wire          fill_rsp_valid_w = rd_resp_valid && !rd_resp_tag[TW - 1];
 
@@ -216,7 +221,7 @@ module mem_subsystem #(
         .fill_req_valid(fill_req_valid_w), .fill_req_addr(fill_req_addr_w),
         .fill_req_ready(fill_req_ready_w),
         .fill_rsp_valid(fill_rsp_valid_w), .fill_rsp_data(rd_resp_data),
-        .fill_busy()                                  // 仅观测量, 本模块不用 (TB 可用层次名取)
+        .fill_busy(unused_fill_busy_w)                // 仅观测量, 见上面 unused_fill_busy_w 的注释
     );
 
     // ==================== 4. 已提交 store 队列 ====================

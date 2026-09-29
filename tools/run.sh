@@ -15,17 +15,22 @@
 #   tools/run.sh <id> --filelist docs/timing/filelist_ic.f
 #       # 换冻结口径的源文件列表。默认仍是 filelist_t4tmp.f —— 冻结口径是归档可比性的前提
 #       # (tools/README.md), 只有**新增源文件**时才该另立一个列表并显式指定。
+#   tools/run.sh <id> --mode=diagnose
+#       # 出 -hieropt 的保层次网表 (u_xxx/ 限定名), 给 tools/path.py 做组合级归因用。
+#       # **判分口径永远是 opt** —— diagnose 只用来归因, 它的面积/频率数字不可比。
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
 [ -n "$ID" ] || { echo "用法: tools/run.sh <id> [参数=值 ...]"; exit 2; }
 TREE="$ROOT/runs/$ID"
 FLIST=docs/timing/filelist_t4tmp.f
+MODE=opt
 
-# 先扫一遍 --filelist, 再走参数补丁 (它要放进下面那个循环里一起吃掉)
+# 先扫一遍 --filelist/--mode, 再走参数补丁 (它们要放进下面那个循环里一起吃掉)
 for kv in "$@"; do
     case "$kv" in
         --filelist=*) FLIST=${kv#--filelist=} ;;
+        --mode=*)     MODE=${kv#--mode=} ;;
     esac
 done
 [ -f "$ROOT/$FLIST" ] || { echo "缺少源文件列表 $FLIST"; exit 1; }
@@ -41,6 +46,7 @@ for kv in "$@"; do
     case "$kv" in
         --no-synth) NO_SYNTH=1; continue ;;
         --filelist=*) continue ;;
+        --mode=*) continue ;;
         *=*) ;;
         *) echo "跳过无法识别的参数: $kv"; continue ;;
     esac
@@ -53,13 +59,13 @@ for kv in "$@"; do
     echo "  补丁 $k = $v"
 done
 
-echo "变体树: $TREE (filelist = $FNAME)"
+echo "变体树: $TREE (filelist = $FNAME, mode = $MODE)"
 [ -n "$NO_SYNTH" ] && exit 0
 
 # 官方容器: 绝不能传 CONFIG=config.local.mk (容器内 config.mk 全默认才对)
 docker run --rm --cpus=2 -v "$TREE":/work -w /work cpu2026:local \
-    make synth MODE=opt CLOCK_PERIOD_NS=2.0 \
+    make synth MODE=$MODE CLOCK_PERIOD_NS=2.0 \
          FILELIST="verilog/$FNAME" SYNTH_OUT=build/synth_$ID \
     > "$TREE/synth_$ID.log" 2>&1 || { echo "综合失败, 见 $TREE/synth_$ID.log"; exit 1; }
 
-cat "$TREE/build/synth_$ID/opt/timing_values.json"
+cat "$TREE/build/synth_$ID/$MODE/timing_values.json"
