@@ -84,6 +84,41 @@ Yosys 从 RTL 继承的 `src`。所以本工具只能回答"**首尾两个时序
 与 `LD_INFLIGHT=8 ⇒ 指针 4 位` 对上，异步复位风格也对上），终点那段是 **1040 个** `DFFHQNx1`。
 位宽对得上，才说明归因没认错人。
 
+### `census.tcl` —— 路径普查（**推翻"官方产物够用"的那一个**）
+
+官方 `scripts/timing.tcl` 的 `report_checks` **写死 `-group_path_count 5`** ⇒ 归档的
+`timing.rpt` 永远只有 5 条路径，**结构上不可能**回答"全设计到底有几条独立的长路径"。
+`ic1k` 那 5 条恰好还同属一个 32 位寄存器的相邻位，看它会得出"瓶颈是一条链"的错误结论。
+
+本脚本用**与官方逐条相同的约束**（5 个 liberty + fakeram lib、`create_clock 3.333`、
+transition/uncertainty 0.05、input/output delay 0.2/0.0、`set_load 5.0`、`set_case_analysis 0 reset`），
+只把 `-group_path_count` 放大。宿主没有 OpenSTA，在容器里跑：
+
+```sh
+docker run --rm --cpus=2 -e CENSUS_DIR=<树内 opt 目录> -e CENSUS_N=4000 \
+    -v <variation_tree>:/work -w /work cpu2026:local sta /work/census.tcl
+```
+
+周期固定取 3.333 ns（=300 MHz 判据）。时序路径延时**与周期无关**（本流程无 time borrowing），
+故 `delay = 3.333 − slack`；与官方在 2.0 ns 下报的延时是同一个数（差 0.0726 ns 的常数是
+`set_clock_uncertainty 0.05` + 触发器 setup，两边都有，相减即消）。
+
+### `cone.py` —— 锥规模 + 逐级模块归因
+
+```sh
+tools/cone.py runs/<id>/build/synth_<id>/opt --cone _141944_   # 这个信号驱动了多少东西
+tools/cone.py runs/<id>/build/synth_<id>/opt --path 0          # 第 0 条路径逐级"最近寄存器边界"
+```
+
+`--cone`：从该 cell 的输出网做正向组合 BFS，到触发器为止，输出组合 cell 总数 +
+**到达的触发器按模块的直方图**（模块来自 `pathsrc.py` 的位置对齐 join）。用它才能回答
+"这一刀切下去会不会把延时搬到别处"。
+
+`--path`：以**所有触发器**为源做多源正向 BFS，给每个组合 cell 标上
+（到最近上游触发器的级数，那些触发器的模块），再把路径逐级打出来。
+**限制**：标签取的是**最近**的边界，一个门只要有任一输入来自某模块的触发器就被标成那个模块 ——
+它回答"这段逻辑贴着谁的寄存器"，**不**回答"这条路径穿过了谁"。要模块级**确定**归因只能 `MODE=diagnose`。
+
 ### `snap.py` —— 把一次综合的产物归档进仓库
 
 ```sh
@@ -100,7 +135,25 @@ tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "
 ```sh
 tools/run.sh <id> [参数=值 ...]     # 例: tools/run.sh lsq8 LSQ_SIZE=8
 tools/run.sh <id> --no-synth       # 只造树不打综合
+tools/run.sh <id> --filelist=docs/timing/filelist_ic.f   # 换冻结口径的源文件列表
+tools/run.sh <id> --mode=diagnose                        # 保层次网表（归因用，非判分口径）
+tools/run.sh <id> --period=6.0                           # 换 ABC 的映射时序目标（见下）
 ```
+
+`--period=<ns>` 改的是 `CLOCK_PERIOD_NS`。它在 `synth.ys` 里以 **ps** 传给 ABC 的 `-D`
+（默认 2.0 ns ⇒ `abc -D 2000`），而 OpenSTA 报的最小时钟周期是对产出的网表**重新二分**
+测出来的，与这个目标无关。
+
+**已实测：这个旋钮在官方流程里完全无效，不要再用它出性能数**（详见 `docs/plan.md` §15.10.28）。
+`-D 2000 / 3400 / 6000` 三个点的 `mapped.v` **md5 完全相同**（关键路径延时都是 12.141287 ns）——
+`{D}` 在本流程用的那条 ABC 脚本里只出现在 `&nf {D}`，而三个约束都比实际路径紧，
+ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任何"换个参数能不能提频"的猜想，
+一次综合 + 一次 `md5` 就能判死。
+
+同一条 `help abc` 输出还给出一个更要紧的事实：`buffer; upsize; dnsize` 只出现在
+**带 `-constr`** 的那条脚本里，而官方 `scripts/synth.py` 不传 `-constr`
+⇒ **本流程的网表不插缓冲、不做驱动强度优化**，宽扇出必然被全额惩罚（扇出税占关键路径 67%），
+且**流程内没有任何旋钮可解**。
 
 用 `cp` 而不是 `git archive`：要能测**未提交**的 RTL 改动（改一版测一版是常态）。
 参数补丁只改 `student_top.v` 的 `parameter` 默认值，改完**回读校验**，对不上直接退出。
@@ -134,7 +187,21 @@ tools/run.sh <id> --no-synth       # 只造树不打综合
 11. **`docs/timing/filelist_t4tmp.f`** 是冻结口径的 22 文件列表 = 官方 `verilog/filelist.f`
    去掉 `core/memory.v`（已核对是**唯一**差异）。没有任何模块例化 `memory`，
    `hierarchy -top student_top` 会剪掉它 ⇒ 两个列表出同一份网表。冻结成文件是为了与已归档
-   基线**逐位可比**；用它的行必须在 `results.csv` 里标注。
+   基线**逐位可比**；用它的行必须在 `results.csv` 里标注。**`filelist_t4tmp.f` 自加入
+   `core/icache.v` 起已过期**，含 I-cache 的机器一律用 `docs/timing/filelist_ic.f`（23 文件）。
+12. **官方 `timing.rpt` 只有 5 条路径，这不是巧合是写死的。** `scripts/timing.tcl` 里
+   `report_checks ... -group_path_count 5` 是**官方框架文件，勿改**，所以判分产物
+   **永远**只有 5 条。任何"设计里有几条长路径"的问题都必须外挂 `tools/census.tcl` 回答；
+   拿 5 条路径去推断全局，会得出"瓶颈是一条链、切一刀就好"的错误结论（实测恰好相反，见 §3）。
+13. **`pathsrc.py` 的 `?` 不等于"查不到"，`cone.py` 的 `?（无 src）` 是一批**确定的**寄存器。**
+   全设计 8315 个触发器里 **5963 个有 `src`、2352 个没有**（28.3%）。这 2352 个
+   全是 `$auto$ff.cc:337:slice`（Yosys 生成），在 `mapped.v` 里恰好是**两个连续块**：
+   **2048** = `PRF_SIZE(64) × 32` = `prf.v:18` 的 `reg [31:0] regs [0:63]`，
+   **304** = `LD_INFLIGHT(8) × (32 + 2 + 4)` = `mem_subsystem.v:156-158` 的
+   `ld_addr_r`/`ld_width_r`/`ld_idx_r`。
+   机制：这两处都是**变址切片写**（`regs[preg] <= …` / `ld_addr_r[p*32 +: 32] <= …`），
+   Yosys 推不出整字 `$dff`，只能建"逐位 `$dff` + 译码器"，这些新单元不带 `src`。
+   ⇒ 它们不是漏查，是**数组寄存器**；要按模块归因只能 `MODE=diagnose`。
 
 ## 3. 已被这套工具确诊的机制（当作"该怎么用"的例子）
 
@@ -162,6 +229,22 @@ tools/run.sh <id> --no-synth       # 只造树不打综合
 - **深锥输出驱动大负载 = 双重惩罚**：`_144092_/Y` 到达时刻已累计 16.22 ns（slew 10.87），
   自己还有 5.40 ns 的负载延时，下一级 `NAND3` 再 +8.56 ns。判热点时要看
   **到达时刻 × 扇出**，只看扇出会漏掉"早期大扇出无害"的情况。
+- **`ic1k` 的病是"一个锥"，不是"一条链"（census + cone 联合确诊）。**
+  4000 条最差路径（12.1413 → 9.1638 ns，中位 10.4714）**起点全是同一个** `_141944_/QN`
+  （`mem_subsystem.v:171.5-179.8`，`ld_wr_p`/`ld_rd_p` 指针），终点 4000 个互不相同，
+  **4000/4000 都超过 3.333 ns**。该 bit 的正向组合锥 = **40850 个组合 cell（≈63% 的组合逻辑）**、
+  到达 **6185 个触发器**（rob 980 / mem_subsystem 593 / rs 572 / axi_lite_master 532 /
+  lsq 312 / execute_slot 239 / div 201 / rat 186 / fetch 164 / … / 无 src 2320）。
+  与 OpenSTA 独立的终点普查交叉验证一致（rob 989/mem 589/axi 532/lsq 312/rat 186/fetch 164）。
+  ⇒ **"挪一段寄存器"只会把延时从一批终点搬到另一批终点，是零和的** —— 这就是
+  §15.10.26 那一刀（切 LSQ 发请求回环）实测全面退化的机制解释：起点没变（`_141838_` 同 src），
+  只是终点换了。**下一刀必须是多级重划分，不能再是点切。**
+- **逐级模块归因（`cone.py --path 0`，100 级 / 12.0709 ns）**：级 0-4 mem_subsystem（1.4280 ns）
+  → 级 5-53 **lsq（5.2956 ns）** → 级 55-77 execute_slot（1.3454 ns）→ 级 80-96
+  **lsq 又一段（2.7459 ns）** → 级 97-99 icache/axi_lite_master（0.1392 ns）。
+  lsq 两段合计 **8.0415 ns = 全路径的 67%**。最贵的两级都在 lsq：
+  级 89 `XNOR2xp5` 扇出 279（**0.9504 ns**）+ 级 90 `NAND2xp33` 扇出 130（**1.2470 ns**）
+  = 2.1974 ns = **18.2%**，与 §3 第一条的 `merge_byte_f` CSE 共享节点同源。
 
 ## 4. 资源纪律
 

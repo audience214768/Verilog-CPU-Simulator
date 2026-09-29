@@ -18,6 +18,10 @@
 #   tools/run.sh <id> --mode=diagnose
 #       # 出 -hieropt 的保层次网表 (u_xxx/ 限定名), 给 tools/path.py 做组合级归因用。
 #       # **判分口径永远是 opt** —— diagnose 只用来归因, 它的面积/频率数字不可比。
+#   tools/run.sh <id> --period=6.0
+#       # 把 CLOCK_PERIOD_NS 从默认 2.0 换掉。该值以 ps 传给 ABC 的 -D, 是**映射的时序目标**:
+#       # 本设计关键路径 ~12 ns, 默认 -D 2000 等于让 ABC 放弃时序、按面积映射。
+#       # OpenSTA 报的最小时钟周期是对产出的网表**重新二分**测出来的, 与这个目标无关。
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
@@ -25,12 +29,14 @@ ID=$1; shift
 TREE="$ROOT/runs/$ID"
 FLIST=docs/timing/filelist_t4tmp.f
 MODE=opt
+PERIOD=2.0
 
-# 先扫一遍 --filelist/--mode, 再走参数补丁 (它们要放进下面那个循环里一起吃掉)
+# 先扫一遍 --filelist/--mode/--period, 再走参数补丁 (它们要放进下面那个循环里一起吃掉)
 for kv in "$@"; do
     case "$kv" in
         --filelist=*) FLIST=${kv#--filelist=} ;;
         --mode=*)     MODE=${kv#--mode=} ;;
+        --period=*)   PERIOD=${kv#--period=} ;;
     esac
 done
 [ -f "$ROOT/$FLIST" ] || { echo "缺少源文件列表 $FLIST"; exit 1; }
@@ -47,6 +53,7 @@ for kv in "$@"; do
         --no-synth) NO_SYNTH=1; continue ;;
         --filelist=*) continue ;;
         --mode=*) continue ;;
+        --period=*) continue ;;
         *=*) ;;
         *) echo "跳过无法识别的参数: $kv"; continue ;;
     esac
@@ -59,12 +66,12 @@ for kv in "$@"; do
     echo "  补丁 $k = $v"
 done
 
-echo "变体树: $TREE (filelist = $FNAME, mode = $MODE)"
+echo "变体树: $TREE (filelist = $FNAME, mode = $MODE, period = $PERIOD ns)"
 [ -n "$NO_SYNTH" ] && exit 0
 
 # 官方容器: 绝不能传 CONFIG=config.local.mk (容器内 config.mk 全默认才对)
 docker run --rm --cpus=2 -v "$TREE":/work -w /work cpu2026:local \
-    make synth MODE=$MODE CLOCK_PERIOD_NS=2.0 \
+    make synth MODE=$MODE CLOCK_PERIOD_NS=$PERIOD \
          FILELIST="verilog/$FNAME" SYNTH_OUT=build/synth_$ID \
     > "$TREE/synth_$ID.log" 2>&1 || { echo "综合失败, 见 $TREE/synth_$ID.log"; exit 1; }
 
