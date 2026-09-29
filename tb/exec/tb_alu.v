@@ -18,31 +18,31 @@ module tb_alu;
         input [4 : 0]  eo;
         input [31 : 0] er;
         reg [63 : 0] sx_a, sx_b, ux_a, ux_b;
-        reg [31 : 0] ref;
+        reg [31 : 0] ref_v;
         begin
             sx_a = {{32{ea[31]}}, ea};  sx_b = {{32{eb[31]}}, eb};
             ux_a = {32'd0, ea};         ux_b = {32'd0, eb};
             case (eo)
-                5'd0:  ref = ea + eb;
-                5'd1:  ref = ea - eb;
-                5'd2:  ref = ea << eb[4 : 0];
-                5'd3:  ref = ($signed(ea) < $signed(eb)) ? 32'd1 : 32'd0;
-                5'd4:  ref = (ea < eb) ? 32'd1 : 32'd0;
-                5'd5:  ref = ea ^ eb;
-                5'd6:  ref = ea >> eb[4 : 0];
-                5'd7:  ref = $signed(ea) >>> eb[4 : 0];
-                5'd8:  ref = ea | eb;
-                5'd9:  ref = ea & eb;
-                5'd10: ref = ux_a * ux_b;
-                5'd11: ref = (sx_a * sx_b) >> 32;
-                5'd12: ref = (sx_a * ux_b) >> 32;
-                default: ref = (ux_a * ux_b) >> 32;
+                5'd0:  ref_v = ea + eb;
+                5'd1:  ref_v = ea - eb;
+                5'd2:  ref_v = ea << eb[4 : 0];
+                5'd3:  ref_v = ($signed(ea) < $signed(eb)) ? 32'd1 : 32'd0;
+                5'd4:  ref_v = (ea < eb) ? 32'd1 : 32'd0;
+                5'd5:  ref_v = ea ^ eb;
+                5'd6:  ref_v = ea >> eb[4 : 0];
+                5'd7:  ref_v = $signed(ea) >>> eb[4 : 0];
+                5'd8:  ref_v = ea | eb;
+                5'd9:  ref_v = ea & eb;
+                5'd10: ref_v = ux_a * ux_b;
+                5'd11: ref_v = (sx_a * sx_b) >> 32;
+                5'd12: ref_v = (sx_a * ux_b) >> 32;
+                default: ref_v = (ux_a * ux_b) >> 32;
             endcase
             a = ea; b = eb; op = eo;
             #1;
-            if (result !== er || result !== ref) begin
+            if (result !== er || result !== ref_v) begin
                 $display("FAIL: op=%0d a=%h b=%h r=%h ref=%h (期望 %h)",
-                         eo, ea, eb, result, ref, er);
+                         eo, ea, eb, result, ref_v, er);
                 errors = errors + 1;
             end
         end

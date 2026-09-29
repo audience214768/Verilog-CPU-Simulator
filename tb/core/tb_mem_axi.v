@@ -20,14 +20,22 @@
 module tb_mem_axi;
     localparam ISSUE_WIDTH = 1;
     localparam LSQ_SIZE    = 16;
-    localparam PF_DEPTH    = 16;
-    localparam PF_WIN      = 8;
+    localparam IC_SIZE       = 1024;
+    localparam IC_LINE_WORDS = 8;
+    localparam IC_BYPASS     = 0;
+    localparam IC_PREFETCH   = 1;
+    localparam IC_LINES      = IC_SIZE / (4 * IC_LINE_WORDS);
     // parameter (非 localparam): 消融扫要能用 -Ptb_mem_axi.LD_INFLIGHT=2 覆盖
     parameter  LD_INFLIGHT = 8;
     localparam SQ_DEPTH    = 8;
-    localparam RD_DEPTH    = 8;
+    localparam RD_DEPTH    = 16;                   // 须 ≥ 2*IC_LINE_WORDS (见 mem_subsystem 头注释)
     localparam WR_DEPTH    = 8;
     localparam LATENCY     = 10;                   // 官方口径: 从机响应延迟
+    // 取指看门狗: 一次行填充 = LATENCY + IC_LINE_WORDS 拍。留 3 倍余量 —— 复位后可能先为"复位前
+    //   读到的那一行"白填一次 (T6), 那段与本次访问的填充串行 ⇒ 最坏是两次填充叠一次交付延迟。
+    localparam FETCH_MAX   = 3 * LATENCY + 3 * IC_LINE_WORDS + 8;
+    // 冷启动首字: 理论就是一次行填充 (LATENCY+LW) + 交付延迟 (锁 rd_addr_q / SRAM 同步读 / tag 比较)
+    localparam COLD_MAX    = LATENCY + IC_LINE_WORDS + 8;
     localparam DEPTH       = 16;                   // 从机每通道 FIFO 深度
     localparam [63:0] RAM_BYTES = 64'h1000_0000;   // 256MiB (sim.cpp 的 RAM_BYTES)
     localparam MEM_BYTES = 4096;                   // TB 建模的字节数
@@ -71,7 +79,8 @@ module tb_mem_axi;
 
     mem_subsystem #(
         .ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE),
-        .PF_DEPTH(PF_DEPTH), .PF_WIN(PF_WIN), .LD_INFLIGHT(LD_INFLIGHT),
+        .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
+        .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH), .LD_INFLIGHT(LD_INFLIGHT),
         .SQ_DEPTH(SQ_DEPTH), .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH)
     ) dut (
         .clk(clk), .rst_n(rst_n),
@@ -272,7 +281,7 @@ module tb_mem_axi;
     reg [LIW - 1 : 0] done_q_idx  [0 : 15];
     integer done_q_wp = 0, done_q_rp = 0;
 
-    task expect;
+    task expect_v;
         input cond;
         input [1023:0] msg;
         begin
@@ -360,17 +369,21 @@ module tb_mem_axi;
     endtask
 
     // 取指侧不变量: 地址寄存器同步 + ★ 交付的数据必须属于该地址 (错绑的结构性排除)
+    // 地址寄存器改为看 icache 的 rd_addr_q (= 上一拍发起读的那个地址, 即不变量①的取值), 原
+    // mem_subsystem.imem_addr_q 已随预取窗口一起删除。本 TB 的 ISSUE_WIDTH=1 ⇒ 批必落在单行内,
+    // 跨行装配通路恒不激活 (asm_go_w=0), rd_addr_q 就是 imem_addr 延迟一拍, 与原表达式逐位等价;
+    // W≥2 时装配那两拍 rd_addr_q 会被改写成 L1 行基址, 这两条断言不再适用 (须按 sm 口径重写)。
     task mem_check;
         begin
             if (rst_n) begin
-                if (dut.imem_addr_q !== s_imem_addr) begin
-                    $display("FAIL: imem_addr_q=%h != imem_addr delayed=%h", dut.imem_addr_q, s_imem_addr);
+                if (dut.u_ic.rd_addr_q !== s_imem_addr) begin
+                    $display("FAIL: rd_addr_q=%h != imem_addr delayed=%h", dut.u_ic.rd_addr_q, s_imem_addr);
                     errors = errors + 1;
                 end
-                if ((imem_valid === 1'b1) && (dut.imem_addr_q < (MEM_BYTES - 4))) begin
-                    if (inst_data !== mem_word(dut.imem_addr_q)) begin
+                if ((imem_valid === 1'b1) && (dut.u_ic.rd_addr_q < (MEM_BYTES - 4))) begin
+                    if (inst_data !== mem_word(dut.u_ic.rd_addr_q)) begin
                         $display("FAIL: imem_valid with wrong data at %h: got %h want %h",
-                                 dut.imem_addr_q, inst_data, mem_word(dut.imem_addr_q));
+                                 dut.u_ic.rd_addr_q, inst_data, mem_word(dut.u_ic.rd_addr_q));
                         errors = errors + 1;
                     end
                 end
@@ -428,8 +441,8 @@ module tb_mem_axi;
                 w = w + 1;
                 hit = (imem_valid === 1'b1);
             end
-            expect(hit, "imem_valid never asserted");
-            if (hit) expect(inst_data === mem_word(a), "fetched instruction mismatch");
+            expect_v(hit, "imem_valid never asserted");
+            if (hit) expect_v(inst_data === mem_word(a), "fetched instruction mismatch");
             fetch_cycles = w;
         end
     endtask
@@ -448,7 +461,7 @@ module tb_mem_axi;
                 hit = s_ld_hs;
             end
             ld_start_valid = 1'b0;
-            expect(hit, "load start never accepted (ld_busy stuck)");
+            expect_v(hit, "load start never accepted (ld_busy stuck)");
             if (hit) begin
                 ld_inflight_tb = ld_inflight_tb + 1;
                 ld_acc_tb = ld_acc_tb + 1;
@@ -460,7 +473,7 @@ module tb_mem_axi;
         input integer maxn;
         begin
             for (n = 0; (n < maxn) && (done_q_wp == done_q_rp); n = n + 1) tick();
-            expect(done_q_wp != done_q_rp, "load completion never returned");
+            expect_v(done_q_wp != done_q_rp, "load completion never returned");
         end
     endtask
 
@@ -473,7 +486,7 @@ module tb_mem_axi;
                 tick();
                 hit = (pend_done > 0);            // 数据已在 tb_sample 里当拍锁存
             end
-            expect(hit, "load completion never returned");
+            expect_v(hit, "load completion never returned");
             if (hit) begin
                 pend_done = pend_done - 1;
                 ld_inflight_tb = ld_inflight_tb - 1;
@@ -495,7 +508,7 @@ module tb_mem_axi;
                 ok = s_sw_hs;                      // commit_t 在 tb_sample 里按同一口径锁存
             end
             sw_valid = 1'b0;
-            expect(ok, "store never accepted (sw_ready stuck low)");
+            expect_v(ok, "store never accepted (sw_ready stuck low)");
         end
     endtask
 
@@ -509,7 +522,7 @@ module tb_mem_axi;
                 tick();
                 ok = (dut.sq_wr_p === dut.sq_ret_p);
             end
-            expect(ok, "store queue never drained");
+            expect_v(ok, "store queue never drained");
         end
     endtask
 
@@ -540,85 +553,97 @@ module tb_mem_axi;
         reset = 1'b0;
         tick();
 
-        // ---- T1 顺序取指: 冷启动后应约 1 拍/字 ----
+        // ---- T1 顺序取指: 冷启动 = 一次行填充; 预热重访应 ~1 拍/字 ----
+        // 判据分两段, 因为**冷启动代价随 IC_LINE_WORDS 线性增长** (AXI4-Lite 无 burst, 填一行要
+        //   背靠背连发 LW 笔单字 AR ⇒ LATENCY+LW 拍): 把两段合成一个固定阈值会让 LW=16 必然误报
+        //   (实测 LW=8 为 54 拍, LW=16 为 63 拍, 而旧的硬阈值是 60 —— 差的正是那 8 笔 AR)。
         t1_total = 0;
         for (k = 0; k < 16; k = k + 1) begin
-            fetch_wait(32'd4 * k, 60);
+            fetch_wait(32'd4 * k, FETCH_MAX);
             if (k == 0) t1_cyc = fetch_cycles;
             t1_total = t1_total + fetch_cycles;
         end
         $display("T1: cold start %0d cycles, 16 sequential words %0d cycles", t1_cyc, t1_total);
-        expect(t1_total <= 60, "T1 sequential fetch too slow (prefetch not working)");
-        expect(inst_data === mem_word(32'd60), "T1 last word mismatch");
-        if (t1_total <= 60) $display("PASS: T1 sequential fetch (16 words in %0d cycles)", t1_total);
+        expect_v(t1_cyc <= COLD_MAX, "T1 cold start worse than one line fill (LATENCY + IC_LINE_WORDS)");
+        expect_v(inst_data === mem_word(32'd60), "T1 last word mismatch");
+        // 预热重访: 整批已在缓存 ⇒ 既不该再发填充, 每字也不该再有行填充量的等待。
+        //   这才是"缓存真的在工作"的判据, 且与 IC_LINE_WORDS 无关。
+        t1_total = 0;
+        for (k = 0; k < 16; k = k + 1) begin
+            fetch_wait(32'd4 * k, FETCH_MAX);
+            t1_total = t1_total + fetch_cycles;
+        end
+        $display("T1: warm re-fetch of 16 words %0d cycles", t1_total);
+        expect_v(t1_total <= 3 * 16, "T1 warm re-fetch not ~1 cycle/word (cache not hitting)");
+        $display("PASS: T1 fetch (cold start %0d, warm 16 words %0d)", t1_cyc, t1_total);
 
         // ---- T2 重定向 / tag 别名 ----
         imem_addr = 32'h0000_0400;
         for (k = 0; k < 3; k = k + 1) begin
             tick();
-            expect(imem_valid === 1'b0, "T2 imem_valid before data could arrive (misbinding)");
+            expect_v(imem_valid === 1'b0, "T2 imem_valid before data could arrive (misbinding)");
         end
-        fetch_wait(32'h0000_0400, 60);
-        expect(inst_data === mem_word(32'h0000_0400), "T2 redirect target data");
+        fetch_wait(32'h0000_0400, FETCH_MAX);
+        expect_v(inst_data === mem_word(32'h0000_0400), "T2 redirect target data");
         // 0x440 与 0x400 落在同一窗口下标 (addr[5:2] 相同) 但 tag 不同 ⇒ 必须重取, 不得拿旧格顶替
         imem_addr = 32'h0000_0440;
         for (k = 0; k < 2; k = k + 1) begin
             tick();
-            expect(imem_valid === 1'b0, "T2 tag alias delivered stale line");
+            expect_v(imem_valid === 1'b0, "T2 tag alias delivered stale line");
         end
-        fetch_wait(32'h0000_0440, 60);
+        fetch_wait(32'h0000_0440, FETCH_MAX);
         // 后跳回已在窗口里的地址 (不应重取, 数据仍对)
-        fetch_wait(32'h0000_0404, 60);
-        expect(inst_data === mem_word(32'h0000_0404), "T2 backward jump data");
+        fetch_wait(32'h0000_0404, FETCH_MAX);
+        expect_v(inst_data === mem_word(32'h0000_0404), "T2 backward jump data");
         $display("PASS: T2 redirect and tag alias");
 
         // ---- T3 load 各宽度与零扩展 (取指停到停车位, 别抢带宽) ----
-        fetch_wait(FA_PARK, 60);
+        fetch_wait(FA_PARK, FETCH_MAX);
         for (k = 0; k < 6; k = k + 1) tick();
         // 0x180 处字节为 0x81/0x82 (高位置 1), 用来钉死"零扩展"而非符号扩展
         ld_push(32'h0000_0180, 2'b00, 4'd1); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_0081, "T3 LB must zero-extend");
-        expect(cap_ld_idx === 4'd1, "T3 LB index passthrough");
+        expect_v(cap_ld_data === 32'h0000_0081, "T3 LB must zero-extend");
+        expect_v(cap_ld_idx === 4'd1, "T3 LB index passthrough");
         ld_push(32'h0000_0181, 2'b00, 4'd2); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_0082, "T3 LB offset 1");
+        expect_v(cap_ld_data === 32'h0000_0082, "T3 LB offset 1");
         ld_push(32'h0000_0180, 2'b01, 4'd3); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_8281, "T3 LHU must zero-extend half");
+        expect_v(cap_ld_data === 32'h0000_8281, "T3 LHU must zero-extend half");
         ld_push(32'h0000_0182, 2'b01, 4'd4); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_8483, "T3 LHU offset 2");
+        expect_v(cap_ld_data === 32'h0000_8483, "T3 LHU offset 2");
         ld_push(32'h0000_0180, 2'b10, 4'd5); ld_wait(60);
-        expect(cap_ld_data === 32'h8483_8281, "T3 LW");
+        expect_v(cap_ld_data === 32'h8483_8281, "T3 LW");
         ld_push(32'h0000_0183, 2'b00, 4'd6); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_0084, "T3 LB offset 3");
+        expect_v(cap_ld_data === 32'h0000_0084, "T3 LB offset 3");
         // 非对齐字读: 本模块一个请求只取一个对齐字, 故只给出该字内剩下的字节, 高位补 0
         // (跨字非对齐访问不支持, 见 mem_subsystem 头注释; 编译产出的 C 不会产生)
         ld_push(32'h0000_0182, 2'b10, 4'd7); ld_wait(60);
-        expect(cap_ld_data === 32'h0000_8483, "T3 unaligned LW returns bytes within the aligned word");
+        expect_v(cap_ld_data === 32'h0000_8483, "T3 unaligned LW returns bytes within the aligned word");
         ld_push(LA_BASE, 2'b10, 4'd8); ld_wait(60);
-        expect(cap_ld_data === mem_word(LA_BASE), "T3 LW pattern");
+        expect_v(cap_ld_data === mem_word(LA_BASE), "T3 LW pattern");
         $display("PASS: T3 load widths and zero extension (%0d loads)", ld_acc_tb);
 
         // ---- T4 store 各宽度 strb 与地址对齐 ----
         st_push(SA_BASE, 32'hDEAD_BEEF, 2'b10); sq_drain(80);
-        expect(cap_w_addr === SA_BASE, "T4 SW aligned awaddr");
-        expect(cap_w_strb === 4'hF, "T4 SW strb");
-        expect(cap_w_data === 32'hDEAD_BEEF, "T4 SW data");
-        expect(mem_word(SA_BASE) === 32'hDEAD_BEEF, "T4 SW landed");
+        expect_v(cap_w_addr === SA_BASE, "T4 SW aligned awaddr");
+        expect_v(cap_w_strb === 4'hF, "T4 SW strb");
+        expect_v(cap_w_data === 32'hDEAD_BEEF, "T4 SW data");
+        expect_v(mem_word(SA_BASE) === 32'hDEAD_BEEF, "T4 SW landed");
         st_push(SA_BASE + 32'd2, 32'h0000_1234, 2'b01); sq_drain(80);
-        expect(cap_w_addr === SA_BASE, "T4 SH awaddr aligned down");
-        expect(cap_w_strb === 4'hC, "T4 SH strb");
-        expect(cap_w_data === 32'h1234_0000, "T4 SH data shifted");
-        expect(mem_word(SA_BASE) === 32'h1234_BEEF, "T4 SH landed");
+        expect_v(cap_w_addr === SA_BASE, "T4 SH awaddr aligned down");
+        expect_v(cap_w_strb === 4'hC, "T4 SH strb");
+        expect_v(cap_w_data === 32'h1234_0000, "T4 SH data shifted");
+        expect_v(mem_word(SA_BASE) === 32'h1234_BEEF, "T4 SH landed");
         st_push(SA_BASE + 32'd1, 32'h0000_00AB, 2'b00); sq_drain(80);
-        expect(cap_w_strb === 4'b0010, "T4 SB strb");
-        expect(cap_w_data === 32'h0000_AB00, "T4 SB data shifted");
-        expect(mem_word(SA_BASE) === 32'h1234_ABEF, "T4 SB landed");
+        expect_v(cap_w_strb === 4'b0010, "T4 SB strb");
+        expect_v(cap_w_data === 32'h0000_AB00, "T4 SB data shifted");
+        expect_v(mem_word(SA_BASE) === 32'h1234_ABEF, "T4 SB landed");
         st_push(SA_BASE + 32'd3, 32'h0000_00CD, 2'b00); sq_drain(80);
-        expect(cap_w_strb === 4'b1000, "T4 SB offset 3 strb");
-        expect(cap_w_data === 32'hCD00_0000, "T4 SB offset 3 data");
-        expect(mem_word(SA_BASE) === 32'hCD34_ABEF, "T4 SB offset 3 landed");
+        expect_v(cap_w_strb === 4'b1000, "T4 SB offset 3 strb");
+        expect_v(cap_w_data === 32'hCD00_0000, "T4 SB offset 3 data");
+        expect_v(mem_word(SA_BASE) === 32'hCD34_ABEF, "T4 SB offset 3 landed");
         st_push(SA_BASE, 32'h0000_BEEF, 2'b01); sq_drain(80);
-        expect(cap_w_strb === 4'h3, "T4 SH offset 0 strb");
-        expect(mem_word(SA_BASE) === 32'hCD34_BEEF, "T4 SH offset 0 landed");
+        expect_v(cap_w_strb === 4'h3, "T4 SH offset 0 strb");
+        expect_v(mem_word(SA_BASE) === 32'hCD34_BEEF, "T4 SH offset 0 landed");
         $display("PASS: T4 store widths, strb and address alignment");
 
         // ---- T5 store→load 可见性竞态 ----
@@ -646,25 +671,25 @@ module tb_mem_axi;
             //     → cpu_top.ce_w → sw_valid, 实测 Verilator UNOPTFLAT), 见 sq_merge_byte_f 注释;
             //   提交晚于完成 ⇒ 更年轻的 store 不得追溯改写已完成的 load。
             if (commit_cyc < done_cyc)
-                expect(cap_ld_data === race_val, "T5 committed store must be visible to the load");
+                expect_v(cap_ld_data === race_val, "T5 committed store must be visible to the load");
             else
-                expect(cap_ld_data === exp_ld(RA_BASE + 32'd4 * k, 2'b10),
+                expect_v(cap_ld_data === exp_ld(RA_BASE + 32'd4 * k, 2'b10),
                        "T5 not-yet-enqueued store must not shadow the bus value");
             tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
             for (n = 0; n < 4; n = n + 1) tick();
         end
-        expect(same_cycle_hit, "T5 sweep never hit same-cycle commit+completion");
+        expect_v(same_cycle_hit, "T5 sweep never hit same-cycle commit+completion");
         // 放开写通道: store 必须真的落到从机, 且队列能退休
         do_reset();
         imem_addr = FA_PARK;
         tb_hold_aw = 1'b1; tb_hold_w = 1'b1;
         st_push(RA_BASE + 32'd4 * 32, 32'hFEED_F00D, 2'b10);
         for (n = 0; n < 12; n = n + 1) tick();
-        expect(dut.sq_wr_p !== dut.sq_ret_p, "T5 unacked store must stay in queue");
+        expect_v(dut.sq_wr_p !== dut.sq_ret_p, "T5 unacked store must stay in queue");
         tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
         sq_drain(120);
-        expect(mem_word(RA_BASE + 32'd4 * 32) === 32'hFEED_F00D, "T5 store landed after B");
-        expect(dut.sq_wr_p === dut.sq_ret_p, "T5 queue retired after B");
+        expect_v(mem_word(RA_BASE + 32'd4 * 32) === 32'hFEED_F00D, "T5 store landed after B");
+        expect_v(dut.sq_wr_p === dut.sq_ret_p, "T5 queue retired after B");
         $display("PASS: T5 store->load visibility race (sweep 32 offsets; same-cycle commit pinned to bus value)");
 
         // ---- T6 复位打断 ----
@@ -676,27 +701,27 @@ module tb_mem_axi;
         for (n = 0; n < 5; n = n + 1) tick();
         reset = 1'b1;
         for (n = 0; n < 3; n = n + 1) tick();
-        expect(imem_valid === 1'b0, "T6 imem_valid during reset");
-        expect(ld_done_valid === 1'b0, "T6 load completion during reset");
-        expect(arvalid === 1'b0, "T6 AR valid during reset");
-        expect(awvalid === 1'b0, "T6 AW valid during reset");
+        expect_v(imem_valid === 1'b0, "T6 imem_valid during reset");
+        expect_v(ld_done_valid === 1'b0, "T6 load completion during reset");
+        expect_v(arvalid === 1'b0, "T6 AR valid during reset");
+        expect_v(awvalid === 1'b0, "T6 AW valid during reset");
         clr_cpu();
         reset = 1'b0;
         tick();
-        expect(dut.sq_wr_p === 0, "T6 store queue cleared by reset");
-        expect(dut.pf_valid_r === {PF_DEPTH{1'b0}}, "T6 prefetch window cleared by reset");
+        expect_v(dut.sq_wr_p === 0, "T6 store queue cleared by reset");
+        expect_v(dut.u_ic.valid_r === {IC_LINES{1'b0}}, "T6 I-cache valid bitmap cleared by reset");
         ld_inflight_tb = 0;                    // 复位作废在途 load (完成脉冲不会再来)
         ld_acc_tb = ld_acc_tb - 1;             // 该 load 被复位作废, 账本里也不该再算"收下过"
         // 释放后恢复: 取指与 load 都要正常工作
         imem_addr = 32'h0000_0440;
-        fetch_wait(32'h0000_0440, 60);
-        expect(inst_data === mem_word(32'h0000_0440), "T6 fetch after reset");
+        fetch_wait(32'h0000_0440, FETCH_MAX);
+        expect_v(inst_data === mem_word(32'h0000_0440), "T6 fetch after reset");
         imem_addr = FA_PARK;
         for (n = 0; n < 6; n = n + 1) tick();
         ld_push(LA_BASE + 32'd4, 2'b10, 4'd3);
         ld_wait(60);
-        expect(cap_ld_data === mem_word(LA_BASE + 32'd4), "T6 load after reset");
-        expect(cap_ld_idx === 4'd3, "T6 index after reset");
+        expect_v(cap_ld_data === mem_word(LA_BASE + 32'd4), "T6 load after reset");
+        expect_v(cap_ld_idx === 4'd3, "T6 index after reset");
         $display("PASS: T6 reset in the middle of traffic");
 
         // ---- T7 队列回绕后的合并次序 ----
@@ -710,17 +735,17 @@ module tb_mem_axi;
         for (k = 0; k < 5; k = k + 1)
             st_push(T7_BASE + 32'd4 * k, 32'h1111_0000 + k, 2'b10);
         sq_drain(120);
-        expect(dut.sq_ret_p === 3'd5, "T7 phase-1 pointers (precondition for the wrap)");
+        expect_v(dut.sq_ret_p === 3'd5, "T7 phase-1 pointers (precondition for the wrap)");
         tb_hold_aw = 1'b1; tb_hold_w = 1'b1;      // 写落不到从机 ⇒ 队列驻留, 从机上仍是旧值
         for (k = 0; k < 6; k = k + 1)
             st_push(T7_BASE, 32'h7A00_0000 + k, 2'b10);
-        expect(dut.sq_ret_p === 3'd5, "T7 wrap: ret pointer moved while the channel is held");
-        expect(dut.sq_wr_p  === 3'd3, "T7 wrap: wr pointer (ret > wr = wrapped)");
+        expect_v(dut.sq_ret_p === 3'd5, "T7 wrap: ret pointer moved while the channel is held");
+        expect_v(dut.sq_wr_p  === 3'd3, "T7 wrap: wr pointer (ret > wr = wrapped)");
         ld_push(T7_BASE, 2'b10, 4'd2); ld_wait(80);
-        expect(cap_ld_data === 32'h7A00_0005, "T7 wrapped queue must yield the youngest store");
+        expect_v(cap_ld_data === 32'h7A00_0005, "T7 wrapped queue must yield the youngest store");
         tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
         sq_drain(160);
-        expect(mem_word(T7_BASE) === 32'h7A00_0005, "T7 youngest store must land last");
+        expect_v(mem_word(T7_BASE) === 32'h7A00_0005, "T7 youngest store must land last");
         $display("PASS: T7 store-queue merge order after pointer wrap");
 
         // ---- T8 在飞 load 并发 (同时未回的条数触到/超过 LD_INFLIGHT) ----
@@ -728,7 +753,7 @@ module tb_mem_axi;
         // ⇒ "在飞 == N" 永不成立, 满判据失效, 第 N+1 条会覆盖第 1 条的地址/idx 槽位,
         // 完成脉冲便带着错 idx/错数据回来。TB 原先逐条等完成 ⇒ 并发度恒 1, 覆盖不到。
         // 4 条 > LD_INFLIGHT=2 即可触发; LD_INFLIGHT>=4 时本条只验"能并发且不错位"。
-        fetch_wait(FA_PARK, 60);
+        fetch_wait(FA_PARK, FETCH_MAX);
         base_inflight = ld_inflight_tb;
         done_q_rp = done_q_wp;          // 丢弃前序测试遗留的完成记录 (它们已被 ld_wait 认领)
         for (k = 0; k < 4; k = k + 1) begin
@@ -736,15 +761,15 @@ module tb_mem_axi;
             exp_idx[k]  = k[LIW - 1 : 0];
             ld_push(exp_addr[k], 2'b10, exp_idx[k]);      // 连压 4 条, 中途不等完成
         end
-        expect(ld_inflight_tb == base_inflight + 4, "T8 four loads must be accepted (ld_busy contract)");
+        expect_v(ld_inflight_tb == base_inflight + 4, "T8 four loads must be accepted (ld_busy contract)");
         // 在飞峰值 ≤ LD_INFLIGHT: 收下数 - 已认领完成数 - 空档期已回数 (账本口径, 与完成是否已被认领无关)
-        expect((ld_acc_tb - ld_done_tb - pend_done) <= LD_INFLIGHT,
+        expect_v((ld_acc_tb - ld_done_tb - pend_done) <= LD_INFLIGHT,
                "T8 in-flight loads exceeded LD_INFLIGHT (ld_busy contract)");
         // 逐条核对: 回包与请求同序 (AXI 按 AR 序) ⇒ 第 k 个完成就是第 k 条
         for (k = 0; k < 4; k = k + 1) begin
             wait_done(200);
-            expect(done_q_idx[done_q_rp]  === exp_idx[k],  "T8 completion index mismatch (in-flight slot aliasing)");
-            expect(done_q_data[done_q_rp] === mem_word(exp_addr[k]), "T8 completion data mismatch");
+            expect_v(done_q_idx[done_q_rp]  === exp_idx[k],  "T8 completion index mismatch (in-flight slot aliasing)");
+            expect_v(done_q_data[done_q_rp] === mem_word(exp_addr[k]), "T8 completion data mismatch");
             done_q_rp = done_q_rp + 1;
             pend_done = pend_done - 1;             // 本条已认领 (后面 ld_wait 不再算它)
             ld_inflight_tb = ld_inflight_tb - 1;
@@ -753,8 +778,8 @@ module tb_mem_axi;
         $display("PASS: T8 concurrent in-flight loads (LD_INFLIGHT=%0d)", LD_INFLIGHT);
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
-        expect(ld_inflight_tb == 0, "load bookkeeping not balanced");
-        expect(ld_acc_tb == ld_done_tb, "accepted loads != completed loads");
+        expect_v(ld_inflight_tb == 0, "load bookkeeping not balanced");
+        expect_v(ld_acc_tb == ld_done_tb, "accepted loads != completed loads");
 
         if (errors == 0) begin
             $display("ALL TESTS PASSED");

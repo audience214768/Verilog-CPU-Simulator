@@ -1,25 +1,20 @@
 // 存储子系统: 把 cpu_top 的存储接口 (与 core/memory.v:10-38 逐一对位) 接到 axi_lite_master
-// 内部三块: load 适配 / 取指预取窗口 (ifetch) / 已提交 store 队列 (store_queue)
+// 内部三块: load 适配 / L1 指令缓存 (core/icache.v) / 已提交 store 队列 (store_queue)
 //
 // 【为什么不能简单直连】fetch.v 的隐含契约是"地址 A 上总线, 下一拍 inst_data 就是 A 处指令"
-// (memory.v 的同步读), 而 AXI 读要 ~12 拍。故必须有窗口: 回包按地址存下, 只在**地址对得上**的
-// 那拍才交付 (imem_valid=1), 对不上/未回则 imem_valid=0, fetch 自会把请求停在期望批上等它
-// (见 fetch.v 的 pc_next 末支与 imem_hit)。
-// 地址比对用本模块自建的 imem_addr_q (imem_addr 延迟一拍, 复位值逐槽 4*g), 与 fetch.v:184-192 的
-// imem_addr_d 逐槽一致 ⇒ 两者恒等, 交付时机与 fetch 完全同步。
+// (memory.v 的同步读), 而 AXI 读要 ~12 拍。故中间必须有缓存: 未命中那拍不交付 (imem_valid=0),
+// fetch 自会把请求停在期望批上等填充 (见 fetch.v 的 pc_next 末支与 imem_hit)。
 //
-// 【取指预取窗口】PF_DEPTH 字, 按 addr[2 +: PF_IW] 直接映射, 每格存完整地址 tag + 数据 + valid:
-//   - 发起时写 tag 并清 valid, 回包时写 data 并置 valid ⇒ "valid ⟺ 本格数据属于本格 tag"。
-//     (若发起时不清 valid, 旧数据会被新 tag 冒充 ⇒ 假命中 —— 本模块最容易写错的一处)
-//   - 预取流 pf_next_r 只朝前走, 超前 demand 不超过 PF_WIN 字; 而某格被流覆盖要等流再走
-//     PF_DEPTH 字 ⇒ 只要 PF_WIN < PF_DEPTH, demand 需要的那格就不会被预取流自己冲掉。
-//   - demand 未命中: 该地址不在飞则把流拉回 demand (别继续取没用的), 在飞则原地等 (防重复发)。
-//   - demand 命中时流到窗口上界即停 ⇒ 不占总线, 那 1 字/拍让给 load (带宽区分点)。
-//   - 反向后跳会让超前量超出一个缓冲区跨度 (pf_stale_w) ⇒ 同样拉回流, 顺带排除覆盖风险。
-//   - 流前方已有本地址数据时只推进流不重发 (pf_dup_w): 既省带宽, 也避免"重发先把自己置无效"。
-//   - ★ 本格有回包在飞时不得重发 (pf_pend_w): 回包只带下标不带地址, 重发等于让 A 的数据冒充 B。
-//   - PF_WIN 是取指/load 的带宽分配旋钮: 窗口越大越能藏跳转延迟, 但重定向时在途的废请求
-//     (最多 PF_WIN 个) 会挡在新地址前面, 每个多花 1 拍 ⇒ 消融时扫它。
+// 【取指通路 = L1 指令缓存】交付语义与本模块原"取指预取窗口"逐一对位 (同拍 imem_addr 请求 /
+//   下一拍 inst_data + imem_valid / 本拍 imem_hit 整批口径), 故 fetch.v 一行不改。实现与三条
+//   不变量、单端口读写冲突、跨行批两拍装配、miss 为何必须挂在"交付失败"上, 全部见 icache.v 头注释。
+//   本模块只负责把填充请求接进 AXI 读通道 (load 优先) 并把回包按序送回。两条硬要求:
+//   - ★ IC_LINE_WORDS ≥ ISSUE_WIDTH: 否则一个批可能跨三行, 两拍装配不够。
+//   - ★ 响应与请求一一对应且**同序** (AXI 按 AR 序回) ⇒ 填充侧只需 1 位 tag 区分 load/填充;
+//     icache 内部用 fill_cnt_r 数回包, 不在 tag 里编码行号/字号。
+//   相对窗口的收益 (实测数字见 docs/timing/results.csv): 窗口是 16 格 × 66 bit = 1088 flop 却只装
+//   64 字节, 且 4 个读口都是 one-hot + AND-OR 归约网 (idat[0].oh_g 实测扇出恒定 1040);
+//   缓存把数据与 tag 一起放进 sram_fakeram (每比特便宜约 7 倍), DFF 只剩 IC_LINES 位 valid 位图。
 //
 // 【load 通路】ld_busy==0 是**必须当场兑现**的硬承诺 (lsq.v:158 组合自 !ld_busy, 且收到即置 issued;
 //   反悔 ⇒ 该条目永久在飞 ⇒ head 卡死): 故 ld_busy 只由"在飞数 + 读口是否有空位"组合决定, 且 load
@@ -41,14 +36,21 @@
 //
 // 复位异步低有效 (与 axi_lite_master 一致; ASAP7 标准单元库只有异步复位触发器)
 module mem_subsystem #(
-    parameter ISSUE_WIDTH = 1,
-    parameter LSQ_SIZE    = 16,
-    parameter PF_DEPTH    = 16,      // 取指预取窗口字数 (2 的幂; 须 > PF_WIN)
-    parameter PF_WIN      = 8,       // 预取流超前 demand 的字数上限
-    parameter LD_INFLIGHT = 8,       // 在飞 load 上限
-    parameter SQ_DEPTH    = 8,       // 已提交未可见 store 队列深度
-    parameter RD_DEPTH    = 8,       // AXI 读事务 FIFO 深度
-    parameter WR_DEPTH    = 8        // AXI 写事务 FIFO 深度
+    parameter ISSUE_WIDTH   = 1,
+    parameter LSQ_SIZE      = 16,
+    parameter IC_SIZE       = 1024,   // I-cache 总容量 (字节)
+    parameter IC_LINE_WORDS = 8,      // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
+    parameter IC_BYPASS     = 0,      // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
+    parameter IC_PREFETCH   = 1,      // 1 = 顺需求行预取下一行
+    parameter LD_INFLIGHT   = 8,      // 在飞 load 上限
+    parameter SQ_DEPTH      = 8,      // 已提交未可见 store 队列深度
+    // ★ RD_DEPTH ≥ 2 * IC_LINE_WORDS, 且必须是 2 的幂 (axi_lite_master 的指针按 2^PW 取模)。
+    //   一次行填充要背靠背连发 IC_LINE_WORDS 笔 AR; 而读 FIFO 实际容量是 RD_DEPTH-1
+    //   (axi_lite_master.v:87 的 rd_full_w 留一格区分空满), 容量不足时填充被自己节流:
+    //   仍能完成 (每收到一个回包放行一笔请求), 但整行填充从 LATENCY+LW 拉长到约 2*LATENCY+L
+    //   —— 实测 tb_mem_axi 的 T1 由 54 拍劣化到 70 拍。故留一倍余量。
+    parameter RD_DEPTH      = 16,     // AXI 读事务 FIFO 深度
+    parameter WR_DEPTH      = 8       // AXI 写事务 FIFO 深度
 ) (
     input  clk,
     input  rst_n,
@@ -97,11 +99,12 @@ module mem_subsystem #(
     input           bvalid,
     output          bready
 );
-    localparam PF_IW = $clog2(PF_DEPTH);
     localparam LD_IW = $clog2(LD_INFLIGHT);
     localparam LIW   = $clog2(LSQ_SIZE);
     localparam SQ_IW = $clog2(SQ_DEPTH);
-    localparam TW    = 1 + PF_IW;                 // AXI 读 tag: 最高位 1=load, 0=取指 (低 PF_IW 位为下标)
+    // AXI 读 tag: 1 位足矣 —— 回包与请求同序 (AXI 按 AR 序回), 填充侧只需区分"这条回包是
+    // load 的还是取指填充的"; 行号/字号由 icache 内部数回包得到, 不进 tag。
+    localparam TW    = 1;
 
     // 宽度编码 (00=1 01=2 10=4 字节) → 字节数 / 选通掩码
     function [2 : 0] wd_bytes;
@@ -116,17 +119,6 @@ module mem_subsystem #(
             wd_mask = (w == 2'b10) ? 4'hF : (w == 2'b01) ? 4'h3 : 4'h1;
         end
     endfunction
-    // 槽 g 的 imem_addr 复位值 = 4*g, 与 fetch.v:190 逐槽一致
-    function [ISSUE_WIDTH * 32 - 1 : 0] slot_init_f;
-        input dummy;                                  // 占位: iverilog 要求函数至少一个入参
-        integer g;
-        begin
-            slot_init_f = {ISSUE_WIDTH * 32{1'b0}};
-            for (g = 0; g < ISSUE_WIDTH; g = g + 1)
-                slot_init_f[g * 32 +: 32] = g * 4;
-        end
-    endfunction
-
     // ==================== 1. AXI4-Lite 主机 ====================
     wire                 rd_req_valid, rd_req_ready, rd_resp_valid, rd_resp_ready;
     wire [31 : 0]        rd_req_addr, rd_resp_data;
@@ -202,190 +194,30 @@ module mem_subsystem #(
     assign ld_done_valid = ld_resp_hs;
     assign ld_done_idx   = ld_i_w;
 
-    // ==================== 3. 取指预取窗口 ====================
-    // **逐槽**延迟一拍 (≡ fetch.v:54 的 imem_addr_d, 同宽同复位值): 交付逻辑按槽取地址
-    // imem_addr_q[g*32 +: 32], 只声明 32 位时 g>=1 会越界 —— Verilator 报 SELRANGE 并退化成
-    // 槽 0 的值 ⇒ 槽 1 复用槽 0 的窗口项, 把错指令当"命中"交付 (slot_hit 仍为全 1, CPU 无从察觉)。
-    // 实测 W=2: 取指在 pc=0x34/0x3C 之间每拍振荡, commit 数远超程序动态指令数, 永不触发停机 store。
-    // 复位那行本来就按 slot_init_f 的**全宽**值写 (逐槽 4*g), 只是声明窄了被截断 —— W=1 只需槽 0。
-    reg [ISSUE_WIDTH * 32 - 1 : 0] imem_addr_q;         // ≡ fetch.v 的 imem_addr_d
-    reg [PF_DEPTH * 32 - 1 : 0] pf_tag_r;               // 发起时写: 该格正在取的地址
-    reg [PF_DEPTH * 32 - 1 : 0] pf_data_r;              // 回包时写
-    reg [PF_DEPTH - 1 : 0]      pf_valid_r;
-    reg [PF_DEPTH - 1 : 0]      pf_pend_r;              // 在飞 (发起置位, 回包清)
-    reg [31 : 0]                pf_next_r;              // 预取流: 下一个要取的地址
+    // ==================== 3. L1 指令缓存 ====================
+    // 交付语义与原来的取指预取窗口逐一对位 (同拍 imem_addr 请求 / 下一拍 inst_data + imem_valid /
+    // 本拍 imem_hit 整批口径), 故 fetch.v 与 cpu_top 一行不改。三条不变量与全部实现理由见
+    // core/icache.v 头注释 —— 改这一节前先读那份注释。
+    wire          fill_req_valid_w;
+    wire [31 : 0] fill_req_addr_w;
+    // ★ 填充为 load 让路: load 被收下的那拍绝不接受填充请求。icache 只在 fill_hs 那拍推进
+    //   fill_word_r, 被抢走就原地重试 ⇒ 让路不丢位置、不重发 (重发会让 A 的回包落进 B 的格)。
+    wire          fill_req_ready_w = rd_req_ready && !ld_accept;
+    // 回包分流: tag 最高位 (=TW-1) 为 0 ⇒ 取指填充, 为 1 ⇒ load (与第 5 节仲裁同源)
+    wire          fill_rsp_valid_w = rd_resp_valid && !rd_resp_tag[TW - 1];
 
-    // ---- 窗口读口: **one-hot + AND-OR** (原为 `pf_xxx_r[idx * W +: W]`) ----
-    // 索引读综合出 PF_DEPTH 选 1 的 mux 树, 索引**最低位落在最宽的一级**:
-    // 扇出 = (PF_DEPTH/2) × (1 + 1 + 32 + 32) = 8 × 66 = 528。而 demand 走的是 imem_addr_q,
-    // 它同时喂 4 处读口, 实测峰值 797 —— 即容器报告里 13.24 ns 路径上最大的一级
-    // _148978_ (AND2x2, 797 扇出, **907 ps**)。
-    // 改成: 先把 4 个字段按格**重排**成 pf_ent[gp][PFW] (纯连线), 再把索引译成 one-hot
-    // 后逐位 AND-OR ⇒ 每条 one-hot 只驱动 PFW 个 AND, 峰值扇出 528/797 → 66。
-    // 索引最低位在 mux 树里落在最宽一级; 在 one-hot 里只驱动译码器 ⇒ 深度 15 级 → ~8 级。
-    localparam PFW = 1 + 1 + 32 + 32;       // valid + pend + tag + data
-    localparam PO_V = 0;                    // : 1
-    localparam PO_P = PO_V + 1;             // : 1
-    localparam PO_T = PO_P + 1;             // : 32
-    localparam PO_D = PO_T + 32;            // : 32
-    wire [PF_DEPTH * PFW - 1 : 0] pf_ent;
-    genvar gp, gb;
-    generate
-        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : pfpack
-            assign pf_ent[gp * PFW +: PFW] = {
-                pf_data_r[gp * 32 +: 32], pf_tag_r[gp * 32 +: 32],
-                pf_pend_r[gp], pf_valid_r[gp] };
-        end
-    endgenerate
-
-    wire [31 : 0]        demand_a  = imem_addr_q[0 * 32 +: 32];   // 只对槽 0 做流控 (批内其它槽随后即到)
-    wire [PF_IW - 1 : 0] dem_idx   = demand_a[2 +: PF_IW];
-    // 读口 A: 按 demand (即 imem_addr_q 的槽 0) 取
-    wire [PF_DEPTH - 1 : 0] oh_dem;
-    wire [PFW - 1 : 0]      sel_dem;
-    generate
-        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohd
-            assign oh_dem[gp] = (dem_idx == gp[PF_IW - 1 : 0]);
-        end
-        for (gb = 0; gb < PFW; gb = gb + 1) begin : redd
-            wire [PF_DEPTH - 1 : 0] m;
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
-                assign m[gp] = pf_ent[gp * PFW + gb] & oh_dem[gp];
-            end
-            assign sel_dem[gb] = |m;
-        end
-    endgenerate
-    wire [31 : 0]     dem_tag   = sel_dem[PO_T +: 32];
-    wire dem_pend = sel_dem[PO_P] && (dem_tag == demand_a);   // 同址在飞
-    wire [31 : 0] pf_ahead_w = pf_next_r - demand_a;     // 无符号减: 流若落后会得到大数 ⇒ 自然不满足上界
-    wire pf_stale_w = (pf_ahead_w >= (PF_DEPTH * 4));    // 流跑到缓冲区跨度外 (含"落后于 demand"的绕回)
-    // 拉回流: 未命中且不在飞, 或流已跑到缓冲区跨度外 (后者让"向后跳"后能重新填窗, 也排除覆盖风险)
-    // ★ 2026-09-28 留档 (勿直接重做): 本处流控曾改写为 "pf_addr_w = pf_out_w ? demand_a : pf_next_r"
-    //   (就地取 demand 而不拉回指针), 并把命中判定改成"逐槽全中" —— 两版**都回归**: W=2 官方
-    //   add_to_100 由 PASS(462 拍) 变成 1e8 拍不终止 (array_test1 同步失守, 819 拍 → 超时)。
-    //   下面是本轮在**修复版构建**上实测到的真死带 (array_test2, W=2, LATENCY=10):
-    //   稳定停在 pf_next_r=0xE4 / demand_a=0xBC ⇒ pf_ahead_w=0x28=40 ∈ [PF_WIN*4=32, PF_DEPTH*4=64)
-    //   —— 既 ≥ 上界不发、又 < 下界不拉回 ⇒ 流冻结, 期望批 {0xBC,0xC0} 永不凑齐
-    //   (pc_r 在 0xBC/0xC4 每拍翻转, 1396 次/1500 拍; exp_pc_r 自 t=457 冻结在 0xBC)。
-    //   死带是真的, 但改法必须**连同 demand 锚点一起改** —— "槽 0 口径"与"批口径"混用才是病根
-    //   (demand_a 只锚槽 0, 而 imem_valid/cap_w 要求整批到齐)。片段与证据见 docs/plan.md §15.10.17 §三。
-    // ★ 死带补口 (2026-09-28, 缺陷 7): "ahead < PF_WIN*4 才发"与"ahead >= PF_DEPTH*4 才拉回"之间有一段
-    //   死带, 而指针的推进**不止**来自发起 —— `pf_dup_w` 跳过已有项也推进且不受上界约束 ⇒ 指针停在
-    //   ahead ∈ [PF_WIN*4, PF_DEPTH*4) 是**可达**状态。此时: 不发 (上界), 也不拉回 (旧触发只看 `dem_hit`,
-    //   而 dem_hit 只比槽 0) ⇒ 批内第二槽缺失时流永久冻结。
-    //   实测 (官方 basicopt1, W=2, LATENCY=10): pf_next_r=0x108 / demand_a=0xE8 ⇒ ahead=0x20=32;
-    //   批 {0xE8,0xEC} 的 0xEC 被 0xAC 同格覆盖 (0xAC 与 0xEC 差 0x40 = 一整个窗口跨度, 索引同为 11,
-    //   由一次向后分支重走 0xA8 段造成) ⇒ 取指永久停摆: 后端 rob_empty=1、LSQ 空、AXI 读队列全空、
-    //   rd_req_valid 恒 0。改法: 触发改"**期望批整批**未在窗口" (imem_valid ≡ &slot_hit, 与接收同口径),
-    //   但只在指针**已走过整批**时才拉回 (ahead > (ISSUE_WIDTH-1)*4) —— 否则指针在批内朝缺字走时会被
-    //   反复拉回、那一笔永远发不出 (活锁)。W=1 时 (ISSUE_WIDTH-1)*4 = 0 且 imem_valid ≡ 槽 0 命中
-    //   (原来的 `dem_hit`) ⇒ 逐位等价; 那个只看槽 0 的信号随之成了死码, 已删。
-    wire pf_beyond_w = (pf_ahead_w > ((ISSUE_WIDTH - 1) * 4));
-    wire pf_restart = !dem_pend && (pf_next_r != demand_a)
-                      && (pf_stale_w || (!imem_valid && pf_beyond_w));
-    wire [PF_IW - 1 : 0] pf_idx_w = pf_next_r[2 +: PF_IW];
-    // 读口 B: 按预取流指针 pf_next_r 取
-    wire [PF_DEPTH - 1 : 0] oh_str;
-    wire [PFW - 1 : 0]      sel_str;
-    generate
-        for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohs
-            assign oh_str[gp] = (pf_idx_w == gp[PF_IW - 1 : 0]);
-        end
-        for (gb = 0; gb < PFW; gb = gb + 1) begin : reds
-            wire [PF_DEPTH - 1 : 0] m;
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
-                assign m[gp] = pf_ent[gp * PFW + gb] & oh_str[gp];
-            end
-            assign sel_str[gb] = |m;
-        end
-    endgenerate
-    // 流前方已是本地址的数据 (反向后跳回到命中行时常见) ⇒ 直接跨过去, 不重发 (重发会先把自己置无效)
-    wire pf_dup_w = sel_str[PO_V] && (sel_str[PO_T +: 32] == pf_next_r);
-    // 本格还有回包在飞时**绝不能**重发: 回包只带下标、不带地址, 重发会让"A 的回包"落进
-    // 已被改写成 B 的格 ⇒ tag 说 B、数据却是 A (实测到过: 停车位 0x700 的数据被判给 0x440,
-    // 二者同落格 0)。等回包回来再发, 只损失一趟往返, 不错绑。
-    wire pf_pend_w = sel_str[PO_P];
-    wire pf_issue = !pf_restart && !pf_dup_w && !pf_pend_w && (pf_ahead_w < (PF_WIN * 4));
-    wire pf_hs = pf_issue && !ld_accept && rd_req_ready;   // 本拍真正被收下的取指请求
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            imem_addr_q <= slot_init_f(1'b0);
-            pf_next_r   <= 32'd0;
-            pf_valid_r  <= {PF_DEPTH{1'b0}};
-            pf_pend_r   <= {PF_DEPTH{1'b0}};
-        end else begin
-            imem_addr_q <= imem_addr;
-            if (pf_restart)     pf_next_r <= demand_a;
-            else if (pf_hs)     pf_next_r <= pf_next_r + 32'd4;
-            else if (pf_dup_w)  pf_next_r <= pf_next_r + 32'd4;   // 已有 ⇒ 只推进流, 不占总线
-            // 发起: 写 tag + 清 valid + 置在飞 (清 valid 是必须的, 见头注释)
-            if (pf_hs) begin
-                pf_tag_r[pf_idx_w * 32 +: 32] <= pf_next_r;
-                pf_valid_r[pf_idx_w] <= 1'b0;
-                pf_pend_r[pf_idx_w]  <= 1'b1;
-            end
-            // 回包: 请求与回包一一对应且同序, 直接按 tag 下标落格
-            if (rd_resp_valid && !rd_resp_tag[TW - 1]) begin
-                pf_data_r[rd_resp_tag[PF_IW - 1 : 0] * 32 +: 32] <= rd_resp_data;
-                pf_valid_r[rd_resp_tag[PF_IW - 1 : 0]] <= 1'b1;
-                pf_pend_r[rd_resp_tag[PF_IW - 1 : 0]]  <= 1'b0;
-            end
-        end
-    end
-
-    // 交付: 每槽独立比对 (全中才算本拍数据可信)
-    wire [ISSUE_WIDTH - 1 : 0] slot_hit;
-    genvar g;
-    generate
-        for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : idat
-            wire [31 : 0]        a_g = imem_addr_q[g * 32 +: 32];
-            wire [PF_IW - 1 : 0] i_g = a_g[2 +: PF_IW];
-            // 读口 A': 按槽 g 的地址取 (g=0 时 i_g 与 dem_idx 是同一表达式, 译码器被 CSE 合并)
-            wire [PF_DEPTH - 1 : 0] oh_g;
-            wire [PFW - 1 : 0]      sel_g;
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohg
-                assign oh_g[gp] = (i_g == gp[PF_IW - 1 : 0]);
-            end
-            for (gb = 0; gb < PFW; gb = gb + 1) begin : redg
-                wire [PF_DEPTH - 1 : 0] m;
-                for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
-                    assign m[gp] = pf_ent[gp * PFW + gb] & oh_g[gp];
-                end
-                assign sel_g[gb] = |m;
-            end
-            assign slot_hit[g] = sel_g[PO_V] && (sel_g[PO_T +: 32] == a_g);
-            assign inst_data[g * 32 +: 32] = sel_g[PO_D +: 32];
-        end
-    endgenerate
-    assign imem_valid = &slot_hit;
-    // 本拍 imem_addr 的命中: 与上面同款比对, 但用**当前**请求地址 (非延迟一拍的 imem_addr_q)。
-    //   fetch 用它判断"能否把请求预先推到下一批" —— 只有期望批已在窗口里才允许超前,
-    //   否则请求地址会随数据未回而乱翻, 预取流再也填不满 (见 fetch.v 的 pc_lead_w 注释)。
-    //   这里比的是批的首字 (槽 0), 与预取流控用的 demand 同一口径。
-    // ★ 逐槽全中: pc_lead 超前的前提是"下一拍交付的正是整批"。imem_valid = &slot_hit 是逐槽的,
-    //   只比槽 0 时"槽 0 已回、槽 1 未回"也放行 ⇒ 下一拍 arr_ok 成立但 imem_valid=0 ⇒ cap 落空
-    //   ⇒ pc_next 退回 exp_pc_r ⇒ 请求地址每拍在 N / N+4W 之间翻转 ⇒ 预取流锚点（demand_a）被
-    //   每拍撕扯 ⇒ 期望批永远凑不齐。（W=1 时逐槽 ≡ 槽 0, 逐位等价。）
-    // 读口 C: 按本拍 imem_addr 逐槽取 (非延迟一拍 ⇒ 与读口 A 不是同一个索引, 不能合用)
-    wire [ISSUE_WIDTH - 1 : 0] hit_cur;
-    generate
-        for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ihit
-            wire [31 : 0]           ac_g = imem_addr[g * 32 +: 32];
-            wire [PF_IW - 1 : 0]    ic_g = ac_g[2 +: PF_IW];
-            wire [PF_DEPTH - 1 : 0] oh_g;
-            wire [PF_DEPTH - 1 : 0] mv, mt;
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : ohc
-                assign oh_g[gp] = (ic_g == gp[PF_IW - 1 : 0]);
-            end
-            for (gp = 0; gp < PF_DEPTH; gp = gp + 1) begin : e
-                assign mv[gp] = pf_ent[gp * PFW + PO_V] & oh_g[gp];
-                assign mt[gp] = (pf_ent[gp * PFW + PO_T +: 32] == ac_g) & oh_g[gp];
-            end
-            assign hit_cur[g] = (|mv) & (|mt);
-        end
-    endgenerate
-    assign imem_hit = &hit_cur;
+    icache #(
+        .ISSUE_WIDTH(ISSUE_WIDTH), .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
+        .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH)
+    ) u_ic (
+        .clk(clk), .rst_n(rst_n),
+        .imem_addr(imem_addr), .inst_data(inst_data),
+        .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .fill_req_valid(fill_req_valid_w), .fill_req_addr(fill_req_addr_w),
+        .fill_req_ready(fill_req_ready_w),
+        .fill_rsp_valid(fill_rsp_valid_w), .fill_rsp_data(rd_resp_data),
+        .fill_busy()                                  // 仅观测量, 本模块不用 (TB 可用层次名取)
+    );
 
     // ==================== 4. 已提交 store 队列 ====================
     reg [SQ_DEPTH * 32 - 1 : 0] sq_addr_r, sq_data_r;
@@ -513,7 +345,7 @@ module mem_subsystem #(
     end
 
     // ==================== 5. 读口仲裁 (load 优先) ====================
-    assign rd_req_valid = ld_accept || pf_issue;
-    assign rd_req_addr  = ld_accept ? {ld_start_addr[31 : 2], 2'b00} : pf_next_r;
-    assign rd_req_tag   = ld_accept ? {1'b1, {PF_IW{1'b0}}} : {1'b0, pf_idx_w};
+    assign rd_req_valid = ld_accept || fill_req_valid_w;
+    assign rd_req_addr  = ld_accept ? {ld_start_addr[31 : 2], 2'b00} : fill_req_addr_w;
+    assign rd_req_tag   = ld_accept ? 1'b1 : 1'b0;      // 1=load, 0=取指填充 (TW=1, 见第 1 节)
 endmodule

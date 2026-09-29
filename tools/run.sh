@@ -12,22 +12,35 @@
 # 用法:
 #   tools/run.sh <id> [参数=值 ...]       # 例: tools/run.sh lsq8 LSQ_SIZE=8
 #   tools/run.sh <id> --no-synth          # 只造树不打综合
+#   tools/run.sh <id> --filelist docs/timing/filelist_ic.f
+#       # 换冻结口径的源文件列表。默认仍是 filelist_t4tmp.f —— 冻结口径是归档可比性的前提
+#       # (tools/README.md), 只有**新增源文件**时才该另立一个列表并显式指定。
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
 [ -n "$ID" ] || { echo "用法: tools/run.sh <id> [参数=值 ...]"; exit 2; }
 TREE="$ROOT/runs/$ID"
+FLIST=docs/timing/filelist_t4tmp.f
+
+# 先扫一遍 --filelist, 再走参数补丁 (它要放进下面那个循环里一起吃掉)
+for kv in "$@"; do
+    case "$kv" in
+        --filelist=*) FLIST=${kv#--filelist=} ;;
+    esac
+done
+[ -f "$ROOT/$FLIST" ] || { echo "缺少源文件列表 $FLIST"; exit 1; }
 
 rm -rf "$TREE"; mkdir -p "$TREE"
 cp -R "$ROOT/verilog" "$ROOT/scripts" "$ROOT/Makefile" "$ROOT/config.mk" "$TREE/"
 # 冻结口径的源文件列表 (缺了就直接报错 —— 静默跳过会跑出一份不可比的网表)
-cp "$ROOT/docs/timing/filelist_t4tmp.f" "$TREE/verilog/" \
-    || { echo "缺少冻结口径的源文件列表 docs/timing/filelist_t4tmp.f"; exit 1; }
+cp "$ROOT/$FLIST" "$TREE/verilog/" || { echo "缺少源文件列表 $FLIST"; exit 1; }
+FNAME=$(basename "$FLIST")
 
 # 参数补丁: 只改 student_top 的 parameter 默认值 (参数由它显式往下传)
 for kv in "$@"; do
     case "$kv" in
         --no-synth) NO_SYNTH=1; continue ;;
+        --filelist=*) continue ;;
         *=*) ;;
         *) echo "跳过无法识别的参数: $kv"; continue ;;
     esac
@@ -40,13 +53,13 @@ for kv in "$@"; do
     echo "  补丁 $k = $v"
 done
 
-echo "变体树: $TREE"
+echo "变体树: $TREE (filelist = $FNAME)"
 [ -n "$NO_SYNTH" ] && exit 0
 
 # 官方容器: 绝不能传 CONFIG=config.local.mk (容器内 config.mk 全默认才对)
 docker run --rm --cpus=2 -v "$TREE":/work -w /work cpu2026:local \
     make synth MODE=opt CLOCK_PERIOD_NS=2.0 \
-         FILELIST=verilog/filelist_t4tmp.f SYNTH_OUT=build/synth_$ID \
+         FILELIST="verilog/$FNAME" SYNTH_OUT=build/synth_$ID \
     > "$TREE/synth_$ID.log" 2>&1 || { echo "综合失败, 见 $TREE/synth_$ID.log"; exit 1; }
 
 cat "$TREE/build/synth_$ID/opt/timing_values.json"

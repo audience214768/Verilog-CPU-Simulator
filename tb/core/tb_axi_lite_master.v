@@ -316,7 +316,7 @@ module tb_axi_lite_master;
         end
     endtask
 
-    task expect;
+    task expect_v;
         input cond;
         input [1023:0] msg;
         begin
@@ -374,7 +374,7 @@ module tb_axi_lite_master;
                     cap_rd_data = s_rd_data; cap_rd_resp = s_rd_resp; cap_rd_tag = s_rd_tag;
                 end
             end
-            expect(hit, "read response never returned");
+            expect_v(hit, "read response never returned");
         end
     endtask
 
@@ -390,7 +390,7 @@ module tb_axi_lite_master;
                     cap_wr_resp = s_wr_resp; cap_wr_tag = s_wr_tag;
                 end
             end
-            expect(hit, "write response never returned");
+            expect_v(hit, "write response never returned");
         end
     endtask
 
@@ -423,32 +423,32 @@ module tb_axi_lite_master;
         // ---- T1 单读: 数据/响应/tag 均正确 ----
         push_read(32'h0000_0100, 4'd3);
         wait_rd_resp(40);
-        expect(cap_rd_data === mem_word(32'h0000_0100), "T1 rd data");
-        expect(cap_rd_resp === 2'd0, "T1 rd resp OKAY");
-        expect(cap_rd_tag === 4'd3, "T1 rd tag");
+        expect_v(cap_rd_data === mem_word(32'h0000_0100), "T1 rd data");
+        expect_v(cap_rd_resp === 2'd0, "T1 rd resp OKAY");
+        expect_v(cap_rd_tag === 4'd3, "T1 rd tag");
         if ((cap_rd_data === mem_word(32'h0000_0100)) && (cap_rd_resp === 2'd0) && (cap_rd_tag === 4'd3))
             $display("PASS: T1 single read (data/resp/tag)");
 
         // ---- T2 单写 + 读回 ----
         push_write(32'h0000_0200, 32'hDEAD_BEEF, 4'hf, 3'd5);
         wait_wr_resp(40);
-        expect(cap_wr_resp === 2'd0, "T2 bresp OKAY");
-        expect(cap_wr_tag === 3'd5, "T2 b tag");
-        expect(mem_bytes[32'h0000_0200] === 8'hEF, "T2 mem byte0");
-        expect(mem_bytes[32'h0000_0203] === 8'hDE, "T2 mem byte3");
+        expect_v(cap_wr_resp === 2'd0, "T2 bresp OKAY");
+        expect_v(cap_wr_tag === 3'd5, "T2 b tag");
+        expect_v(mem_bytes[32'h0000_0200] === 8'hEF, "T2 mem byte0");
+        expect_v(mem_bytes[32'h0000_0203] === 8'hDE, "T2 mem byte3");
         if ((cap_wr_resp === 2'd0) && (cap_wr_tag === 3'd5) && (mem_bytes[32'h0000_0203] === 8'hDE))
             $display("PASS: T2 single write + memory");
         push_read(32'h0000_0200, 4'd0);
         wait_rd_resp(40);
-        expect(cap_rd_data === 32'hDEAD_BEEF, "T2b read-back");
+        expect_v(cap_rd_data === 32'hDEAD_BEEF, "T2b read-back");
         if (cap_rd_data === 32'hDEAD_BEEF) $display("PASS: T2b write read-back");
 
         // ---- T3 子字写: 只有 wstrb 指到的字节被改 (wstrb[i] ↔ address+i, 取 wdata[8i+:8]) ----
         push_write(32'h0000_0204, 32'hAABB_CCDD, 4'b0010, 3'd1);   // 只写 0x205 ← wdata[15:8] = 0xCC
         wait_wr_resp(40);
-        expect(mem_bytes[32'h0000_0205] === 8'hCC, "T3 byte1 = wdata[15:8]");
-        expect(mem_bytes[32'h0000_0204] === 8'h04, "T3 byte0 untouched");
-        expect(mem_bytes[32'h0000_0206] === 8'h06, "T3 byte2 untouched");
+        expect_v(mem_bytes[32'h0000_0205] === 8'hCC, "T3 byte1 = wdata[15:8]");
+        expect_v(mem_bytes[32'h0000_0204] === 8'h04, "T3 byte0 untouched");
+        expect_v(mem_bytes[32'h0000_0206] === 8'h06, "T3 byte2 untouched");
         if ((mem_bytes[32'h0000_0205] === 8'hCC) && (mem_bytes[32'h0000_0204] === 8'h04))
             $display("PASS: T3 sub-word write strobe");
 
@@ -456,7 +456,7 @@ module tb_axi_lite_master;
         rd_resp_ready = 1'b0;
         for (k = 0; k < (RD_DEPTH - 1); k = k + 1) push_read(32'h0000_0300 + 4 * k, k[RD_TW-1:0]);
         tick();
-        expect(rd_req_ready === 1'b0, "T4 rd_req_ready low when fifo full");
+        expect_v(rd_req_ready === 1'b0, "T4 rd_req_ready low when fifo full");
         if (rd_req_ready === 1'b0) $display("PASS: T4 read fifo full deasserts ready");
         begin : t4
             integer m, bad4; bad4 = 0;
@@ -466,7 +466,7 @@ module tb_axi_lite_master;
                 if ((cap_rd_tag !== m[RD_TW-1:0])
                  || (cap_rd_data !== mem_word(32'h0000_0300 + 4 * m))) bad4 = bad4 + 1;
             end
-            expect(bad4 == 0, "T4 responses out of order or wrong data");
+            expect_v(bad4 == 0, "T4 responses out of order or wrong data");
             if (bad4 == 0) $display("PASS: T4 15 outstanding reads in order");
         end
 
@@ -476,17 +476,17 @@ module tb_axi_lite_master;
         push_read(32'h0000_0400, 4'hA);
         push_write(32'h0000_0404, 32'h1234_5678, 4'hf, 3'd2);
         for (k = 0; k < 6; k = k + 1) tick();
-        expect(s_ar_hs === 1'b0, "T5 AR handshake while arready low");
-        expect(s_aw_hs === 1'b0, "T5 AW handshake while awready low");
-        expect(s_w_hs  === 1'b0, "T5 W handshake while wready low");
-        expect(arvalid === 1'b1, "T5 AR valid must stay high while stalled");
-        expect(awvalid === 1'b1, "T5 AW valid must stay high while stalled");
-        expect(wvalid  === 1'b1, "T5 W valid must stay high while stalled");
+        expect_v(s_ar_hs === 1'b0, "T5 AR handshake while arready low");
+        expect_v(s_aw_hs === 1'b0, "T5 AW handshake while awready low");
+        expect_v(s_w_hs  === 1'b0, "T5 W handshake while wready low");
+        expect_v(arvalid === 1'b1, "T5 AR valid must stay high while stalled");
+        expect_v(awvalid === 1'b1, "T5 AW valid must stay high while stalled");
+        expect_v(wvalid  === 1'b1, "T5 W valid must stay high while stalled");
         tb_hold_ar = 1'b0; tb_hold_aw = 1'b0; tb_hold_w = 1'b0;
         tick();
-        expect(s_ar_hs === 1'b1, "T5 AR handshake after release");
-        expect(s_aw_hs === 1'b1, "T5 AW handshake after release");
-        expect(s_w_hs  === 1'b1, "T5 W handshake after release");
+        expect_v(s_ar_hs === 1'b1, "T5 AR handshake after release");
+        expect_v(s_aw_hs === 1'b1, "T5 AW handshake after release");
+        expect_v(s_w_hs  === 1'b1, "T5 W handshake after release");
         if ((s_ar_hs === 1'b1) && (s_aw_hs === 1'b1) && (s_w_hs === 1'b1))
             $display("PASS: T5 VALID stability under channel backpressure");
         // 两条响应几乎同时到: 等读响应期间必须压住写响应, 否则它会被静默取走 (ready 恒 1)
@@ -498,24 +498,24 @@ module tb_axi_lite_master;
         // ---- T6 SLVERR / DECERR 透传 ----
         push_read(32'h0000_0102, 4'd1);            // 非 4 对齐 ⇒ SLVERR
         wait_rd_resp(40);
-        expect(cap_rd_resp === 2'd2, "T6 unaligned read SLVERR");
+        expect_v(cap_rd_resp === 2'd2, "T6 unaligned read SLVERR");
         push_read(32'h2000_0000, 4'd2);            // 越出 256MiB ⇒ DECERR
         wait_rd_resp(40);
-        expect(cap_rd_resp === 2'd3, "T6 out-of-range read DECERR");
+        expect_v(cap_rd_resp === 2'd3, "T6 out-of-range read DECERR");
         push_write(32'h0000_0106, 32'hFFFF_FFFF, 4'hf, 3'd7);   // 非 4 对齐写 ⇒ SLVERR
         wait_wr_resp(40);
-        expect(cap_wr_resp === 2'd2, "T6 unaligned write SLVERR");
-        expect(mem_bytes[32'h0000_0106] === 8'h06, "T6 SLVERR write must not touch memory");
+        expect_v(cap_wr_resp === 2'd2, "T6 unaligned write SLVERR");
+        expect_v(mem_bytes[32'h0000_0106] === 8'h06, "T6 SLVERR write must not touch memory");
         if ((cap_wr_resp === 2'd2) && (mem_bytes[32'h0000_0106] === 8'h06))
             $display("PASS: T6 SLVERR/DECERR passthrough");
 
         // ---- T7 停机: 0x80000000 + wstrb=4'hf ⇒ bresp OKAY, done, 退出值 = WDATA ----
-        expect(done === 1'b0, "T7 not done before exit write");
+        expect_v(done === 1'b0, "T7 not done before exit write");
         push_write(EXIT_ADDRESS, 32'h0000_1234, 4'hf, 3'd0);
         wait_wr_resp(40);
-        expect(cap_wr_resp === 2'd0, "T7 exit bresp OKAY");
-        expect(done === 1'b1, "T7 done after exit write");
-        expect(result === 32'h0000_1234, "T7 exit result = WDATA");
+        expect_v(cap_wr_resp === 2'd0, "T7 exit bresp OKAY");
+        expect_v(done === 1'b1, "T7 done after exit write");
+        expect_v(result === 32'h0000_1234, "T7 exit result = WDATA");
         if ((done === 1'b1) && (result === 32'h0000_1234))
             $display("PASS: T7 exit write latches result");
 
@@ -523,8 +523,8 @@ module tb_axi_lite_master;
         done = 1'b0;                               // sim.cpp 的 done 是一次性锁存, TB 要继续测后面用例须手动清
         push_write(EXIT_ADDRESS, 32'h0000_9999, 4'h3, 3'd1);
         wait_wr_resp(40);
-        expect(cap_wr_resp === 2'd2, "T8 partial-strobe exit write SLVERR");
-        expect(done === 1'b0, "T8 partial-strobe write must NOT exit");
+        expect_v(cap_wr_resp === 2'd2, "T8 partial-strobe exit write SLVERR");
+        expect_v(done === 1'b0, "T8 partial-strobe write must NOT exit");
         if ((cap_wr_resp === 2'd2) && (done === 1'b0))
             $display("PASS: T8 partial-strobe exit write does not terminate");
 
@@ -532,13 +532,13 @@ module tb_axi_lite_master;
         tb_hold_w = 1'b1;
         push_write(32'h0000_0500, 32'h1111_1111, 4'hf, 3'd0);
         for (k = 0; k < 3; k = k + 1) tick();
-        expect(dut.aw_done_r === 1'b1, "T9 AW done while W pending");
-        expect(dut.w_done_r === 1'b0, "T9 W not done yet");
+        expect_v(dut.aw_done_r === 1'b1, "T9 AW done while W pending");
+        expect_v(dut.w_done_r === 1'b0, "T9 W not done yet");
         push_write(32'h0000_0504, 32'h2222_2222, 4'hf, 3'd1);
         tb_hold_w = 1'b0;
         for (k = 0; k < 20; k = k + 1) tick();
-        expect(mem_bytes[32'h0000_0500] === 8'h11, "T9 first write lands at 0x500");
-        expect(mem_bytes[32'h0000_0504] === 8'h22, "T9 second write lands at 0x504");
+        expect_v(mem_bytes[32'h0000_0500] === 8'h11, "T9 first write lands at 0x500");
+        expect_v(mem_bytes[32'h0000_0504] === 8'h22, "T9 second write lands at 0x504");
         if ((mem_bytes[32'h0000_0500] === 8'h11) && (mem_bytes[32'h0000_0504] === 8'h22))
             $display("PASS: T9 AW-first ordering preserves pairing");
         // 反向: 压住 awready, 让 W 先握手
@@ -546,11 +546,11 @@ module tb_axi_lite_master;
         tb_hold_aw = 1'b1;
         push_write(32'h0000_0510, 32'h3333_3333, 4'hf, 3'd2);
         for (k = 0; k < 3; k = k + 1) tick();
-        expect(dut.w_done_r === 1'b1, "T9b W done while AW pending");
-        expect(dut.aw_done_r === 1'b0, "T9b AW not done yet");
+        expect_v(dut.w_done_r === 1'b1, "T9b W done while AW pending");
+        expect_v(dut.aw_done_r === 1'b0, "T9b AW not done yet");
         tb_hold_aw = 1'b0;
         for (k = 0; k < 20; k = k + 1) tick();
-        expect(mem_bytes[32'h0000_0510] === 8'h33, "T9b write lands at 0x510");
+        expect_v(mem_bytes[32'h0000_0510] === 8'h33, "T9b write lands at 0x510");
         if (mem_bytes[32'h0000_0510] === 8'h33)
             $display("PASS: T9b W-first ordering preserves pairing");
         drain();
@@ -566,10 +566,10 @@ module tb_axi_lite_master;
                 wr_req_addr = 32'h0000_0600 + 4 * acc;   // 只在被收下后才换载荷
             end
         end
-        expect(acc == (WR_DEPTH - 1), "T10 write fifo accepts WR_DEPTH-1");
+        expect_v(acc == (WR_DEPTH - 1), "T10 write fifo accepts WR_DEPTH-1");
         tb_hold_aw = 1'b0; tb_hold_w = 1'b0; wr_req_valid = 1'b0;
         for (k = 0; k < 40; k = k + 1) tick();
-        expect(dut.wr_wr_p === dut.wr_rd_p, "T10 all writes drained");
+        expect_v(dut.wr_wr_p === dut.wr_rd_p, "T10 all writes drained");
         if ((acc == (WR_DEPTH - 1)) && (dut.wr_wr_p === dut.wr_rd_p))
             $display("PASS: T10 write fifo full then drained");
 
@@ -579,17 +579,17 @@ module tb_axi_lite_master;
         for (k = 0; k < 3; k = k + 1) tick();
         reset = 1'b1;
         for (k = 0; k < 3; k = k + 1) tick();
-        expect(arvalid === 1'b0, "T11 AR valid low during reset");
-        expect(awvalid === 1'b0, "T11 AW valid low during reset");
-        expect(wvalid === 1'b0, "T11 W valid low during reset");
-        expect(rd_resp_valid === 1'b0, "T11 rd resp cleared by reset");
-        expect(wr_resp_valid === 1'b0, "T11 wr resp cleared by reset");
+        expect_v(arvalid === 1'b0, "T11 AR valid low during reset");
+        expect_v(awvalid === 1'b0, "T11 AW valid low during reset");
+        expect_v(wvalid === 1'b0, "T11 W valid low during reset");
+        expect_v(rd_resp_valid === 1'b0, "T11 rd resp cleared by reset");
+        expect_v(wr_resp_valid === 1'b0, "T11 wr resp cleared by reset");
         clr_req();
         reset = 1'b0;
         tick();
         push_read(32'h0000_0708, 4'd4);
         wait_rd_resp(40);
-        expect(cap_rd_data === mem_word(32'h0000_0708), "T11 read after reset");
+        expect_v(cap_rd_data === mem_word(32'h0000_0708), "T11 read after reset");
         if (cap_rd_data === mem_word(32'h0000_0708)) $display("PASS: T11 reset recovery");
 
         if (errors == 0) begin

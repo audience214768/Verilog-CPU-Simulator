@@ -23,21 +23,21 @@ module tb_mul;
         input [31:0] vb;
         input        xs;   // a_signed
         input        ys;   // b_signed
-        reg [63:0] expect;
+        reg [63:0] expect_v;
         begin
             a = va; b = vb; a_signed = xs; b_signed = ys;
             #1;
             if (xs && ys)
-                expect = $signed({{32{a[31]}}, a}) * $signed({{32{b[31]}}, b});
+                expect_v = $signed({{32{a[31]}}, a}) * $signed({{32{b[31]}}, b});
             else if (xs)
-                expect = $signed({{32{a[31]}}, a}) * {32'b0, b};
+                expect_v = $signed({{32{a[31]}}, a}) * {32'b0, b};
             else if (ys)
-                expect = {32'b0, a} * $signed({{32{b[31]}}, b});
+                expect_v = {32'b0, a} * $signed({{32{b[31]}}, b});
             else
-                expect = {32'b0, a} * {32'b0, b};
-            if (product !== expect) begin
+                expect_v = {32'b0, a} * {32'b0, b};
+            if (product !== expect_v) begin
                 $display("FAIL: a=%h b=%h mode=(%b,%b) product=%h expect=%h",
-                         a, b, a_signed, b_signed, product, expect);
+                         a, b, a_signed, b_signed, product, expect_v);
                 errors = errors + 1;
             end
         end

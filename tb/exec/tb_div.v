@@ -90,12 +90,12 @@ module tb_div;
     task check;
         input [1 : 0]  eop;
         input [31 : 0] ea, eb;
-        input [31 : 0] expect;
+        input [31 : 0] expect_v;
         begin
             issue(eop, ea, eb, 6'd7, 5'd3);
             await_done;
-            if (done_result !== expect) begin
-                $display("FAIL: op=%0d a=%h b=%h r=%h expect=%h", eop, ea, eb, done_result, expect);
+            if (done_result !== expect_v) begin
+                $display("FAIL: op=%0d a=%h b=%h r=%h expect=%h", eop, ea, eb, done_result, expect_v);
                 errors = errors + 1;
             end
             if (lat !== 33) begin

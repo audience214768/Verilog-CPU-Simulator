@@ -24,7 +24,7 @@ SIM := sim
 IV  ?= iverilog
 VP  ?= vvp
 
-SRCS := $(wildcard verilog/*.v) $(wildcard verilog/*/*.v)
+SRCS := $(wildcard verilog/*.v) $(wildcard verilog/*/*.v) scripts/ram/sram_fakeram.sv
 TBS  := $(wildcard tb/*.v)  $(wildcard tb/*/*.v)
 VVPS := $(patsubst tb/%.v,$(SIM)/%.vvp,$(TBS))
 
@@ -37,7 +37,7 @@ all: run
 # 编译单个 testbench; -s 固定顶模块, 避免多个未实例化模块时选错根
 $(SIM)/%.vvp: tb/%.v $(SRCS)
 	@mkdir -p $(dir $@)
-	$(IV) -g2005 -s $(basename $(notdir $@)) -o $@ $^
+	$(IV) -g2005-sv -s $(basename $(notdir $@)) -o $@ $^
 
 # 运行全部 (或单个: make run TB=exec/tb_x); vvp -N 使失败 tb 退出码为 1。
 # $(origin TB) 区分用户显式传参 (command line) 与默认值, 否则 make 永远只跑默认单个

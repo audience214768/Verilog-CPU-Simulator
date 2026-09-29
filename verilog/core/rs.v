@@ -3,6 +3,9 @@
 //                          槽间互斥 (后级排除前级选中), 同年龄低槽赢)
 // push 分配: pre_cnt 链 (条目 e 前空数) → 槽 k 取第 k+1 个空条目 (编码器)
 // 写优先级: flush_mask > 自清(clear) > push
+// **push 前置条件**: push_valid[k]=1 ⇒ 第 k 个空槽存在 (k < free_count)。模块**不**自查 ——
+//   违约时 pidx[k] 是无主索引, 会写坏任意槽。调用方 cpu_top 由 resources_ok 的
+//   (rs_free_w >= ISSUE_WIDTH) 保证 (cpu_top.v:422/502); 单元 TB 亦须遵守
 module rs #(
     parameter ISSUE_WIDTH = 1,
     parameter RS_SIZE     = 16,

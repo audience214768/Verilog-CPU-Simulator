@@ -523,13 +523,36 @@ module tb_rs;
         end else begin
             $display("PASS: R12 RS full");
         end
-        push_valid = 4'b0001; push_rob_tag = {4{5'd1}};
+        // R12b: **契约变更留档 (8998ca2)** —— push 写使能不再带 "该槽找到空位了" (原 `&& pvalid_w[k2]`)。
+        //   该合取项恒真: prec 是 !valid_r 的前缀和 ⇒ 第 gk 个空槽恰好归端口 gk; 而 cpu_top.v:422 的
+        //   resources_ok 含 (rs_free_w >= ISSUE_WIDTH), 第 502 行 push_valid = issue_en && f2i_valid
+        //   ⇒ push_valid[k]=1 时必有 pvalid_w[k]=1。删它是为拆掉 ABC 跨槽 CSE 出的共享写使能字面量
+        //   (扇出 1149 → 192, 频率 ×2.09, 见 docs/plan.md §15.10.22)。
+        //   代价: 契约从模块上移到调用方 —— 满时仍拉高 push_valid 会拿无主 pidx 写坏任意槽, 旧 R12b
+        //   断言的"满时静默忽略"**不再是模块保证**, 故不再驱动该违约输入 (改由 rs.v 头注释声明前置条件)。
+        //   取而代之: 在**参差边界**上验证上面那条前缀性质本身 —— 腾 3 个槽后按 free_count 精确 push 3 条。
+        push_valid = 4'b0000;                    // 满时**不得**再拉 push (R12 留下的 1111 必须先撤)
+        clear_valid = 4'b0111; clear_idx = {4'd0, 4'd9, 4'd5, 4'd0};
         tick(); check_all();
-        if (free_count !== 5'd0 || entry_rob_tag[0 * RW +: RW] !== 5'd13) begin
-            $display("FAIL: R12b push on full"); errors = errors + 1;
-        end else begin
-            $display("PASS: R12b push on full ignored");
+        if (free_count !== 5'd3) begin
+            $display("FAIL: R12b free after clear = %0d expect 3", free_count); errors = errors + 1;
         end
+        clear_valid = 4'b0000;
+        push_valid = 4'b0111; push_rob_tag = {5'd0, 5'd22, 5'd21, 5'd20};
+        tick(); check_all();
+        // 空槽按索引升序是 0/5/9 ⇒ 端口 0/1/2 必须恰好落在这三个槽上
+        if (free_count !== 5'd0
+         || entry_rob_tag[0 * RW +: RW] !== 5'd20
+         || entry_rob_tag[5 * RW +: RW] !== 5'd21
+         || entry_rob_tag[9 * RW +: RW] !== 5'd22) begin
+            $display("FAIL: R12b ragged prefix alloc (fc=%0d t0=%0d t5=%0d t9=%0d)",
+                     free_count, entry_rob_tag[0 * RW +: RW],
+                     entry_rob_tag[5 * RW +: RW], entry_rob_tag[9 * RW +: RW]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: R12b ragged prefix alloc");
+        end
+        push_valid = 4'b0000;
 
         if (errors == 0)
             $display("SMALL+EDGE TESTS PASSED");

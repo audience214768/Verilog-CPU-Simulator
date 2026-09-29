@@ -1,6 +1,6 @@
 // 官方顶层 student_top: 19 个 AXI4-Lite 端口, 端口名/位宽照抄 docs/description.md:194-226 的模板
 //   clock / reset (高有效, 初始化保持 5 拍) / AR / R / AW / W / B, 无 PROT
-// 结构: cpu_top (乱序流水线) + mem_subsystem (取指预取窗口 / load 适配 / 已提交 store 队列)
+// 结构: cpu_top (乱序流水线) + mem_subsystem (L1 指令缓存 / load 适配 / 已提交 store 队列)
 //   cpu_top 的存储接口原样接到 mem_subsystem, 后者是唯一的 AXI 主机
 // 停机: 程序向 MMIO 0x80000000 做一次 32 位 store ⇒ cpu_top 内 mmio_exit 拉起 halt;
 //   退出值由官方从机在 B 握手时从 WDATA 取 (sim.cpp:119-121), 故本模块不引出 ret_val。
@@ -14,11 +14,13 @@ module student_top #(
     parameter LSQ_SIZE    = 16,
     parameter BHT_SIZE    = 32,
     parameter RAS_SIZE    = 8,
-    parameter PF_DEPTH    = 16,      // 取指预取窗口字数 (须 > PF_WIN 且 ≤ 从机 AR 队列深度 16)
-    parameter PF_WIN      = 8,       // 预取流超前 demand 的字数上限 (带宽/延迟分配旋钮)
+    parameter IC_SIZE       = 1024,  // I-cache 总容量 (字节)
+    parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
+    parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
+    parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
     parameter LD_INFLIGHT = 8,       // 在飞 load 上限
     parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
-    parameter RD_DEPTH    = 8,       // 读事务在途上限 (须 < 从机 AR FIFO 深度)
+    parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
     parameter WR_DEPTH    = 8        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度)
 ) (
     input  wire        clock,
@@ -85,7 +87,8 @@ module student_top #(
 
     mem_subsystem #(
         .ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE),
-        .PF_DEPTH(PF_DEPTH), .PF_WIN(PF_WIN), .LD_INFLIGHT(LD_INFLIGHT),
+        .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
+        .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH), .LD_INFLIGHT(LD_INFLIGHT),
         .SQ_DEPTH(SQ_DEPTH), .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH)
     ) u_mem (
         .clk(clock), .rst_n(rst_n),
