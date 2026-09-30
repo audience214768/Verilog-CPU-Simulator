@@ -153,7 +153,10 @@ module memory #(
         if (!rst_n) begin
             // 无状态
         end else begin
-            if (sw_valid) begin
+            // 越界写丢弃: 官方用例的停机口是 MMIO 0x80000000 (远超 MEM_SIZE), 那条 store
+            // 由 cpu_top 的 mmio_exit 识别, 本模块不该把它当 RAM 写 —— 否则索引 0x80000000
+            // 会越界访问 mem[]。本模块只建模 MEM_SIZE 以内的 RAM。
+            if (sw_valid && (sw_addr < MEM_SIZE)) begin
                 case (sw_width)
                     2'b00: mem[sw_addr] <= sw_data[7 : 0];
                     2'b01: begin

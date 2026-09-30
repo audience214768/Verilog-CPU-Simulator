@@ -6,6 +6,10 @@
 //   用法: make run TB=top/tb_cpu_prog ARGS="+PROG=gcd"; 缺省跑 naive
 //   可选: +DUMP=N 只 dump 前 N 拍 (缺省 2000, 0 = 不 dump; VCD 太大时用)
 //   性能微负载 loopjal (jal 自循环) / loopld (lw+分支循环): 无终止指令, **只配 +PERF=N 用** (缺 +PERF 会跑到超时)
+//   perf_{median,multiply,qsort,rsort,towers,vvadd}.data: 官方 perf 用例 (由 testcases/perf_*/program.data
+//     去掉首行 '#' 注释生成, 字节原样)。它们**没有** TERM_RAW, 只靠 sw 到 MMIO 0x80000000 停机 ——
+//     cpu_top 的 mmio_exit 已实现该判据, 故可直接跑、正常停机; core/memory.v 会把那条越界写丢弃
+//     归因用 +LATENCY=10 更贴近官方 (TB 缺省 3)。本 TB **不含 I-cache** 且 ROB=32, 不是官方那台机器
 //   失败: N TESTS FAILED + $stop; 成功: ALL TESTS PASSED + $finish
 `timescale 1ns/1ps
 module tb_cpu_prog;
