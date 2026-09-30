@@ -212,8 +212,13 @@ ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任�
    同理，`make perf`（在仓库根跑）用的也是提交默认值 —— 要测归档行的配置，就用
    `run.sh <id> --no-synth` 造树（它会把参数补丁写进 `student_top.v`），再
    `make -C runs/<id> CONFIG=<绝对路径>/config.local.mk TESTCASES=<绝对路径>/testcases FILELIST=verilog/filelist_ic.f perf`。
-10. **`results.csv` 的 `ipc6` 列与 `params` 列可能不对应。** `ic1k` 行记的是 ROB=16 的面积/频率，
-   但它那串 `ipc6` 经逐位复现是 **ROB=32** 配置的数字。据 `ipc6` 做结论前先确认它测的是哪台机器。
+10. ~~**`results.csv` 的 `ipc6` 列与 `params` 列可能不对应。**~~ **（2026-09-30 结案）**
+    `ic1k` 行记的是 ROB=16 的面积/频率，但它那串 `ipc6` 经逐位复现是 **ROB=32** 配置的数字；
+    `constr1` 行（RTL 与 `ic1k` 逐字相同）继承了这个错值。两行已改正为 ROB=16 的实测
+    `0.3797,0.6537,0.3071,0.3830,0.3512,0.4932`（geo 0.4143，`runs/ipc_base16` 复认，
+    `base16syn`/`abc6`/`abc34` 三行既有值逐位一致）。全表 27 行逐列复核过，**这是唯一一处**
+    参数/`ipc6` 不同源的行。教训（仍适用）：`snap.py` 的 `--ipc` 是**手抄**进去的，不校验机器；
+    凡拿归档行的 `ipc6` 做对照，先确认它那棵树是哪套参数。`c1s1` 行补测时按此规矩单独造树复量。
 11. **`docs/timing/filelist_t4tmp.f`** 是冻结口径的 22 文件列表 = 官方 `verilog/filelist.f`
    去掉 `core/memory.v`（已核对是**唯一**差异）。没有任何模块例化 `memory`，
    `hierarchy -top student_top` 会剪掉它 ⇒ 两个列表出同一份网表。冻结成文件是为了与已归档
