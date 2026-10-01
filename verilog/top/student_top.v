@@ -21,7 +21,7 @@ module student_top #(
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
     parameter DC_SIZE       = 2048,  // D-cache 总容量 (字节; 0 = 旁路)
     parameter DC_LINE_WORDS = 8,     // D-cache 行字数 (2 的幂)
-    parameter DC_WAYS       = 1,     // D-cache 相联度
+    parameter DC_WAYS       = 2,     // D-cache 相联度 (2 路: SRAM 面积不变, geo IPC +2.2%, 见 plan.md §十六)
     parameter LD_INFLIGHT = 8,       // 在飞 load 上限
     parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
     parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)

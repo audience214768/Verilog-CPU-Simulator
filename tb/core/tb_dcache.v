@@ -10,7 +10,10 @@
 module tb_dcache;
     localparam DC_SIZE       = 2048;
     localparam DC_LINE_WORDS = 8;
-    localparam DC_WAYS       = 1;
+    // 与 student_top 的默认值一致 ⇒ make -f Makefile.tb 走的就是判分配置的多路分支
+    // (T4 的 else 支: 灌 DC_WAYS+1 条同组行, 验空路优先 + round-robin 替换)。
+    // 想回到单路覆盖: 把这里改回 1, T4 会走 if 支 (同组挤兑)。
+    localparam DC_WAYS       = 2;
     localparam LSQ_SIZE      = 16;
     localparam SETS    = DC_SIZE / (4 * DC_LINE_WORDS * DC_WAYS);
     localparam OFF_W   = $clog2(DC_LINE_WORDS);
