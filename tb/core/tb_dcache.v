@@ -660,9 +660,10 @@ module tb_dcache;
         expect_hit(32'h0000_0108, 4'd9, 32'h0BAD_F00D);
 
         // ============ T14 脏行被驱逐 ⇒ 捕获读 + 整行写回 + 逐笔 B ============
-        // 布局 (每次都用**没碰过的组**, 免得 RR 指针被前面的用例带偏):
-        //   先填 A 占 way0 (空路优先, rr→1), 再填 B 占 way1 (rr→0); 把 A 写脏,
-        //   再访问同组的 C ⇒ rr=0 ⇒ 受害路 = way0 = A ⇒ 必须整行写回。
+        // 布局 (每次都用**没碰过的组**, 免得替换指针被前面的用例带偏):
+        //   先填 A 占 way0, 再填 B 占 way1; 把 A 写脏, 然后**敲一下 B** ——
+        //   LRU 下这拍才让 A 确定成为受害者 (上面两次命中 A 已把 A 顶成 MRU,
+        //   不敲 B 的话受害者会合法地变成 B, 写回地址就不是 A 了)。
         $display("=== T14 脏行驱逐 ⇒ 整行写回");
         fill_line(32'h0000_0300);                 // set 24, tag 0, way0
         fill_line(32'h0000_0700);                 // set 24, tag 1, way1
@@ -671,6 +672,8 @@ module tb_dcache;
         store_ret(32'h0000_0300, 32'hDEAD_BEEF, 2'd2, K_ABSORB);   // A 变脏
         accept(32'h0000_0300, 2'd2, 4'd2);
         expect_hit(32'h0000_0300, 4'd2, 32'hDEAD_BEEF);
+        accept(32'h0000_0700, 2'd2, 4'd13);       // 敲 B ⇒ B 是 MRU, A 是 LRU
+        expect_hit(32'h0000_0700, 4'd13, 32'hC0DE_01C0);
         wb_n0 = wb_n;
         accept(32'h0000_0B00, 2'd2, 4'd3);        // 同组第三条 ⇒ 驱逐 A
         expect_ms(32'h0000_0B00, 4'd3);

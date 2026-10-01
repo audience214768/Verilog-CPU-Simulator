@@ -413,7 +413,8 @@ module dcache #(
         .rdata (rdata_w)
     );
 
-    // 受害者: 最低空路优先, 全满则用该组的 round-robin 指针 (DC_WAYS=1 时恒 0, 无指针)
+    // 受害者: 最低空路优先, 全满则用该组的替换指针 (DC_WAYS=1 时恒 0, 无指针;
+    // 多路下 2 路是 LRU、>2 路退化成"最近安装路 +1"的轮转)
     function [WY_W - 1 : 0] victim_f;
         input [DC_WAYS - 1 : 0] sv;
         input [WY_W - 1 : 0]    rr;
@@ -433,12 +434,19 @@ module dcache #(
         if (DC_WAYS == 1) begin : vic1
             assign victim_way_w = {WY_W{1'b0}};
         end else begin : vicN
+            // 每组"下一个被替换的路号"。**命中也要翻转** (命中某路 ⇒ 受害者变成另一路):
+            // 只认安装就等于**填充轮转 (FIFO)** —— 2 路下热点行每两次填充必被踢一次, 与它被
+            // 命中多频繁无关。§十七 在 idxinv 下测不出差别 (组满占比 qsort 3.6% / rsort 2.9%,
+            // 替换选择无从行使), 该节把"store 处理修好后必须重测"写成了欠账; 本节即那次重测。
+            // 2 路下"命中路 +1"就是 LRU 路; rr_r 是早就存在的状态 ⇒ 零新增触发器、零新增口。
+            // 同拍两次访问同组只认前一条 (两条都刚被用过, 谁当受害者都行) —— 罕见且无害。
             reg [DC_SETS * WY_W - 1 : 0] rr_r;           // 每组下一个被替换的路号 (仅多路才有)
             wire [WY_W - 1 : 0]          rr_w = rr_r[new_set_w * WY_W +: WY_W];
             assign victim_way_w = victim_f(set_valid_w, rr_w);
             always @(posedge clk or negedge rst_n) begin
                 if (!rst_n) rr_r <= {DC_SETS * WY_W{1'b0}};
-                else if (vset_w) rr_r[fill_set_r * WY_W +: WY_W] <= fill_way_r + 1'b1;
+                else if (vset_w)    rr_r[fill_set_r * WY_W +: WY_W] <= fill_way_r + 1'b1;
+                else if (hit_raw_w) rr_r[q_set_w    * WY_W +: WY_W] <= hit_way_w  + 1'b1;
             end
         end
     endgenerate
