@@ -29,37 +29,63 @@
 //   1 拍后再判定 ⇒ 这次命中)。行号不同的缺失照常推 AR, 行号存进 1 条排队寄存器 pf_* 稍后起填。
 //
 // 【★ 单端口 SRAM 的读写冲突】写 (填充安装 / store 命中就地更新) **绝对优先** (回包不可反压),
-//   被偷走的读一律**重放** (写周期里 sram_fakeram 把 rdata 置 x ⇒ 该拍结果不可信): `rd_ok_r` 在
-//   **发起读那一拍**采样 (`<= !(fill_wr_w || st_wr_w)`), 未偷才允许判定, 被偷则置 lk_replay_r
-//   重发同一地址 (第 6 节)。★ 不能像"无写回"版本那样把偷读判成缺失自纠正: 写回下误判缺失 =
-//   读到陈旧内存 **且** 覆盖脏行 = 静默算错 (不变量 3)。重放只多 1 拍, 且 store 写的优先权是绝对的
-//   ⇒ 重放必收敛 (store 每笔至多让路一次填充收尾)。上层另用 `busy` 里的 fill_wr_w 项把"恰好撞上
-//   安装写"的接受挡掉, 省掉这次重放 (store 写不进门是不行的: SQ 只等这一拍就得给答复)。
+//   WB 捕获读次之 (它只有那一拍机会: 受害行下一拍就可能被填充覆盖), 被偷走的**查表读**一律
+//   **重放** (写周期里 sram_fakeram 把 rdata 置 x ⇒ 该拍结果不可信): `rd_ok_r` 在**发起读那一拍**
+//   采样 (`<= !sram_we_w && !wb_cap_w`), 未偷才允许判定, 被偷则置 lk_replay_r 重发同一地址
+//   (第 6 节)。★ 不能像"无写回"版本那样把偷读判成缺失自纠正: 写回下误判缺失 = 读到陈旧内存
+//   **且** 覆盖脏行 = 静默算错。重放只多 1 拍, 且写/捕获的优先权是绝对的 ⇒ 重放必收敛。上层另用
+//   `busy` 里的 fill_wr_w 项把"恰好撞上安装写"的接受挡掉, 省掉这次重放 (store 写不进门是不行的:
+//   SQ 只等这一拍就得给答复)。
 //
-// 【★ 一致性: store **退休那拍就地更新**命中行 (写直达), 提交时只拦安装】见 mem_subsystem.v 第 4 节。
-//   两根线分工明确, 不可合并:
-//     · 提交 (`inv_valid`): 只用来**拦安装** (污染的填充本来就不装; 另外抑制 `fill_wr_w`/`vset_w`
-//       同拍的写与置位)。**不清 valid、不写数据** —— 行留在缓存里继续供命中。
-//     · 退休 (`st_valid` 口, 第 9 节): 此时 B 已握手 (数据已进内存)、且该 store 之后的 load 都已回
-//       (ticket 已过) ⇒ 行里那几个字节从"旧值"变成"错值", 必须当拍修正。三条出路恰好一条:
-//         整字命中 ⇒ `st_absorb` 就地写该字 (只覆盖 SRAM 那一个 lane); 部分字命中 ⇒ `st_drop`
-//         下架该行 (写直达下内存是权威且已新鲜 ⇒ 重取必得新值); 未命中 ⇒ `st_bypass` 不动缓存。
+// 【★ 一致性: **写回** —— 缓存行是数据的唯一权威, 内存只是被写回的备份】见 mem_subsystem.v 第 4 节。
+//   (上一版是"写直达 + 命中就地更新": store 数据同时进缓存行与内存。写回把 AXI 写流量从"每条
+//    store 一笔"降到"每行换出 8 笔", 并把 SQ 条目的可见性从"B 回包"改成"写进缓存行"。)
+//   只有一根线 (旧版的"提交 `inv_valid` 拦安装"已删 —— 写回下 store 的数据在吸收前哪儿都不去,
+//   不与在飞填充抢同一个字, 拦安装纯多余; 其副作用是"提交撞上填充最后一拍"变成静默丢一次安装):
+//     · 退休 (`st_valid` 口, 第 9 节): 队首那条 store 在本拍定去向 —— 命中就地把字节写进行并置脏
+//       (`st_absorb`), 未命中就旁路给 AXI (`st_bypass`, 数据本来就在 SQ→写通道的路上)。
 //   提交→退休之间那一段靠上层 `mem_subsystem.sq_merge_byte_f` 的字节合并链兜住: 交付一条 load 时
-//   逐字节用 SQ 里更老的 store 覆盖。**两条窗口在同一个 posedge 结束** —— `sq_ret_p <= sq_ret_p+1`
-//   与"SRAM 写入该字"同拍, 于是下一拍"合并没了"与"行已是新值"同时发生, 两个方向都不会漏:
-//     · 若更新早于退休 → 合并链还在, 覆盖的是同一个值, 无害;
-//     · 若合并先没而更新还没到 → **读到旧值, 静默算错** (故必须同拍, 不能早也不能晚)。
-//   ★ 与上一版 (idxinv: 退休清**整组**) 的区别: 清组会把同组其它行一起打掉 —— 一次 store 退休就
-//   毁掉 2 KB/(4·L) = 8 行里的一整组 (64 B)。离线模型 (tools/dcache_sim.py) 实测这一项值 8.2%
-//   (geo IPC 0.4997 → 0.5408), 全部落在 store 会打中驻留行的用例上。
+//   逐字节用 SQ 里更老的 store 覆盖 (写回下这一条更吃重 —— 未退休 store 的数据既不在内存也不在
+//   行里, 只在 SQ)。**更新与"条目出队"的关系是单向安全的**:
+//     · 若更新早于退休 → 合并链还在, 覆盖的是同一个值, 无害 (写回下条目还要等 ticket, 所以
+//       "吸收那拍"与"出队那拍"通常差好几拍, 全部落在这一侧);
+//     · 若合并先没而更新还没到 → **读到旧值, 静默算错**。故 `sq_ret_ok` 必须等 `st_absorb` 抬过
+//       才成立 (mem_subsystem 的 sq_vis_w 含 sq_ab_r)。
+//   ★ 与更早那一版 (idxinv: 退休清**整组**) 的区别: 清组会把同组其它行一起打掉 —— 一次 store 退休
+//   就毁掉一整组 (64 B)。离线模型 (tools/dcache_sim.py) 实测这一项值 8.2% (geo 0.4997 → 0.5408)。
 //   ★ 命中的是"最高编号的命中路" (hitway_f 的覆盖序); 同组不允许出现两个同 tag 的路 —— 由不变量 1
 //   在**安装**那拍禁掉 (第 8 节)。
 //
-// 【★ 填充污染 (poison): 起填前/填充中只要有"B 尚未落盘"的 store 落在同一组, 本次填充作废】
-//   只查"安装那一拍 SQ 里有没有同组条目"**不够**: store 可能在最后一字落地前就退休出队, 而它之前
+// 【★ 脏位 + 写回 (WB): 驱逐脏行时先读进缓冲, 再排水到写通道】
+//   起填那拍发现受害路 `valid && dirty` ⇒ ①记下 `wbc_*`, 该路 valid/dirty 同拍清零; ②下一拍用
+//   **读口**把整行读进 `wb_data_r` (那拍读口被占, 撞上的查表读靠 rd_ok_r=0 重放); ③再下一拍起
+//   背靠背推 DC_LINE_WORDS 笔 `wb_req_*`, 推完转 `wb_hold_r` 等 B; ④B 收齐才松手。
+//   ★ 捕获读与填充**不冲突**: 填充分第一笔写最早在第 DC_LINE_WORDS+LATENCY 拍, 而捕获读只占第 2 拍。
+//   ★ 在线冲突 (各一个比较器, 比 [31:SPLIT]): 同一行的**填充**不起 (内存此刻可能还是旧值);
+//     同一行的**旁路 store** 不发 (否则它的新字节会被旧行的 8 笔写回反超)。
+//   ★ WB 缓冲只有 1 项: 要驱逐脏行而缓冲被占 ⇒ 本次填充停住 (等排水完, 罕见), 但**不丢** ——
+//     记进 pf_* 排队那条 (fill_blk_w/fill_pend_w)。
+//
+// 【★ 写回引入的第三处"误判缺失 = 静默算错"】写回下内存可能落后于缓存行, 于是**任何**把
+//   "本该命中"变成"去读内存"的路径都致命。除了上面那条"偷读必须重放"之外, 还有一处:
+//   命中但交付口被 rsp_busy 占住时, 写直达版可以降级成缺失 (走 AXI 重取, 反正内存新鲜),
+//   写回下不行 ⇒ 改成**重放** (第 6 节, 只花 2 拍, 比一趟 AXI 还便宜), 同时用 `!hit_raw_w`
+//   把这条挡在 `ms_valid` 之外 (第 4 节)。两处必须成对改。
+//
+// 【★ 填充污染 (poison): 起填前/填充中只要有"尚未可见"的 store 落在**同一行**, 本次填充作废】
+//   只查"安装那一拍 SQ 里有没有同行条目"**不够**: store 可能在最后一字落地前就退休出队, 而它之前
 //   发出的那几笔 AR 读的是旧值 ⇒ 装进一行旧数据 (静默算错)。故用**粘滞**污染位: 填充期间任一拍
-//   发现 sq_blk 命中本组 ⇒ 置位, 直到本次填充结束才清; 污染后不再写 SRAM、不置 valid。
-//   安装那一拍若本拍有 store 提交到同组, 也要抑制 (valid 置位输给失效)。
+//   发现 fill_blk 命中本行 ⇒ 置位, 直到本次填充结束才清; 污染后不再写 SRAM、不置 valid。
+//   安装那一拍若本拍有 store 提交到同一行, 也要抑制 (valid 置位输给失效)。
+//   ★ 粒度 = **行**, 不是组 (旧版是 DC_SETS 位的组位图)。组粒度下"SQ 里任一条待落盘 store"
+//     会废掉整个组 (32 组里每 2 KB/128 B 一个) 的填充 —— rsort 实测填充只装进 3.21/8 个字
+//     (qsort 6.80), 20.5% 的周期处在"这次填充已经废了"的状态, 命中率被拖到 54.4%。行粒度把
+//     误伤面缩到 1/32, 且判据本身没变宽: 危险窗口是"该行的 AR 早于该 store 落盘", 同行的
+//     待可见条目才是真危险。
+//   ★ 为什么覆盖"全部待可见条目"而不是只覆盖会旁路的那些 (计划里曾这么写): 一条 store 究竟
+//     被吸收还是旁路, 要等它**退休那拍**看行在不在才定得下来, 事前无法判 —— 而"先装行、后
+//     吸收"这一路本来就安全 (同拍结束的两窗口 + 合并链), 所以安全上界就是"同行有未可见条目"。
+//     这个上界在实践中很紧: 条目一旦可见 (吸收进行 / 或已落盘) 就不再污染。
 //
 // 复位异步低有效 (与 axi_lite_master / icache / mem_subsystem 一致; ASAP7 库只有异步复位触发器)
 module dcache #(
@@ -105,23 +131,32 @@ module dcache #(
     input  [31 : 0]                      fill_rsp_data,
 
     // ---- store 一致性 ----
-    // 两根线分工明确, 不可合并 (理由见第七条不变量):
-    //   inv_* = store **提交** (进 SQ) 那拍 —— 只用来拦安装, **不清 valid、不写数据**;
-    //   st_*  = store **退休** (B 已落盘且其后的 load 都已回) 那拍 —— 把该行修正到新值。
-    input                                inv_valid,    // 本拍有一条 store 提交
-    input  [31 : 0]                      inv_addr,
-    input  [DC_SETS - 1 : 0]             sq_blk,       // SQ 里"B 尚未落盘"的条目所占的组号位图
+    // 只有一根线: st_* = 队首那条 store 的**退休**判定 —— 命中把该 store 的字节写进行 (写回),
+    // 未命中就旁路给 AXI。提交那拍不再通知本模块 (旧版 inv_valid 拦安装一条已删): 写回下 store 的
+    // 数据在吸收前**哪儿都不去**, 不会与在飞填充读回的内存值抢同一个字 ⇒ 拦安装纯属多余, 而它
+    // 的副作用是把"提交恰好撞上填充最后一拍"变成**静默丢一次安装** (行不 valid、填充照常收尾),
+    // 于是下一条 load 又缺失 —— 与 §9 的自杀环同形状。
+    // ---- 填充污染 (行粒度): fill_line = 本拍"有效填充行", fill_blk 由上层按 SQ 未可见条目算 ----
+    // 起填那拍 fill_line 给**新行** (fill_base_r 还没更新), 其余拍给在填行; 见第五条不变量。
+    output [31 : 0]                      fill_line,
+    input                                fill_blk,
 
     // ---- store 退休口 (payload 由 mem_subsystem 的 SQ 队首直接给出; 语义与论证见第 9 节) ----
-    // st_valid 保持到 st_absorb/st_drop/st_bypass **之一**抬起 (与 ms_valid/ms_ready 同款握手);
-    // 三者互斥, 且可能全 0 (安装写占着 SRAM 口 ⇒ 多等一拍, 队首不动)。
+    // st_valid 保持到 st_absorb/st_bypass **之一**抬起 (与 ms_valid/ms_ready 同款握手);
+    // 二者互斥, 且可能全 0 (安装写 / WB 捕获读占着 SRAM 口 ⇒ 多等一拍, 队首不动)。
     input                                st_valid,
     input  [31 : 0]                      st_addr,
     input  [31 : 0]                      st_data,
     input  [1 : 0]                       st_width,
-    output                               st_absorb,    // 整字命中 ⇒ 本拍已就地更新该行
-    output                               st_drop,      // 部分字命中 ⇒ 本拍已下架该行
+    output                               st_absorb,    // 命中 ⇒ 本拍已就地把该 store 的字节写进行 (置脏)
     output                               st_bypass,    // 未命中 ⇒ 本缓存不动 (数据另走 AXI)
+
+    // ---- 写回口 (脏行被驱逐: 整行 DC_LINE_WORDS 笔背靠背写回; 写通道由上层与 SQ 旁路 store 仲裁) ----
+    output                               wb_req_valid,
+    output [31 : 0]                      wb_req_addr,
+    output [31 : 0]                      wb_req_data,
+    input                                wb_req_ready,
+    input                                wb_resp_valid, // 本行某一笔写回收到 B
 
     // ---- 观测量 ----
     output                               busy,         // 查表寄存器被占 || 本拍有安装写 (load 不可接受)
@@ -138,8 +173,15 @@ module dcache #(
     localparam WAY_W    = 32 * DC_LINE_WORDS + 32;       // 一路的条目宽: 数据 + tag (tag 占最高 32 位槽)
     localparam EW       = DC_WAYS * WAY_W;
     localparam TAGOFF   = 32 * DC_LINE_WORDS + TAGHI;    // 条目里 tag 字段起始位 (= WAY_W − TAG_W, 顶对齐)
-    localparam WMASK_W  = DC_WAYS * (DC_LINE_WORDS + 1); // = EW / 写粒度 (32); 每路含 1 个 tag lane
+    // ★ 写粒度 = 8 位 (字节): 每路 (DC_LINE_WORDS+1) 个 32 位槽 × 4 字节 ⇒ 掩码位数 = EW/8。
+    //   为什么不用整字粒度 (32): 那样"部分字命中"只能读-改-写 2 拍或下架整行。字节掩码让部分字
+    //   与整字走同一条 1 拍就地写, 代价只是掩码从 18 位变 72 位 —— 而 **面积不受影响**:
+    //   sram_fakeram 按 lane 拆宏 (scripts/fakeram.py: lane_area = depth*granularity*area_per_bit,
+    //   lane 数 = width/granularity) ⇒ 总位数不变, lane 变窄后 clock_to_q 还略小。
+    localparam LWM      = (DC_LINE_WORDS + 1) * 4;       // 每路的掩码位数 (含 1 个 tag 槽)
+    localparam WMASK_W  = DC_WAYS * LWM;
     localparam FIW      = $clog2(DC_LINE_WORDS + 1);     // 填充字计数器位宽 (须能表示 DC_LINE_WORDS 本身)
+    localparam BIW      = (DC_LINE_WORDS < 2) ? 1 : $clog2(DC_LINE_WORDS);  // WB 排水计数器位宽
     localparam WY_W     = (DC_WAYS > 1) ? $clog2(DC_WAYS) : 1;
     localparam LIW      = $clog2(LSQ_SIZE);
 
@@ -149,7 +191,7 @@ module dcache #(
     // ==================== 1. 网表声明 ====================
     wire [EW - 1 : 0]        rdata_w;
     wire [31 : 0]            rd_addr_w;                  // 本拍摆上 SRAM 读口的地址
-    wire [DC_IW - 1 : 0]     rd_set_w, q_set_w, inv_set_w, new_set_w;
+    wire [DC_IW - 1 : 0]     rd_set_w, q_set_w, new_set_w;
     wire [OFF_W - 1 : 0]     q_off_w;
     wire [TAG_W - 1 : 0]     rd_tag_w;
     wire [DC_WAYS - 1 : 0]   way_hit_g, set_valid_w;
@@ -157,7 +199,8 @@ module dcache #(
     wire                     any_hit_w, hit_raw_w;
     wire [31 : 0]            hit_word_w, fill_base_new_w;
     wire                     miss_pending_w, coalesce_w, same_line_w;
-    wire                     ms_fire_w, fill_go_w, fill_pend_w, fill_start_w;
+    wire                     lk_same_fill_w, lk_wb_wait_w, lk_wait_src_w, lk_cacheable_w;
+    wire                     ms_fire_w, fill_go_w, fill_pend_w, fill_start_w, fill_blk_w;
     wire                     fill_wr_w, fill_hs_w, fill_last_w, fill_poison_now_w, vset_w;
     wire                     fill_abort_w;
     wire [FIW - 1 : 0]       fill_wi_w, fill_inflight_w;
@@ -169,7 +212,13 @@ module dcache #(
     wire [OFF_W - 1 : 0]     st_word_w;
     wire [DC_WAYS - 1 : 0]   st_hit_g;
     wire [WY_W - 1 : 0]      st_way_w;
-    wire                     any_st_hit_w, st_full_w, st_wr_w;
+    wire                     any_st_hit_w, st_wr_w, st_cacheable_w;   // ---- 第 5 节: 写回 ----
+    wire                     wb_cap_w;                   // 本拍用读口把受害行整行捕获进缓冲
+    wire                     wb_buf_busy_w;              // WB 数据缓冲被占 (新捕获无处放)
+    wire                     wb_line_busy_w;             // 本行在飞 (捕获/排水/等 B): 内存可能还是旧值
+    wire                     vic_v_w, vic_dirty_w;       // 受害路此刻有效? 脏?
+    wire [TAG_W - 1 : 0]     vic_tag_w;                  // 受害路的 tag 镜像 (= 受害行基址的高位)
+    wire                     wb_last_push_w, wb_done_w;
 
     // ==================== 2. 顺序状态 ====================
     // 查表寄存器 (skid 就是它): 接受时写入, 结果被消化 (交付/推出) 才释放
@@ -198,10 +247,23 @@ module dcache #(
     reg                      fill_poison_r;              // 粘滞: 途中出现过未落盘的同组 store
     reg  [31 : 0]            pf_base_r;                  // 待填行 (填充忙时排队的 1 条)
     reg                      pf_v_r;
+    // ---- 写回: 脏位 + 一份行缓冲 (捕获 → 排水 → 等 B) ----
+    reg  [DC_WAYS * DC_SETS - 1 : 0] dirty_r;            // 行脏位 (无复位: 一切读取都由 valid_r 门控)
+    reg                      wbc_pend_r;                 // 起填那拍发现受害路脏 ⇒ 本拍把整行读进缓冲
+    reg                      wbc_lat_r;                  // 捕获读的回包拍 (SRAM 同步读 ⇒ 比读口晚一拍)
+    reg  [DC_IW - 1 : 0]     wbc_set_r;
+    reg  [WY_W - 1 : 0]      wbc_way_r;
+    reg  [31 : 0]            wb_base_r;                  // 在飞行 (或被捕获) 的行基址
+    reg                      wb_v_r;                     // 缓冲有整行数据, 还没推完
+    reg  [BIW - 1 : 0]       wb_beat_r;                  // 下一笔要推的行内字下标
+    reg  [32 * DC_LINE_WORDS - 1 : 0] wb_data_r;         // 整行快照 (8×32 = 256 flop)
+    reg                      wb_hold_r;                  // 8 笔已推完, 等 B 全回
+    reg  [FIW - 1 : 0]       wb_bcnt_r;                  // 已回的 B 数
 
     // ==================== 3. 查表地址与结果 ====================
-    // 重放那一拍把 lk_addr_r 摆回去; 其余拍用上层给的候选地址 (本拍要接受的那条)
-    assign rd_addr_w = lk_replay_r ? lk_addr_r : lk_addr;
+    // 重放那一拍把 lk_addr_r 摆回去; 其余拍用上层给的候选地址 (本拍要接受的那条)。
+    // ★ WB 捕获读**抢占**读口 (它只有这一拍机会): 被它偷走的查表读由 rd_ok_r=0 变成重放, 不判缺失。
+    assign rd_addr_w = wb_cap_w ? wb_base_r : (lk_replay_r ? lk_addr_r : lk_addr);
     assign rd_set_w  = ONE_SET ? {DC_IW{1'b0}} : rd_addr_w[TAGHI - 1 : SPLIT];
     assign q_set_w   = ONE_SET ? {DC_IW{1'b0}} : rd_addr_q[TAGHI - 1 : SPLIT];
     assign q_off_w   = rd_addr_q[SPLIT - 1 : 2];
@@ -227,12 +289,20 @@ module dcache #(
     endfunction
     assign hit_way_w = hitway_f(way_hit_g);
 
+    // 宽度编码 (00=1 01=2 10=4 字节) → 字内 4 个字节的选通掩码 (与 mem_subsystem 的 wd_mask 同口径)
+    function [3 : 0] wd_mask4;
+        input [1 : 0] w;
+        begin
+            wd_mask4 = (w == 2'b10) ? 4'hf : (w == 2'b01) ? 4'h3 : 4'h1;
+        end
+    endfunction
+
     assign any_hit_w  = !DC_OFF && (|way_hit_g);
     // 命中判定: rd_addr_q 就是 T−1 拍摆上读口的那个地址 ⇒ rdata_w 与 tag/valid 必然同源
     assign hit_raw_w  = lk_v_r && !lk_miss_r && !lk_wait_r && !lk_replay_r && rd_ok_r && any_hit_w;
     assign hit_word_w = rdata_w[hit_way_w * WAY_W + q_off_w * 32 +: 32];
 
-    assign hit_valid = hit_raw_w && !rsp_busy;           // ★ 抢不到交付端口就不交 (降级成缺失)
+    assign hit_valid = hit_raw_w && !rsp_busy;           // ★ 抢不到交付端口就不交 (下一拍重放, 见第 6 节)
     assign hit_word  = hit_word_w;
     assign hit_addr  = rd_addr_q;
     assign hit_width = lk_width_r;
@@ -243,10 +313,18 @@ module dcache #(
     //   那不是缺失, 是**重放** (第 6 节)。若放它进来, 上面那层 mem_subsystem 会跟着 ms_valid
     //   把这一笔压进 miss 队列并发 AR (它的 dc_ms_fire_w 只认 ms_valid && ms_ready), 而本模块
     //   并不清 lk_v_r ⇒ 同一笔 load 会**发两次 AR、回两个完成脉冲** ⇒ LSQ 的 idx 彻底错位。
-    assign miss_pending_w = lk_v_r && !lk_wait_r && !lk_replay_r && rd_ok_r && !hit_valid;
+    // ★ 只推**真缺失** (`!hit_raw_w`)。命中但交付口被占 (rsp_busy) **不是**缺失: 写回下让它走 AXI
+    //   会读到"落后于脏行的内存值" (该行的新字节只存在于缓存里) ⇒ 静默算错。它必须重放 (第 6 节)。
+    //   写直达下这条降级是安全的 (内存恒新鲜), 写回下必须改 —— 这是不变量 3 的第三处落点。
+    assign miss_pending_w = lk_v_r && !lk_wait_r && !lk_replay_r && rd_ok_r && !hit_raw_w;
     assign same_line_w    = (lk_addr_r[31 : SPLIT] == fill_base_r[31 : SPLIT]);
-    // 该行正在填 ⇒ 不重复发 AR, 等填充完成再重放 (否则 32 B 行每行多 8 笔重复 AR, 顺序流必中)
-    assign coalesce_w     = miss_pending_w && fill_busy_r && same_line_w && !DC_OFF;
+    assign lk_same_fill_w = fill_busy_r && same_line_w;
+    assign lk_wb_wait_w   = wb_line_busy_w && (lk_addr_r[31 : SPLIT] == wb_base_r[31 : SPLIT]);
+    assign lk_cacheable_w = (lk_addr_r[31 : 28] == 4'h0);   // AXI 内存只到 0x0fffffff ⇒ 高位非 0 = MMIO
+    // 该行正在填 / 正在写回 ⇒ 不重复发 AR, 等它结束再重放 (否则 32 B 行每行多 8 笔重复 AR, 顺序流必中)
+    // ★ WB 那一项是写回特有的: 行刚被驱逐、脏数据还在缓冲里没落盘, 此刻发 AR 读回的是旧值。
+    assign lk_wait_src_w  = lk_same_fill_w || lk_wb_wait_w;
+    assign coalesce_w     = miss_pending_w && lk_wait_src_w && !DC_OFF;
     assign ms_fire_w      = miss_pending_w && !coalesce_w && ms_ready;
 
     assign ms_valid = miss_pending_w && !coalesce_w;
@@ -255,12 +333,32 @@ module dcache #(
     assign ms_idx   = lk_idx_r;
 
     // ==================== 5. 填充器 (单 MSHR + 1 条排队) ====================
-    assign fill_go_w       = miss_pending_w && !coalesce_w && !fill_busy_r && !pf_v_r && !DC_OFF;
-    assign fill_pend_w     = miss_pending_w && !coalesce_w && !fill_go_w && !DC_OFF;
-    assign fill_start_w    = (pf_v_r && !fill_busy_r) || fill_go_w;      // 排队的那条优先
     assign fill_base_new_w = (pf_v_r && !fill_busy_r) ? pf_base_r
                                                       : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}};
     assign new_set_w       = ONE_SET ? {DC_IW{1'b0}} : fill_base_new_w[TAGHI - 1 : SPLIT];
+
+    // ---- 写回状态 (捕获 → 排水 → 等 B); 三者的定义与"谁给谁让路"见头注释第五条 ----
+    assign wb_cap_w       = wbc_pend_r;                  // 本拍用读口把受害行整行读进缓冲
+    assign wb_buf_busy_w  = wbc_pend_r || wbc_lat_r || wb_v_r;    // 数据缓冲被占 (新捕获无处放)
+    assign wb_line_busy_w = wbc_pend_r || wbc_lat_r || wb_v_r || wb_hold_r;  // 本行在飞
+    assign wb_req_valid   = wb_v_r;
+    assign wb_req_addr    = wb_base_r + {wb_beat_r, 2'b00};
+    assign wb_req_data    = wb_data_r[wb_beat_r * 32 +: 32];
+    assign wb_last_push_w = wb_req_valid && wb_req_ready && (wb_beat_r == DC_LINE_WORDS - 1);
+    assign wb_done_w      = wb_resp_valid && (wb_bcnt_r == DC_LINE_WORDS - 1);
+
+    // ---- 起填门控 (写回新增) ----
+    assign vic_v_w     = valid_r[victim_way_w * DC_SETS + new_set_w];
+    assign vic_dirty_w = dirty_r[victim_way_w * DC_SETS + new_set_w];
+    assign vic_tag_w   = tag_r[victim_way_w * (DC_SETS * TAG_W) + new_set_w * TAG_W +: TAG_W];
+    // 起填被写回挡住的两种情况: ①同一行还在飞 (内存此刻可能还是旧值) ②要驱逐脏行但缓冲被占。
+    // 被挡住时让"排队的那条"接住 (fill_pend_w), 不白丢一次填充机会 —— 当前这条 miss 的 AR 照发。
+    assign fill_blk_w  = (wb_line_busy_w && (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT]))
+                      || (wb_buf_busy_w && vic_v_w && vic_dirty_w);
+    assign fill_go_w   = miss_pending_w && !coalesce_w && !fill_busy_r && !pf_v_r && !DC_OFF
+                      && lk_cacheable_w && !fill_blk_w;
+    assign fill_pend_w = miss_pending_w && !coalesce_w && !fill_go_w && !DC_OFF && lk_cacheable_w;
+    assign fill_start_w = (pf_v_r && !fill_busy_r && !fill_blk_w) || fill_go_w;   // 排队的那条优先
 
     // ★ 被污染的填充不再发新 AR。污染后回包一定被丢弃 (见下面 fill_wr_w), 再发就是白占读通道
     //   —— A2 实测读通道占用已到 46~78%, 是三个读用户共享的瓶颈。实测污染率: towers 35% /
@@ -278,31 +376,33 @@ module dcache #(
     assign fill_last_w    = fill_abort_w ? (fill_inflight_w == {FIW{1'b0}})
                                          : (fill_rsp_valid && (fill_cnt_r == DC_LINE_WORDS - 1));
 
-    // ★ 污染: 填充期间任一拍发现"B 未落盘的 store"落在本组 ⇒ 本次填充作废 (粘滞到结束)
-    assign fill_poison_now_w = fill_busy_r && sq_blk[fill_set_r];
-    // 写绝对优先 (回包不可反压); 污染或同拍失效命中本组则连写都不写
-    assign fill_wr_w = fill_rsp_valid && !fill_poison_r && !fill_poison_now_w
-                    && !(inv_valid && (inv_set_w == fill_set_r));
+    // ★ 污染: 填充期间任一拍发现"尚未可见 (未吸收且未落盘) 的 store"落在**本行** ⇒ 本次填充作废
+    assign fill_poison_now_w = fill_busy_r && fill_blk;
+    // 写绝对优先 (回包不可反压); 被污染的填充连写都不写 (回包照收, 见 fill_abort_w)
+    assign fill_wr_w = fill_rsp_valid && !fill_poison_r && !fill_poison_now_w;
     assign fill_wi_w = fill_cnt_r;
-    // 掩码: 中选路里"tag 槽"或"回包那个字槽"各置一位; 其余 lane 被 sram_fakeram 按 wmask 丢弃
+    // 掩码单位 = 1 字节 (每路 LWM 位): "tag 槽那 4 字节" 或 "回包那个字的 4 字节"
+    wire [WMASK_W - 1 : 0] b4_w = {{(WMASK_W - 4){1'b0}}, 4'hf};
     wire [WMASK_W - 1 : 0] fill_wmask_w =
-          ({{(WMASK_W - 1){1'b0}}, 1'b1} << (fill_way_r * (DC_LINE_WORDS + 1) + DC_LINE_WORDS))
-        | ({{(WMASK_W - 1){1'b0}}, 1'b1} << (fill_way_r * (DC_LINE_WORDS + 1)
-                                             + fill_wi_w[OFF_W - 1 : 0]));
-    // store 就地更新: 只覆盖命中路里那一个字槽 (tag 槽不进掩码 ⇒ 行号不变)
+          (b4_w << (fill_way_r * LWM + DC_LINE_WORDS * 4))
+        | (b4_w << (fill_way_r * LWM + {fill_wi_w[OFF_W - 1 : 0], 2'b00}));
+    // store 就地更新: 只覆盖命中路里那几个**字节** (tag 槽不进掩码 ⇒ 行号不变)。
+    //   字节口径与 SQ/AXI 一致: 数据与掩码同左移 addr[1:0] 个字节 (mem_subsystem 的 wd_mask 同款)
+    wire [3 : 0]           st_bmask_w   = wd_mask4(st_width) << st_addr[1 : 0];
+    wire [31 : 0]          st_data_sh_w = st_data << {st_addr[1 : 0], 3'b000};
     wire [WMASK_W - 1 : 0] st_wmask_w =
-          {{(WMASK_W - 1){1'b0}}, 1'b1} << (st_way_w * (DC_LINE_WORDS + 1) + st_word_w);
-    // SRAM 写口三选一: 安装 (最高 — 回包不可反压) > store 就地更新 > 无 (读口留给查表)
+          {{(WMASK_W - 4){1'b0}}, st_bmask_w} << (st_way_w * LWM + {st_word_w, 2'b00});
+    // SRAM 写口三选一: 安装 (最高 — 回包不可反压) > store 就地更新 > 无 (读口留给查表/捕获)
     assign sram_we_w = fill_wr_w || st_wr_w;
     assign wmask_w   = fill_wr_w ? fill_wmask_w : (st_wr_w ? st_wmask_w : {WMASK_W{1'b0}});
     assign wdata_w   = fill_wr_w
         ? {DC_WAYS{ {fill_base_r[31 : TAGHI], {(32 - TAG_W){1'b0}}, {DC_LINE_WORDS{fill_rsp_data}}} }}
-        : {DC_WAYS{ {(DC_LINE_WORDS + 1){st_data}} }};      // 每 lane 都是同一个字, 由掩码选一个
+        : {DC_WAYS{ {(DC_LINE_WORDS + 1){st_data_sh_w}} }};  // 每 lane 都是同一个字, 由掩码选字节
 
     sram_fakeram #(
         .DEPTH             (DC_SETS),
         .WIDTH             (EW),
-        .WRITE_GRANULARITY (32)
+        .WRITE_GRANULARITY (8)
     ) u_arr (
         .clk   (clk),
         .en    (1'b1),
@@ -354,7 +454,25 @@ module dcache #(
             fill_poison_r <= 1'b0;
             pf_v_r        <= 1'b0;
             pf_base_r     <= 32'd0;
+            wbc_pend_r    <= 1'b0;
+            wbc_lat_r     <= 1'b0;
+            wbc_set_r     <= {DC_IW{1'b0}};
+            wbc_way_r     <= {WY_W{1'b0}};
+            wb_base_r     <= 32'd0;
+            wb_v_r        <= 1'b0;
+            wb_beat_r     <= {BIW{1'b0}};
+            wb_hold_r     <= 1'b0;
+            wb_bcnt_r     <= {FIW{1'b0}};
         end else begin
+            // ---- WB 捕获 (起填后一拍占读口; SRAM 同步读 ⇒ 再下一拍数据才到手) ----
+            wbc_lat_r <= wbc_pend_r;
+            if (wbc_pend_r) wbc_pend_r <= 1'b0;
+            if (wbc_lat_r) begin
+                wb_v_r    <= 1'b1;
+                wb_beat_r <= {BIW{1'b0}};
+                wb_bcnt_r <= {FIW{1'b0}};
+                wb_data_r <= rdata_w[wbc_way_r * WAY_W +: 32 * DC_LINE_WORDS];
+            end
             if (fill_start_w) begin
                 fill_busy_r   <= 1'b1;
                 fill_set_r    <= new_set_w;
@@ -362,8 +480,19 @@ module dcache #(
                 fill_word_r   <= {FIW{1'b0}};
                 fill_cnt_r    <= {FIW{1'b0}};
                 fill_way_r    <= victim_way_w;
-                // 起填那拍 fill_set_r 还没更新, 用 fill_base_new_w 的组号查污染
-                fill_poison_r <= sq_blk[new_set_w];
+                // 起填那拍 fill_base_r 还没更新 —— fill_line 输出此刻已指向**新行**, 污染按新行判
+                fill_poison_r <= fill_blk;
+                // 受害路脏 ⇒ 下一拍把整行读进 WB 缓冲 (该路 valid/dirty 同拍清零, 数据不丢)
+                // ★ wb_base_r 必须是**受害行**的基址 (受害路的 tag 镜像 + 本组), 不是新填充行的:
+                //   捕获读只按组寻址, 给错行照样读到对的整行; 但排水那 8 笔的地址与 wb_line_busy_w
+                //   的同行比较都靠它 ⇒ 给成新行 = 把旧行的数据写到新行的地址上 (静默算错)。
+                //   tag_r 在 vset_w 才更新, 此刻仍是被驱逐那条的 tag。
+                if (vic_v_w && vic_dirty_w) begin
+                    wbc_pend_r <= 1'b1;
+                    wbc_set_r  <= new_set_w;
+                    wbc_way_r  <= victim_way_w;
+                    wb_base_r  <= {vic_tag_w, new_set_w, {SPLIT{1'b0}}};
+                end
             end else if (fill_busy_r) begin
                 if (fill_hs_w)         fill_word_r <= fill_word_r + 1'b1;   // 被 load 抢走就原地重试
                 if (fill_rsp_valid)    fill_cnt_r  <= fill_cnt_r + 1'b1;
@@ -376,6 +505,15 @@ module dcache #(
             end else if (fill_start_w) begin
                 pf_v_r    <= 1'b0;                                      // 排队的那条已起填
             end
+            // ---- WB 排水: 背靠背推 DC_LINE_WORDS 笔 (写通道上 WB 优先); 推完转 hold 等 B ----
+            if (wb_last_push_w) begin
+                wb_v_r    <= 1'b0;
+                wb_hold_r <= 1'b1;
+            end else if (wb_req_valid && wb_req_ready) begin
+                wb_beat_r <= wb_beat_r + 1'b1;
+            end
+            if (wb_done_w) wb_hold_r <= 1'b0;      // 写在置位之后 ⇒ 同拍"收齐"赢
+            if (wb_resp_valid && (wb_v_r || wb_hold_r)) wb_bcnt_r <= wb_bcnt_r + 1'b1;
         end
     end
 
@@ -404,7 +542,7 @@ module dcache #(
             if (lk_replay_r) begin
                 lk_replay_r <= 1'b0;                                // 重放读已发出, 下一拍用新 rd_addr_q 判定
             end else if (lk_wait_r) begin
-                // ★ 退出条件必须是**电平** (!fill_busy_r), 只写 fill_last_w 会永久卡死:
+                // ★ 退出条件必须是**电平** (lk_wait_src_w 落下), 只写 fill_last_w 会永久卡死:
                 //   fill_last_w 是 1 拍脉冲, 而"并入"与"填充最后一拍"可以同拍发生
                 //   (coalesce_w && fill_last_w)。那一拍只置了 lk_wait_r, posedge 后 fill_busy_r 已清、
                 //   fill_last_w 再也不会为 1 ⇒ lk_wait_r 恒 1 ⇒ 这条 load 永不交付 ⇒ LSQ 的 issued_r
@@ -412,13 +550,21 @@ module dcache #(
                 //   此后每拍 [WAITSTUCK] 直到 300000 拍上限。
                 //   fill_last_w 这一项保留只为省 1 拍 (它那一拍 fill_busy_r 还是 1, 快路径抓得到;
                 //   填充结束到重放读最早只能是下一拍 —— 那一拍安装写已过, 读口不再被偷)。
-                if (fill_last_w || !fill_busy_r) begin lk_wait_r <= 1'b0; lk_replay_r <= 1'b1; end
+                if (!lk_wait_src_w || (lk_same_fill_w && fill_last_w)) begin
+                    lk_wait_r <= 1'b0; lk_replay_r <= 1'b1;
+                end
             end else if (!lk_miss_r && !rd_ok_r) begin
-                // ★ 本拍的读被安装写/store 就地更新偷走 (sram_fakeram 在写周期把 rdata 置 x)
+                // ★ 本拍的读被安装写/store 就地更新/WB 捕获读偷走 (sram_fakeram 在写周期把 rdata 置 x)
                 //   ⇒ 重放同一地址, **不判缺失**: 写回下误判缺失 = 读陈旧内存 + 覆盖脏行 = 静默算错。
                 //   只在"这一拍本是对这笔 load 的判定"时进 (`!lk_miss_r` 挡掉已 park 的那条: 它的
                 //   rd_addr_q 早就不代表自己了, 重放只会白等两拍)。被偷的那笔 AR 绝不会发出去 ——
                 //   miss_pending_w 里也带了 rd_ok_r。
+                lk_replay_r <= 1'b1;
+            end else if (hit_raw_w && !hit_valid) begin
+                // ★ 命中但交付口被占 (rsp_busy): **重放**, 不许像写直达版那样降级成缺失 ——
+                //   写回下按缺失走 AXI 读到的是落后于脏行的内存值 (该行的新字节只在缓存里),
+                //   而此刻合并链可能已经不含那条 store ⇒ 静默算错。重放只花 2 拍, 还比一趟 AXI 便宜。
+                //   (第 4 节 miss_pending_w 用 !hit_raw_w 把这条同时挡在 AR 之外, 两处必须成对改。)
                 lk_replay_r <= 1'b1;
             end else if (hit_valid) begin
                 lk_v_r <= 1'b0;                                     // 命中已交付
@@ -439,55 +585,72 @@ module dcache #(
             rd_ok_r   <= 1'b0;
         end else begin
             rd_addr_q <= rd_addr_w;
-            rd_ok_r   <= !sram_we_w;                                // 写的那拍没有读 ⇒ 下一拍条目不可信
+            // 写的那拍 / WB 捕获读占口的那拍都没有"本次查表"的读 ⇒ 下一拍条目不可信
+            rd_ok_r   <= !sram_we_w && !wb_cap_w;
         end
     end
 
-    // ==================== 8. 行有效位图 + tag 镜像 ====================
-    assign inv_set_w = ONE_SET ? {DC_IW{1'b0}} : inv_addr[TAGHI - 1 : SPLIT];
+    // ==================== 8. 行有效位图 + 脏位图 + tag 镜像 ====================
+    // fill_line = 本拍"有效填充行": 起填那拍 fill_base_r 还是上一条, 必须给**新行** —— 上层
+    // sq_line_blk_f 拿它去比 SQ 条目, 给错行就会漏判污染 (或误判)。
+    assign fill_line = fill_start_w ? fill_base_new_w : fill_base_r;
     wire [TAG_W - 1 : 0] fill_tag_w = fill_base_r[31 : TAGHI];       // 本次填充行的 tag
-    // 最后一字落地才置位; 污染 / 同拍 store 失效命中本组 ⇒ 不置
-    assign vset_w = fill_last_w && !fill_poison_r && !fill_poison_now_w
-                 && !(inv_valid && (inv_set_w == fill_set_r));
+    // 最后一字落地才置位; 被污染的填充不置 (行没装全, 装了就是"半行冒充整行")
+    assign vset_w = fill_last_w && !fill_poison_r && !fill_poison_now_w;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             valid_r <= {(DC_WAYS * DC_SETS){1'b0}};
         end else begin
-            // ★ 发起填充即清 valid —— 不清就是"旧数据冒充新 tag"的假命中
-            if (fill_start_w) valid_r[victim_way_w * DC_SETS + new_set_w] <= 1'b0;
-            // 中途置位会把半行当整行交付
-            if (vset_w) valid_r[fill_way_r * DC_SETS + fill_set_r] <= 1'b1;
+            // ★ 发起填充即清 valid —— 不清就是"旧数据冒充新 tag"的假命中。
+            //   同拍清 dirty: 受害路的脏数据此刻已被记进 WB 捕获 (存不下就不起填, 见 fill_blk_w),
+            //   没被捕获的必然是干净行 ⇒ 清掉不丢数据。
+            if (fill_start_w) begin
+                valid_r[victim_way_w * DC_SETS + new_set_w] <= 1'b0;
+                dirty_r[victim_way_w * DC_SETS + new_set_w] <= 1'b0;
+            end
+            // 中途置位会把半行当整行交付; 刚取回的行与内存一致 ⇒ 干净
+            if (vset_w) begin
+                valid_r[fill_way_r * DC_SETS + fill_set_r] <= 1'b1;
+                dirty_r[fill_way_r * DC_SETS + fill_set_r] <= 1'b0;
+            end
             // ★ 不变量 1: 同组任一时点最多一路持有某 tag —— 安装那拍把其它持有同一 tag 的路一并
             //   作废。重复 tag 在写回下是**静默算错** (脏副本被换出 / 陈旧副本被读出); 这里只是
             //   DC_WAYS 个比较器加几次 valid 位清除, 不占 SRAM 口。valid_r 这一项是必须的:
             //   没写过的路的 tag_r 从未定义 (见第 2 节), 不能参与比较。
+            //   ★ 归纳法保证它永不命中 (valid+tag 只在 vset_w 一处置位, 而 vset_w 同拍就清干净了
+            //     其它同 tag 的路) ⇒ 也就不会有一条**脏**副本被这里清掉; 写回下这条很要紧。
             if (vset_w)
                 for (gi = 0; gi < DC_WAYS; gi = gi + 1)
                     if ((gi != fill_way_r) && valid_r[gi * DC_SETS + fill_set_r]
-                        && (tag_r[gi * (DC_SETS * TAG_W) + fill_set_r * TAG_W +: TAG_W] == fill_tag_w))
+                        && (tag_r[gi * (DC_SETS * TAG_W) + fill_set_r * TAG_W +: TAG_W] == fill_tag_w)) begin
                         valid_r[gi * DC_SETS + fill_set_r] <= 1'b0;
-            // ★ store 退休的部分字命中 ⇒ 下架该行 (整字命中走 SRAM 写, 这里不动 valid)。
-            //   放最后 = 与安装同拍时"下架"赢 —— 下架永远安全 (重取必得新值), 留着旧字节不安全。
-            if (st_drop) valid_r[st_way_w * DC_SETS + st_set_w] <= 1'b0;
+                        dirty_r[gi * DC_SETS + fill_set_r] <= 1'b0;
+                    end
+            // ★ store 就地写 ⇒ 该行与内存不一致, 换出时必须写回。放最后: 与上面几项撞同一槽时
+            //   以"置脏"为准 —— 吸收进去的字节是真实的, 丢掉它就是静默算错。
+            if (st_absorb) dirty_r[st_way_w * DC_SETS + st_set_w] <= 1'b1;
         end
     end
 
     always @(posedge clk)                                            // 无复位: 见第 2 节 tag_r 的论证
         if (vset_w) tag_r[fill_way_r * (DC_SETS * TAG_W) + fill_set_r * TAG_W +: TAG_W] <= fill_tag_w;
 
-    // ==================== 9. store 退休口 (写直达 + 命中就地更新) ====================
-    // 语义: SQ 队首那条 store 已 "B 落盘 + ticket 已过", 要在**本拍**把缓存行修正到新值, 之后才
-    // 允许退休出队 (mem_subsystem 拿这里的回答当退休许可)。三条出路互斥, 恰好一条:
-    //   · 命中 & 整字 & 4 字节对齐 ⇒ st_absorb: 覆盖该行那一个字 (走 SRAM 写口, 第 5 节仲裁)
-    //   · 命中 & 其它宽度/对齐   ⇒ st_drop: 下架该行 —— 写直达下内存是权威且新鲜的 (B 已落盘),
-    //     故"下架重取"必得新值, 不必为部分字做读-改-写 (省掉一条 2 拍 RMW 通路与它的一堆边界)
-    //   · 未命中 ⇒ st_bypass: 本缓存没有该行, 无事可做 (数据仍按原样走 SQ→AXI 写通道)
-    // 让路: 安装写占着 SRAM 口的那拍 st_absorb 不抬 (填充回包不可反压), SQ 队首原地多等一拍 ——
-    //   正确性不受影响 (条目还在 SQ 里 ⇒ 合并链仍在覆盖), 而填充写最多连续 DC_LINE_WORDS 拍。
+    // ==================== 9. store 退休口 (写回: 命中就地把字节写进行, 未命中旁路) ====================
+    // 语义: SQ 队首那条 store 要在**本拍**定下去向 (mem_subsystem 拿这里的回答当退休许可)。
+    // 两条出路互斥, 恰好一条 (都不抬 = 让路一拍, 队首原地重试):
+    //   · 命中 ⇒ st_absorb: 把该 store 的 1/2/4 个字节按 addr[1:0] 写进命中路 (第 5 节的字节掩码),
+    //     并置脏。写回下**部分字命中也能吸收** —— 字节掩码让它与整字同款 1 拍, 既不必读-改-写
+    //     (原计划为此准备了 2 拍 RMW), 也不必像写直达那样"下架整行再重取"。
+    //   · 未命中 ⇒ st_bypass: 本缓存没有该行, 数据照原样走 SQ→AXI 写通道 (DC_WA=0 不分配)。
+    // 让路 (都不抬 ⇒ 队首多等一拍; 条目还在 SQ 里 ⇒ 合并链仍覆盖, 正确性不受影响):
+    //   · 安装写占着 SRAM 口 (fill_wr_w); · WB 捕获读占着读口 (wb_cap_w);
+    //   · 本拍该路正被驱逐 (st_vic_now_w): 行马上就要没了, 写进去也是白写 ⇒ 下拍自然走旁路;
+    //   · 同一行的写回还没推完 (st_wb_same_w): 写通道按序, 必须排在旧行那 8 笔之后, 否则被反超。
     assign st_set_w  = ONE_SET ? {DC_IW{1'b0}} : st_addr[TAGHI - 1 : SPLIT];
     assign st_tag_w  = st_addr[TAGHI +: TAG_W];
     assign st_word_w = st_addr[SPLIT - 1 : 2];
+    assign st_cacheable_w = (st_addr[31 : 28] == 4'h0);   // MMIO (>=0x10000000) 永不吸收, 必上总线
     generate
         for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : stcmp
             assign st_hit_g[gj] = valid_r[gj * DC_SETS + st_set_w]
@@ -496,10 +659,22 @@ module dcache #(
     endgenerate
     assign st_way_w     = hitway_f(st_hit_g);
     assign any_st_hit_w = |st_hit_g;
-    assign st_full_w    = (st_width == 2'b10) && (st_addr[1 : 0] == 2'b00);
-    assign st_wr_w      = st_valid && any_st_hit_w && st_full_w && !fill_wr_w;
+    wire   st_vic_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_w == victim_way_w);
+    wire   st_wb_same_w = wb_buf_busy_w && (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT]);
+    // ★ 同一行**正有填充在飞**。只认 register 出来的 fill_busy_r, 不认本拍起填 —— 起填与否本身
+    //   取决于 fill_blk, 而 fill_blk (mem_subsystem 的毒化判定) 又取决于本判定, 认了就成组合环。
+    //   在飞的填充必然已经过了起填那一拍, 靠它就够。
+    wire   st_fill_same_w = fill_busy_r && (fill_base_r[31 : SPLIT] == st_addr[31 : SPLIT]);
+    assign st_wr_w      = st_valid && any_st_hit_w && st_cacheable_w
+                       && !fill_wr_w && !wb_cap_w && !st_vic_now_w;
     assign st_absorb    = st_wr_w;
-    assign st_drop      = st_valid && any_st_hit_w && !st_full_w;
-    assign st_bypass    = st_valid && !any_st_hit_w;
+    // ★ 非缓存 / 未命中都走这一条。`!st_cacheable_w` 显式进门: 万一 MMIO 行被吸收, 终止 store
+    //   就永远上不了总线 (从机等不到它) ⇒ 死机。让路项与吸收那边同款, 两条合起来恒有解。
+    // ★ **同行填充在飞时例外** (判"都不发" = 停一拍重试): 那一拍判旁路 = 该行永远装不上 —— 条目
+    //   留在 SQ 里 (sq_pend_w) 毒死这次填充 ⇒ 行不安装 ⇒ 下一轮再缺失 ⇒ 再旁路, **自我否定环**。
+    //   rsort 实测: 起填 16474 次只装上 2568 次 (15.6%), 中止拍 99.97% 是同行未落地 store。
+    //   等它落地不额外花 AR (填充本来就在飞), 落地后本行 valid ⇒ 自然命中吸收。
+    assign st_bypass    = st_valid && (!st_cacheable_w || (!any_st_hit_w && !st_fill_same_w))
+                       && !st_wb_same_w;
 
 endmodule

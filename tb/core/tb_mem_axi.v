@@ -14,7 +14,10 @@
 //
 // 用例: T1 顺序取指 (含冷启动周期数) / T2 重定向与 tag 别名不错绑 / T3 load 各宽度与零扩展 /
 //       T4 store 各宽度 strb 与地址对齐 / T5 store→load 可见性竞态 (提交时刻扫描) / T6 复位打断 /
-//       T7 队列回绕后的合并次序 (按年龄遍历, 不是按槽号)
+//       T7 队列回绕后的合并次序 (按年龄遍历, 不是按槽号) / T8 并发在飞 load 不错绑 /
+//       T9 命中与缺失乱序完成不错绑 / T10 写回契约 (退休吸收不上总线, 驱逐才写回) /
+//       T11 非缓存 (MMIO) 地址必上总线且不被缓存 /
+//       T12 填充在飞 + 同行未决 store ⇒ 填充照常安装 (rsort 自我否定环的回归)
 // 失败: N TESTS FAILED + $stop; 成功: ALL TESTS PASSED + $finish
 `timescale 1ns/1ps
 module tb_mem_axi;
@@ -543,6 +546,8 @@ module tb_mem_axi;
     endfunction
 
     integer t1_cyc, t1_total;
+    reg [31:0] t10_orig, t12_orig;
+    reg        t11_absorb, t11_fill, t12_byp;
     reg same_cycle_hit;
     integer commit_cyc, done_cyc;
     reg [31:0] race_val;
@@ -807,28 +812,86 @@ module tb_mem_axi;
         ld_inflight_tb = ld_inflight_tb - 1; ld_done_tb = ld_done_tb + 1;
         $display("PASS: T9 out-of-order hit/miss completion keeps idx<->data pairing");
 
-        // ---- T10 缓存行的失效时点是 store **退休**, 不是提交 ----
-        // 判据是"这一笔 load 到底走没走总线", 不是数据值 —— 提交→退休窗口内该行**必须仍驻留**
-        // (靠命中 + 第四节的字节合并链兜住), 退休之后才允许下架。做法是把 AR 通道按住:
-        // 窗口内的那条 load 若能回, 只可能来自命中; 若它去发 AR, 就永远回不来 ⇒ 这里必须报错。
-        // (失效时点若改回"提交", 本条必挂 —— 这正是它要钉住的契约, 见 dcache.v 第七条不变量。)
+        // ---- T10 write-back contract: store is absorbed into the line at retire (no bus write);
+        //      the dirty line reaches memory only when it is evicted ----
+        // Check 1 (absorb => no bus write): after retire the memory MUST still hold the old value.
+        //   The previous write-through / invalidate-on-retire version would show the new value here.
+        // Check 2 (hit gets the new value): the dirty line lives in the cache, so a load must hit it.
+        // Check 3 (write-back on eviction): fill two other lines in the same set, evicting it, and only
+        //   then may the memory change -- and a re-fetch must return the written-back value.
+        // NOTE: this TB instantiates mem_subsystem with its DEFAULT DC_WAYS=1 => 64 sets, set = addr[10:5].
+        //   Set 16 therefore holds 0x200-0x21F and 0xA00-0xA1F; filling either evicts the other.
         fetch_wait(FA_PARK, FETCH_MAX);
-        ld_push(T10_L, 2'b10, 4'd4); ld_wait(80);          // 把 T10_L 那行填进缓存
-        for (n = 0; (n < 200) && dut.u_dc.fill_busy; n = n + 1) tick();   // 等这次填充彻底收尾
+        ld_push(T10_L, 2'b10, 4'd4); ld_wait(80);                  // fill the T10_L line into the cache
+        for (n = 0; (n < 200) && dut.u_dc.fill_busy; n = n + 1) tick();
         expect_v(!dut.u_dc.fill_busy, "T10 fill never finished");
-        st_push(T10_L + 32'd4, 32'h5A5A_1234, 2'b10);      // 提交: 落在**已在缓存里**的那一行上
-        tb_hold_ar = 1'b1;                                 // 此后任何 AR 都出不去
-        for (n = 0; n < 2; n = n + 1) tick();
-        ld_push(T10_L + 32'd4, 2'b10, 4'd5);
-        ld_wait(80);                                       // 按住 AR 还能回 ⇒ 只能是命中
-        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 load in commit->retire window must hit + merge");
-        tb_hold_ar = 1'b0;
-        sq_drain(200);                                     // 等它退休 (B 已落盘 且 之前的 load 都已回)
-        expect_v(mem_word(T10_L + 32'd4) === 32'h5A5A_1234, "T10 store must have landed");
-        ld_push(T10_L + 32'd4, 2'b10, 4'd6);
-        ld_wait(80);                                       // 行已下架 ⇒ 走总线读回落盘后的值
-        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 stale line survived store retire");
-        $display("PASS: T10 line invalidated at store retire, not at commit");
+        t10_orig = mem_word(T10_L + 32'd4);                        // 从机图案在 0xA04 上的原值
+        expect_v(t10_orig !== 32'h5A5A_1234, "T10 line word is already the store value");
+        st_push(T10_L + 32'd4, 32'h5A5A_1234, 2'b10);              // commit + retire: lands on the line already in the cache
+        sq_drain(200);
+        expect_v(mem_word(T10_L + 32'd4) === t10_orig, "T10 write-back: store at retire must NOT reach the bus (memory keeps the old value)");
+        ld_push(T10_L + 32'd4, 2'b10, 4'd5); ld_wait(80);
+        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 load must hit the dirty line and get the stored value");
+        ld_push(32'h0000_0200, 2'b10, 4'd6); ld_wait(200);         // same set, different tag => dirty line evicted
+        for (n = 0; n < 300; n = n + 1) tick();                    // wait for capture + 8 write-back beats + all B responses
+        expect_v(mem_word(T10_L + 32'd4) === 32'h5A5A_1234, "T10 dirty line evicted but never written back to memory");
+        ld_push(T10_L + 32'd4, 2'b10, 4'd7); ld_wait(200);         // re-fetch: the value must come from the written-back memory
+        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 re-fetch after write-back got a stale value");
+        $display("PASS: T10 store absorbed at retire (no bus write); dirty line written back on eviction");
+
+        // ---- T11 非缓存 (MMIO) 地址: 必上总线, 绝不被缓存 ----
+        // 判据一: 该 store 不得被吸收 ⇒ 它只能走 AXI 写通道, 靠 B 退休 (sq_drain 能过就证明 B 回来了)。
+        //   (这正是 cpu_top 停机 latch 依赖的那条路: 终止 store 到 0x80000000 必须真的上总线。)
+        // 判据二: 该 load 不得起填充 (fill_go_w/fill_pend_w 都被 lk_cacheable_w 挡住) ⇒ 不分配行。
+        //   地址高位非 0 即非缓存: AXI 内存只到 0x0fffffff (description.md)。
+        st_push(32'h8000_0000, 32'hDEAD_0001, 2'b10);
+        t11_absorb = 1'b0;
+        for (n = 0; n < 30; n = n + 1) begin
+            tick();
+            if (dut.u_dc.st_absorb) t11_absorb = 1'b1;
+        end
+        expect_v(!t11_absorb, "T11 MMIO store must never be absorbed into the D-cache");
+        sq_drain(400);
+        ld_push(32'h8000_0000, 2'b10, 4'd9);
+        t11_fill = 1'b0;
+        for (n = 0; n < 60; n = n + 1) begin
+            tick();
+            if (dut.u_dc.fill_busy) t11_fill = 1'b1;
+        end
+        ld_wait(200);
+        expect_v(!t11_fill, "T11 MMIO load must not start a line fill");
+        $display("PASS: T11 MMIO store reaches the bus (retires on B) and never allocates");
+
+        // ---- T12 填充在飞 + 同行未决 store ⇒ 填充照常安装 (不得被那条 store 毒死) ----
+        // rsort 异常命中率的病根回归。旧版: 判"同行有未可见 store"就作废本次填充, 而那条 store 又因
+        //   看不见行而判旁路 ⇒ 行永远装不上 ⇒ 下一轮再缺失 (自我否定环; 实测起填 16474 次只装上
+        //   2568 次)。现在两侧配套, **缺任一侧都会漏**:
+        //   dcache 侧 —— 同行填充在飞时既不吸收也不旁路, 只停一拍等落地 (tb_dcache T8);
+        //   本模块侧 —— 污染判定豁免"缓存型 + 未判旁路 + 落在在填行"的条目 (sq_line_blk_f)。
+        // 判据三条: ①那条 store 全程没旁路 ②第一次 load 正常完成 (填充没被中止) ③填充落地后那条
+        //   store 被就地吸收 ⇒ 内存里仍是原图案, 而再读该行拿到 store 的新值 (旁路的话内存会变)。
+        fetch_wait(FA_PARK, FETCH_MAX);
+        t12_orig = mem_word(32'h0000_0020);
+        expect_v(t12_orig !== 32'hA5A5_5A5A, "T12 test word already holds the store value");
+        ld_push(32'h0000_0020, 2'b10, 4'd10);                    // 缺失 ⇒ 起填 (行 0x20, 组 1; D-cache 未碰过的组)
+        ld_wait(200);                                            // ★ 必须**先等它完成**再提交 store:
+        //   合并链 (sq_merge_byte_f) 按地址合并不看年龄, 前提是"store 提交那拍在飞的 load 必比它年轻"
+        //   (成立: store 只在 ROB 队首提交 ⇒ 比它老的 load 早退休)。本 TB 若让老 load 在飞就提交,
+        //   读回的是被 store 覆盖过的值 —— 那是 TB 违约, 不是 RTL 错。
+        expect_v(cap_ld_data === exp_ld(32'h0000_0020, 2'b10), "T12 older load must return the memory pattern");
+        expect_v(dut.u_dc.fill_busy, "T12 fill finished too early (test would be vacuous)");
+        st_push(32'h0000_0020, 32'hA5A5_5A5A, 2'b10);            // 填充仍在飞期间提交同行的 store
+        t12_byp = 1'b0;
+        for (n = 0; n < 300; n = n + 1) begin
+            tick();
+            if (dut.u_dc.st_bypass) t12_byp = 1'b1;
+        end
+        expect_v(!t12_byp, "T12 store on the filling line must never bypass (it would poison its own fill)");
+        expect_v(mem_word(32'h0000_0020) === t12_orig, "T12 store must not reach the bus (it is absorbed by the line)");
+        sq_drain(200);
+        ld_push(32'h0000_0020, 2'b10, 4'd11); ld_wait(80);       // 行已装上且被 store 就地更新
+        expect_v(cap_ld_data === 32'hA5A5_5A5A, "T12 second load must hit the installed line and see the stored value");
+        $display("PASS: T12 pending store on the filling line does not poison the fill (no self-defeating loop)");
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect_v(ld_inflight_tb == 0, "load bookkeeping not balanced");
