@@ -6,6 +6,11 @@
 // 全局账本 (最重要的那条): 每条被接受的 load 必须**恰好**一个完成脉冲
 //   n_done (= rsp_valid 脉冲数 + hit_valid 脉冲数) 最终必须等于 n_accept
 // 一拍丢脉冲 = LSQ head 卡死; 一拍两个 = 目的寄存器被写两次。
+//
+// store 退休口 (第 9 节契约) 的驱动全部经由 store_ret / 常驻断言:
+//   · st_valid 保持到 st_absorb/st_drop/st_bypass 之一抬起 (TB 里由 store_ret 保证);
+//   · 三者互斥, 且 st_absorb 绝不与安装写 (dut.fill_wr_w) 同拍 (SRAM 单口);
+//   · 偷读必须走重放: 不产生 ms 推送、不丢交付脉冲 (T13)。
 `timescale 1ns/1ps
 module tb_dcache;
     localparam DC_SIZE       = 2048;
@@ -23,12 +28,15 @@ module tb_dcache;
     localparam LOAD_LAT = 2;
     localparam FILL_LAT = 6;
 
+    // store 退休回答的编码 (K_ANY = 不检查)
+    localparam K_ANY = 2'd0, K_ABSORB = 2'd1, K_DROP = 2'd2, K_BYPASS = 2'd3;
+
     reg clk = 1'b0;
     reg rst_n = 1'b0;
     always #5 clk = ~clk;
 
     integer errors = 0;
-    integer n_accept = 0, n_done = 0, n_ms = 0, n_fill_req = 0;
+    integer n_accept = 0, n_done = 0, n_ms = 0, n_fill_req = 0, n_gate = 0, n_steal = 0;
 
     // ---------------- DUT 端口 (先声明, 后例化) ----------------
     reg  lk_start;
@@ -40,9 +48,10 @@ module tb_dcache;
     reg         fill_req_ready;
     reg         inv_valid;
     reg  [31:0] inv_addr;
-    reg         clr_valid;
-    reg  [31:0] clr_addr;
     reg  [SETS-1:0] sq_blk;
+    reg         st_valid;
+    reg  [31:0] st_addr, st_data;
+    reg  [1:0]  st_width;
 
     wire        hit_valid;
     wire [31:0] hit_word, hit_addr;
@@ -55,6 +64,7 @@ module tb_dcache;
     wire        fill_req_valid;
     wire [31:0] fill_req_addr;
     wire        busy, fill_busy;
+    wire        st_absorb, st_drop, st_bypass;
 
     wire        b_hit_valid, b_busy, b_fill_busy, b_ms_valid;
     wire [31:0] b_hit_word, b_ms_addr;
@@ -95,7 +105,8 @@ module tb_dcache;
         .fill_req_ready (fill_req_ready),
         .fill_rsp_valid (fill_rsp_valid), .fill_rsp_data (fill_rsp_data),
         .inv_valid (inv_valid), .inv_addr (inv_addr), .sq_blk (sq_blk),
-        .clr_valid (clr_valid), .clr_addr (clr_addr),
+        .st_valid (st_valid), .st_addr (st_addr), .st_data (st_data), .st_width (st_width),
+        .st_absorb (st_absorb), .st_drop (st_drop), .st_bypass (st_bypass),
         .busy (busy), .fill_busy (fill_busy)
     );
 
@@ -113,7 +124,8 @@ module tb_dcache;
         .fill_req_ready (1'b1),
         .fill_rsp_valid (1'b0), .fill_rsp_data (32'd0),
         .inv_valid (1'b0), .inv_addr (32'd0), .sq_blk (1'b0),
-        .clr_valid (1'b0), .clr_addr (32'd0),
+        .st_valid (1'b0), .st_addr (32'd0), .st_data (32'd0), .st_width (2'd2),
+        .st_absorb (), .st_drop (), .st_bypass (),
         .busy (b_busy), .fill_busy (b_fill_busy)
     );
 
@@ -151,6 +163,26 @@ module tb_dcache;
             // 旁路实例永不命中 / 永不起填
             if (b_hit_valid)      begin $display("FAIL: DC_SIZE=0 竟命中"); errors = errors + 1; end
             if (b_fill_req_valid) begin $display("FAIL: DC_SIZE=0 竟起填"); errors = errors + 1; end
+            // ---- store 退休口的三条常驻不变量 ----
+            if ((st_absorb && st_drop) || (st_absorb && st_bypass) || (st_drop && st_bypass)) begin
+                $display("FAIL: st_absorb/st_drop/st_bypass 同时抬起 (t=%0t)", $time);
+                errors = errors + 1;
+            end
+            // 单口 SRAM: store 就地更新绝不能与安装写同拍
+            if (st_absorb && dut.fill_wr_w) begin
+                $display("FAIL: store 就地更新与安装写抢 SRAM 口 (t=%0t)", $time);
+                errors = errors + 1;
+            end
+            // 让路路径被走到的证据 (T13 末尾检查)
+            if (st_valid && dut.fill_wr_w && !st_absorb) n_gate <= n_gate + 1;
+            // 偷读路径被走到的证据: 本拍正要对这笔 load 判定, 而它的读被写偷走了 (T12 末尾检查)
+            if (dut.lk_v_r && !dut.lk_replay_r && !dut.lk_miss_r && !dut.lk_wait_r && !dut.rd_ok_r)
+                n_steal <= n_steal + 1;
+            // 未命中还声称吸收 = 写错行
+            if (st_absorb && !st_valid) begin
+                $display("FAIL: 无 st_valid 却 st_absorb (t=%0t)", $time);
+                errors = errors + 1;
+            end
         end
     end
 
@@ -160,7 +192,7 @@ module tb_dcache;
             rst_n = 1'b0; lk_start = 1'b0; lk_addr = 32'd0; lk_width = 2'd2; lk_idx = 4'd0;
             rsp_ovr = 1'b0; ms_ready = 1'b1; fill_req_ready = 1'b1;
             inv_valid = 1'b0; inv_addr = 32'd0; sq_blk = {SETS{1'b0}};
-            clr_valid = 1'b0; clr_addr = 32'd0;
+            st_valid = 1'b0; st_addr = 32'd0; st_data = 32'd0; st_width = 2'd2;
             repeat (3) @(posedge clk);
             rst_n = 1'b1;
             @(posedge clk);
@@ -248,6 +280,35 @@ module tb_dcache;
         end
     endtask
 
+    // 一条 store 退休: 抬 st_valid 并等回答 (回答可以晚若干拍 —— 安装写占口时要让路)。
+    // kind_exp = K_ANY 时不检查是三者中的哪一种; 不匹配 (或等不到) 都算失败。
+    task store_ret(input [31:0] a, input [31:0] d, input [1:0] w, input [1:0] kind_exp);
+        integer guard;
+        reg [1:0] kind;
+        begin
+            guard = 0;
+            @(negedge clk);
+            st_addr = a; st_data = d; st_width = w; st_valid = 1'b1;
+            #1;
+            kind = st_absorb ? K_ABSORB : st_drop ? K_DROP : st_bypass ? K_BYPASS : K_ANY;
+            while (kind == K_ANY && guard < 400) begin
+                @(negedge clk); #1;
+                kind = st_absorb ? K_ABSORB : st_drop ? K_DROP : st_bypass ? K_BYPASS : K_ANY;
+                guard = guard + 1;
+            end
+            if (kind == K_ANY) begin
+                $display("FAIL: store 退休等不到回答 (addr=%h, t=%0t)", a, $time); errors = errors + 1;
+            end else if (kind_exp != K_ANY && kind !== kind_exp) begin
+                $display("FAIL: store 退休回答 %0d 应为 %0d (addr=%h, t=%0t)", kind, kind_exp, a, $time);
+                errors = errors + 1;
+            end
+            @(posedge clk);              // DUT 在这一拍落盘 (SRAM 写 / valid 清)
+            @(negedge clk);
+            st_valid = 1'b0;
+            idle(1);
+        end
+    endtask
+
     task wait_done(input integer guard_max, input [255:0] msg);
         integer guard;
         begin
@@ -272,6 +333,7 @@ module tb_dcache;
     // ---------------- 主流程 ----------------
     integer cap_n, ms_n, done_n;
     integer wt;                                       // T4 多路分支的行 tag 循环
+    integer gate_n;                                   // T14 的让路拍数快照
     initial begin
         $dumpfile("sim/core/tb_dcache.vcd");
         $dumpvars(0, tb_dcache);
@@ -282,6 +344,7 @@ module tb_dcache;
         idle(2);
         chk(!hit_valid && !fill_busy && !busy, "T1 复位后应为空闲");
         chk(!b_hit_valid && !b_busy && !b_fill_busy, "T1b DC_SIZE=0 复位后应为空闲");
+        chk(!st_absorb && !st_drop && !st_bypass, "T1c 复位后 store 口应无回答");
 
         // ============ T2 缺失 → 填充 → 再命中 ============
         $display("=== T2 缺失 → 填充 → 再命中");
@@ -334,34 +397,40 @@ module tb_dcache;
             idle(2);
         end
 
-        // ============ T5 store 失效的**两个**时点: 提交不清 valid, 退休才清 (按索引, 不看 tag) ============
-        $display("=== T5 store 提交不清 valid (仍命中), 退休才清 (必缺失)");
-        // 先把 set 0 清干净再重填 0x0800 那行 —— T4 各分支留下的组内状态不同, 这里不依赖它
-        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0800;
-        @(negedge clk); clr_valid = 1'b0;
+        // ============ T5 store 退休三态: 整字命中就地更新 / 未命中旁路 / 部分字命中下架 ============
+        // 用 set 16 (0x0600) 与 set 20 (0x0280) —— 前面几条只碰过 set 0/1/2, 状态干净。
+        $display("=== T5 store 退休: 吸收 / 旁路 / 下架");
+        fill_line(32'h0000_0600);                 // set 16
+        accept(32'h0000_0608, 2'd2, 4'd8);
+        expect_hit(32'h0000_0608, 4'd8, 32'hC0DE_0182);
         idle(1);
-        accept(32'h0000_0800, 2'd2, 4'd8);        // 刚失效 ⇒ 必缺失, 填上
-        expect_ms(32'h0000_0800, 4'd8);
-        run_fill;
-        idle(2);
-        accept(32'h0000_0808, 2'd2, 4'd8);        // 0x0800 那行刚填好 ⇒ 命中
-        expect_hit(32'h0000_0808, 4'd8, 32'hC0DE_0202);
-        idle(1);
-        // ★ 提交一拍: 行**不下架**。该行那个字确实已经旧了, 但字节由 mem_subsystem 的合并链
-        //   (sq_merge_byte_f) 在交付时逐字节覆盖, 覆盖窗口与这里的 valid 窗口同拍结束。
-        @(negedge clk); inv_valid = 1'b1; inv_addr = 32'h0000_0000;  // 同组 (set 0) 不同行
+        // ★ 提交一拍: 行**不下架** (只拦安装)。该行那个字确实已经旧了, 但字节由 mem_subsystem 的
+        //   合并链 (sq_merge_byte_f) 在交付时逐字节覆盖, 覆盖窗口与这里的 valid 窗口同拍结束。
+        @(negedge clk); inv_valid = 1'b1; inv_addr = 32'h0000_0000;  // 同组 (set 16) 不同行
         @(negedge clk); inv_valid = 1'b0;
         idle(1);
-        accept(32'h0000_0808, 2'd2, 4'd9);
-        expect_hit(32'h0000_0808, 4'd9, 32'hC0DE_0202);   // 提交**不**清 valid ⇒ 仍命中
+        accept(32'h0000_0608, 2'd2, 4'd9);
+        expect_hit(32'h0000_0608, 4'd9, 32'hC0DE_0182);   // 提交**不**清 valid ⇒ 仍命中
         idle(1);
-        // ★ 退休一拍: 清该组**全部路** (不看 tag) —— 此后缓存里那个字节是错值, 必须下架
-        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0000;
-        @(negedge clk); clr_valid = 1'b0;
+        // (a) 整字命中 ⇒ 就地更新: 之后命中读到的必须是新值 (这是本轮改动的主收益)
+        store_ret(32'h0000_0608, 32'hA5A5_5A5A, 2'd2, K_ABSORB);
+        accept(32'h0000_0608, 2'd2, 4'd10);
+        expect_hit(32'h0000_0608, 4'd10, 32'hA5A5_5A5A);
         idle(1);
-        accept(32'h0000_0808, 2'd2, 4'd10);
-        expect_ms(32'h0000_0808, 4'd10);          // 退休清同组 ⇒ 必缺失
+        // (b) 未命中 ⇒ 旁路: 缓存里不留行 ⇒ 下一次访问仍缺失 (数据另走 AXI, 由上层管)
+        store_ret(32'h0000_0280, 32'h1234_5678, 2'd2, K_BYPASS);
+        accept(32'h0000_0280, 2'd2, 4'd11);
+        expect_ms(32'h0000_0280, 4'd11);
         run_fill;
+        idle(2);
+        // (c) 部分字命中 ⇒ 下架整行 (没被覆盖的那几个字节已不可信)
+        store_ret(32'h0000_0609, 32'h0000_00FF, 2'd0, K_DROP);
+        accept(32'h0000_0608, 2'd2, 4'd12);
+        expect_ms(32'h0000_0608, 4'd12);
+        run_fill;
+        idle(2);
+        accept(32'h0000_0608, 2'd2, 4'd13);
+        expect_hit(32'h0000_0608, 4'd13, 32'hC0DE_0182);
         idle(2);
 
         // ============ T6 起填时 SQ 有未落盘的同组 store ⇒ 本次填充作废 ============
@@ -373,8 +442,7 @@ module tb_dcache;
         accept(32'h0000_0020, 2'd2, 4'd12);
         expect_hit(32'h0000_0020, 4'd12, 32'hC0DE_0008);
         idle(1);
-        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0020;  // 先失效, 再重填
-        @(negedge clk); clr_valid = 1'b0;
+        store_ret(32'h0000_0020, 32'h0000_00AB, 2'd0, K_ANY);   // 部分字 ⇒ 下架 (好造"行不在"的初态)
         sq_blk[1] = 1'b1;
         idle(1);
         accept(32'h0000_0020, 2'd2, 4'd13);
@@ -465,8 +533,45 @@ module tb_dcache;
         accept(32'h0000_010C, 2'd2, 4'd13); expect_hit(32'h0000_010C, 4'd13, 32'hC0DE_0043);
         idle(2);
 
-        // ============ T12 填充中复位 ⇒ 干净重启 ============
-        $display("=== T12 填充中复位 ⇒ 干净重启");
+        // ============ T12 store 就地更新偷走 load 的读 ⇒ 重放 (不判缺失、不丢交付) ============
+        // 写有绝对优先权 ⇒ 抬住 st_valid 的每一拍 SRAM 写口都被占, load 的读必被偷。
+        // 判据: 不产生 ms 推送 (n_ms 不变), 不丢交付脉冲 (账本仍平), 且重放后读到的是新值。
+        $display("=== T12 store 写偷读 ⇒ 重放");
+        cap_n = n_accept; done_n = n_done; ms_n = n_ms; gate_n = n_steal;
+        @(negedge clk);
+        st_valid = 1'b1; st_addr = 32'h0000_0104; st_data = 32'h5A5A_A5A5; st_width = 2'd2;
+        accept(32'h0000_0104, 2'd2, 4'd7);        // 这条 load 的读必被 store 写偷走
+        idle(3);
+        chk(n_steal > gate_n, "T12 偷读路径没被走到 (store 写没抢到 SRAM 口?)");
+        chk(n_ms == ms_n, "T12 偷读被误判成缺失 (应重放)");
+        @(negedge clk); st_valid = 1'b0;
+        expect_hit(32'h0000_0104, 4'd7, 32'h5A5A_A5A5);   // 重放后读到 store 写进去的新值
+        idle(2);
+        chk(n_accept - cap_n == 1, "T12 恰好接受一条 load");
+        chk(n_done - done_n == 1, "T12 恰好一个交付脉冲");
+
+        // ============ T13 安装写占口时 store 让路 (不抢 SRAM 口), 填充收尾后仍给回答 ============
+        $display("=== T13 安装写期间 store 必须让路");
+        gate_n = n_gate;
+        accept(32'h0000_0140, 2'd2, 4'd8);        // set 10, 未填过 ⇒ 缺失起填
+        expect_ms(32'h0000_0140, 4'd8);
+        @(negedge clk);
+        st_addr = 32'h0000_0108; st_data = 32'h0BAD_F00D; st_width = 2'd2; st_valid = 1'b1;
+        idle(2);
+        chk(st_absorb, "T13 填充未占口的拍必须给出 st_absorb");
+        // 抬住不放, 覆盖整个填充写窗口 ⇒ 期间 store 让路 (常驻断言同时在查"绝不同拍")
+        while (fill_busy) @(negedge clk);
+        #1;
+        chk(n_gate > gate_n, "T13 让路路径没被走到 (填充没占上 SRAM 口?)");
+        chk(st_absorb, "T13 填充收尾后应恢复给回答");
+        @(posedge clk); @(negedge clk);
+        st_valid = 1'b0;
+        idle(2);
+        accept(32'h0000_0108, 2'd2, 4'd9);
+        expect_hit(32'h0000_0108, 4'd9, 32'h0BAD_F00D);
+
+        // ============ T14 填充中复位 ⇒ 干净重启 ============
+        $display("=== T14 填充中复位 ⇒ 干净重启");
         accept(32'h0000_0180, 2'd2, 4'd14);       // set 12
         expect_ms(32'h0000_0180, 4'd14);
         idle(2);
@@ -474,7 +579,7 @@ module tb_dcache;
         idle(3);
         rst_n = 1'b1;
         idle(2);
-        chk(!fill_busy && !hit_valid, "T12 复位后 fill_busy/hit_valid 应为 0");
+        chk(!fill_busy && !hit_valid, "T14 复位后 fill_busy/hit_valid 应为 0");
         accept(32'h0000_0180, 2'd2, 4'd15);
         expect_ms(32'h0000_0180, 4'd15);
         run_fill;
@@ -490,8 +595,8 @@ module tb_dcache;
         end
 
         if (errors == 0) begin
-            $display("ALL TESTS PASSED  (accept=%0d done=%0d ms=%0d fill_req=%0d)",
-                     n_accept, n_done, n_ms, n_fill_req);
+            $display("ALL TESTS PASSED  (accept=%0d done=%0d ms=%0d fill_req=%0d gate=%0d steal=%0d)",
+                     n_accept, n_done, n_ms, n_fill_req, n_gate, n_steal);
             $finish;
         end else begin
             $display("%0d TESTS FAILED", errors);

@@ -30,8 +30,9 @@
 //     a) **完成序 ≠ 接受序** ⇒ 地址/宽度/idx 记在**按缺失推送序**的 miss 队列里 (推送时写、回包时读),
 //        命中则直接取 dcache 当拍给的 hit_*; 交付数据的字节合并链因此只需**一条**, 输入由 dl_* 选。
 //     b) **store 一致性**: 提交那拍给 dcache 一根 `inv_valid` (只拦安装, **不清 valid**) + 把"B 尚未
-//        落盘"的 SQ 条目所占组号位图 (`sq_blk`) 交去判填充污染; **退休**那拍才给 `clr_valid` 清组
-//        (失效时点的选择与那条"两个窗口同拍结束"的论证见 dcache.v 第七条不变量)。
+//        落盘"的 SQ 条目所占组号位图 (`sq_blk`) 交去判填充污染; **退休**那拍把队首那条 store 送到
+//        dcache 的 st_* 口 (吸收/下架/旁路三选一), 由 dcache 在**同一拍**把行修正到新值
+//        (时点选择与那条"两个窗口同拍结束"的论证见 dcache.v 第七/九条不变量)。
 //        提交→退休之间的字节由本模块第 4 节的 `sq_merge_byte_f` 合并链兜住。
 //
 // 【store 可见性空洞 —— 本次唯一不可简化处】已提交 store 立即离开 LSQ (cpu_top 的 cmt_invalidate),
@@ -167,8 +168,10 @@ module mem_subsystem #(
     wire [1 : 0]          dc_hit_width, dc_ms_width;
     wire [LIW - 1 : 0]    dc_hit_idx, dc_ms_idx;
     wire [DC_SETS - 1 : 0] sq_blk_w;
-    wire                  sq_retire_w;      // store 退休脉冲 (驱动器在第 4 节)
-    wire [31 : 0]         sq_ret_addr_w;
+    // store 退休口 (驱动器在第 4 节): SQ 队首 → dcache, 回答三选一
+    wire                  sq_st_valid_w, sq_st_absorb_w, sq_st_drop_w, sq_st_bypass_w;
+    wire [31 : 0]         sq_st_addr_w, sq_st_data_w;
+    wire [1 : 0]          sq_st_width_w;
 
     axi_lite_master #(
         .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH), .RD_TW(TW), .WR_TW(SQ_IW)
@@ -243,7 +246,9 @@ module mem_subsystem #(
         .fill_req_valid(dc_fill_valid), .fill_req_addr(dc_fill_addr), .fill_req_ready(dc_fill_ready),
         .fill_rsp_valid(dfill_rsp_valid_w), .fill_rsp_data(rd_resp_data),
         .inv_valid(sw_valid), .inv_addr(sw_addr), .sq_blk(sq_blk_w),
-        .clr_valid(sq_retire_w), .clr_addr(sq_ret_addr_w),
+        .st_valid(sq_st_valid_w), .st_addr(sq_st_addr_w), .st_data(sq_st_data_w),
+        .st_width(sq_st_width_w),
+        .st_absorb(sq_st_absorb_w), .st_drop(sq_st_drop_w), .st_bypass(sq_st_bypass_w),
         .busy(dc_busy), .fill_busy(dc_unused_fill_busy)
     );
 
@@ -418,14 +423,20 @@ module mem_subsystem #(
     wire sq_send_hs = wr_req_valid && wr_req_ready;
     wire sq_b_hs    = wr_resp_valid && wr_resp_ready;
     // 退休: B 已握手 且 该 B 到达时已发出的 load 都已回 (模 2^15 比较, 处理计数器回绕)
-    wire [15 : 0] sq_tick_w = sq_ticket_r[sq_ret_p * 16 +: 16];
-    wire sq_ret_ok = sq_b_ack_r[sq_ret_p] && ((ld_done_cnt_r - sq_tick_w) < 16'h8000);
-    // ★ store 的一致性失效点在**退休**, 不是提交 (dcache.v 第七条不变量)。这一拍之后该 store
-    //   的数据已经落在内存里 (B 已握手)、且它的数据已被后续所有 load 观察到 (ticket 已过) ⇒
-    //   缓存行里那一个字节从"旧值"变成"错值", 必须清掉。清的是**组** (不看 tag), 与提交侧同口径。
-    //   组号切分必须与 dcache.v 一致。
-    assign sq_retire_w    = !sq_empty_w && sq_ret_ok;
-    assign sq_ret_addr_w  = sq_addr_r[sq_ret_p * 32 +: 32];
+    //      **且** D-cache 对这条 store 给出了回答 (吸收/下架/旁路三选一, 见 dcache.v 第 9 节)。
+    //   ★ 三项缺一不可: 前两项是"数据已在内存 + 数据已被所有更老的 load 观察到"; 第三项是让
+    //     dcache 在**这一拍**把缓存行修正到新值 —— 修正与 sq_ret_p 前进必须在同一拍, 否则下一拍
+    //     合并链已撤 (条目出队) 而行里还是旧值 ⇒ 静默算错 (dcache.v 第七条不变量的"两个窗口同拍结束")。
+    wire [15 : 0] sq_tick_w     = sq_ticket_r[sq_ret_p * 16 +: 16];
+    wire          sq_ret_maybe  = !sq_empty_w && sq_b_ack_r[sq_ret_p]
+                               && ((ld_done_cnt_r - sq_tick_w) < 16'h8000);
+    // store 口 payload 直接取队首槽 (flop 输出, 队首不动则恒定); st_valid 保持到有回答为止
+    assign sq_st_valid_w = sq_ret_maybe;
+    assign sq_st_addr_w  = sq_addr_r[sq_ret_p * 32 +: 32];
+    assign sq_st_data_w  = sq_data_r[sq_ret_p * 32 +: 32];
+    assign sq_st_width_w = sq_width_r[sq_ret_p * 2 +: 2];
+    wire   sq_st_rsp_w   = sq_st_absorb_w || sq_st_drop_w || sq_st_bypass_w;
+    wire   sq_ret_ok     = sq_ret_maybe && sq_st_rsp_w;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
