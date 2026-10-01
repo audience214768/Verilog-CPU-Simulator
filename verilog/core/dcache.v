@@ -27,6 +27,10 @@
 //   各发一笔 AR (32 B 行 = 每行 8 笔重复 AR; vvadd 那种顺序流必中)。故: 缺失且**行号与在填行相同**
 //   ⇒ 不推 AR, 置 lk_wait_r 停住; 填充最后一字落地那拍**重放** (把 lk_addr_r 重新摆上 SRAM 地址口,
 //   1 拍后再判定 ⇒ 这次命中)。行号不同的缺失照常推 AR, 行号存进 1 条排队寄存器 pf_* 稍后起填。
+//   ★ pf_* 的清法有一条硬规矩: "本拍起填的正是排队那条" (`pf_start_w`) 时**不得**用本拍的新缺失覆盖
+//   它 (那个缺失下一拍会自己重新排队)。留着它 ⇒ 填充结束后对**同一行**再起一次填充, 而那时该行已
+//   驻留 ⇒ victim 落到另一路, 安装时的不变量 1 清理会静默作废另一路的**脏副本** (只清 valid/dirty,
+//   不写回) ⇒ 该行吸收过的 store 永远到不了内存, 随后的重填读回旧值。
 //
 // 【★ 单端口 SRAM 的读写冲突】写 (填充安装 / store 命中就地更新) **绝对优先** (回包不可反压),
 //   WB 捕获读次之 (它只有那一拍机会: 受害行下一拍就可能被填充覆盖), 被偷走的**查表读**一律
@@ -339,7 +343,10 @@ module dcache #(
 
     // ---- 写回状态 (捕获 → 排水 → 等 B); 三者的定义与"谁给谁让路"见头注释第五条 ----
     assign wb_cap_w       = wbc_pend_r;                  // 本拍用读口把受害行整行读进缓冲
-    assign wb_buf_busy_w  = wbc_pend_r || wbc_lat_r || wb_v_r;    // 数据缓冲被占 (新捕获无处放)
+    // wb_buf_busy_w 必须含 wb_hold_r: 新捕获在 wbc_lat_r 那拍会清零 wb_beat_r/wb_bcnt_r, 而这两个
+    // 计数器正被"等 B"段共用 —— 中途清零 ⇒ wb_done_w 提前 ⇒ wb_line_busy_w 提前撤, 上一行的写拍
+    // 还在 AXI 写 FIFO 里, 同一行随后的填充就会读回旧值 (dbg1 实测 230 次 cap-while-hold)。
+    assign wb_buf_busy_w  = wbc_pend_r || wbc_lat_r || wb_v_r || wb_hold_r;  // 数据缓冲被占 (新捕获无处放; 含等 B 段)
     assign wb_line_busy_w = wbc_pend_r || wbc_lat_r || wb_v_r || wb_hold_r;  // 本行在飞
     assign wb_req_valid   = wb_v_r;
     assign wb_req_addr    = wb_base_r + {wb_beat_r, 2'b00};
@@ -358,7 +365,8 @@ module dcache #(
     assign fill_go_w   = miss_pending_w && !coalesce_w && !fill_busy_r && !pf_v_r && !DC_OFF
                       && lk_cacheable_w && !fill_blk_w;
     assign fill_pend_w = miss_pending_w && !coalesce_w && !fill_go_w && !DC_OFF && lk_cacheable_w;
-    assign fill_start_w = (pf_v_r && !fill_busy_r && !fill_blk_w) || fill_go_w;   // 排队的那条优先
+    assign pf_start_w   = pf_v_r && !fill_busy_r && !fill_blk_w;                  // 本拍起填的正是排队那条
+    assign fill_start_w = pf_start_w || fill_go_w;                                // 排队的那条优先
 
     // ★ 被污染的填充不再发新 AR。污染后回包一定被丢弃 (见下面 fill_wr_w), 再发就是白占读通道
     //   —— A2 实测读通道占用已到 46~78%, 是三个读用户共享的瓶颈。实测污染率: towers 35% /
@@ -507,7 +515,12 @@ module dcache #(
                 if (fill_poison_now_w) fill_poison_r <= 1'b1;
                 if (fill_last_w)       fill_busy_r <= 1'b0;
             end
-            if (fill_pend_w) begin                                      // 覆盖 (1 条队列)
+            // ★ 同拍"起填"与"再排队"时不能盲目覆盖: 若起填的就是排队那条 (pf_start_w), 该排队项已被
+            //   这次填充满足, 留着它 ⇒ 填充结束后会对**同一行**再起一次填充; 那时该行已驻留 ⇒ victim
+            //   落到另一路, 安装时的不变量 1 清理会把另一路的**脏副本静默作废** (只清 valid/dirty, 不写回)
+            //   ⇒ 该行吸收过的 store 永远到不了内存, 之后的重填读回旧值 (def_wr4 qsort 实测: 420 号元素
+            //   变成 312 号的重复值)。丢掉的那个排队请求不亏: 它的 miss 仍在, 下一拍重新排队。
+            if (fill_pend_w && !pf_start_w) begin                       // 覆盖 (1 条队列)
                 pf_v_r    <= 1'b1;
                 pf_base_r <= {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}};
             end else if (fill_start_w) begin
