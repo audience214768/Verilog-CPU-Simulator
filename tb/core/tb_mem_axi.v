@@ -49,6 +49,7 @@ module tb_mem_axi;
     localparam T7_BASE = 32'h0000_0680;            // 队列回绕区
     localparam T9_H    = 32'h0000_0C00;            // T9 命中行 (组 32)
     localparam T9_M    = 32'h0000_0E00;            // T9 缺失行 (组 48)
+    localparam T10_L   = 32'h0000_0A00;            // T10 失效时点行 (组 40)
 
     reg clk = 1'b0;
     wire rst_n;
@@ -805,6 +806,29 @@ module tb_mem_axi;
         done_q_rp = done_q_rp + 1; pend_done = pend_done - 1;
         ld_inflight_tb = ld_inflight_tb - 1; ld_done_tb = ld_done_tb + 1;
         $display("PASS: T9 out-of-order hit/miss completion keeps idx<->data pairing");
+
+        // ---- T10 缓存行的失效时点是 store **退休**, 不是提交 ----
+        // 判据是"这一笔 load 到底走没走总线", 不是数据值 —— 提交→退休窗口内该行**必须仍驻留**
+        // (靠命中 + 第四节的字节合并链兜住), 退休之后才允许下架。做法是把 AR 通道按住:
+        // 窗口内的那条 load 若能回, 只可能来自命中; 若它去发 AR, 就永远回不来 ⇒ 这里必须报错。
+        // (失效时点若改回"提交", 本条必挂 —— 这正是它要钉住的契约, 见 dcache.v 第七条不变量。)
+        fetch_wait(FA_PARK, FETCH_MAX);
+        ld_push(T10_L, 2'b10, 4'd4); ld_wait(80);          // 把 T10_L 那行填进缓存
+        for (n = 0; (n < 200) && dut.u_dc.fill_busy; n = n + 1) tick();   // 等这次填充彻底收尾
+        expect_v(!dut.u_dc.fill_busy, "T10 fill never finished");
+        st_push(T10_L + 32'd4, 32'h5A5A_1234, 2'b10);      // 提交: 落在**已在缓存里**的那一行上
+        tb_hold_ar = 1'b1;                                 // 此后任何 AR 都出不去
+        for (n = 0; n < 2; n = n + 1) tick();
+        ld_push(T10_L + 32'd4, 2'b10, 4'd5);
+        ld_wait(80);                                       // 按住 AR 还能回 ⇒ 只能是命中
+        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 load in commit->retire window must hit + merge");
+        tb_hold_ar = 1'b0;
+        sq_drain(200);                                     // 等它退休 (B 已落盘 且 之前的 load 都已回)
+        expect_v(mem_word(T10_L + 32'd4) === 32'h5A5A_1234, "T10 store must have landed");
+        ld_push(T10_L + 32'd4, 2'b10, 4'd6);
+        ld_wait(80);                                       // 行已下架 ⇒ 走总线读回落盘后的值
+        expect_v(cap_ld_data === 32'h5A5A_1234, "T10 stale line survived store retire");
+        $display("PASS: T10 line invalidated at store retire, not at commit");
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect_v(ld_inflight_tb == 0, "load bookkeeping not balanced");

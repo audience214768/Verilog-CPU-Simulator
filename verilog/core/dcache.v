@@ -32,11 +32,22 @@
 //   (自纠正: 多一趟 AXI, 不会错)。`rd_ok_r` 在**发起读那一拍**采样 (`<= !fill_wr_w`), 与命中相与。
 //   上层另用 `busy` 里的 wr_busy 项把"恰好撞上写"的接受挡掉, 避免无谓降级。
 //
-// 【★ 一致性: store 提交即按索引失效 (idxinv)】见 mem_subsystem.v 第 6 节。清的是**该组全部路的
-//   valid 位**, 不看 tag、不占 SRAM 口 —— 离线实测 (tools/dcache_sim.py) 该策略与"命中才失效"
-//   逐配置同值 (IPC 0.4960 vs 0.4961), 却省掉整条 tag 检查读+写回通路。正确性靠上层已有的
-//   memory < store_queue < LSQ 三层合并: 提交那拍 store 仍在 LSQ 且更老 ⇒ 同拍完成的 load 由
-//   lsq.v 的 `(j-hd)<dd` 兜住; 之后该行已失效 ⇒ 后续 load 必缺失、走 AXI, 回包再经 sq_merge_byte_f。
+// 【★ 一致性: store **退休**才按索引失效 (idxinv), 提交时只拦安装】见 mem_subsystem.v 第 4 节。
+//   失效清的是**该组全部路的 valid 位**, 不看 tag、不占 SRAM 口 —— 离线实测 (tools/dcache_sim.py)
+//   该策略与"命中才失效"逐配置同值 (IPC 0.4960 vs 0.4961), 却省掉整条 tag 检查读+写回通路。
+//
+//   ★ 失效时点是**退休** (`clr_valid`), 不是提交 (`inv_valid`), 这两根线不可合并:
+//     · 提交 (`inv_valid`): 只用来**拦安装** (填充污染期间本来就不装; 另外抑制 `fill_wr_w`/`vset_w`
+//       同拍的写与置位)。**不清 valid** —— 行留在缓存里继续供命中。
+//     · 退休 (`clr_valid`): 才清该组 valid。此时 B 已握手 (数据已进内存)、且该 store 之后的 load
+//       都已回 (ticket 已过) ⇒ 行里那个字节从"旧值"变成"错值", 必须下架。
+//   提交→退休之间那一段靠上层 `mem_subsystem.sq_merge_byte_f` 的字节合并链兜住: 交付一条 load 时
+//   逐字节用 SQ 里更老的 store 覆盖。**两条窗口在同一个 posedge 结束** —— `sq_ret_p <= sq_ret_p+1`
+//   与 `valid_r <= 0` 同拍, 于是下一拍"合并没了"与"行没了"同时发生, 两个方向都不会漏:
+//     · 若 valid 先清而合并还在 → 白清一个字节, 无害;
+//     · 若合并先没而 valid 还在 → **读到旧值, 静默算错** (故必须同拍, 不能早清也不能晚清)。
+//   实测收益: geo IPC 0.4732 → 0.4829 (+2.05%), 全部落在 store 会打中驻留行的用例上
+//   (qsort +8.5% / towers +3.2% / rsort +0.8%), 零驻留的 median/multiply/vvadd 逐比特不变。
 //
 // 【★ 填充污染 (poison): 起填前/填充中只要有"B 尚未落盘"的 store 落在同一组, 本次填充作废】
 //   只查"安装那一拍 SQ 里有没有同组条目"**不够**: store 可能在最后一字落地前就退休出队, 而它之前
@@ -88,8 +99,13 @@ module dcache #(
     input  [31 : 0]                      fill_rsp_data,
 
     // ---- store 一致性 ----
+    // 两个信号分工明确, 不可合并 (理由见第七条不变量):
+    //   inv_* = store **提交** (进 SQ) 那拍 —— 只用来拦安装, **不清 valid**;
+    //   clr_* = store **退休** (B 已落盘且其后的 load 都已回) 那拍 —— 才清 valid。
     input                                inv_valid,    // 本拍有一条 store 提交
     input  [31 : 0]                      inv_addr,
+    input                                clr_valid,    // 本拍有一条 store 退休 (= mem_subsystem 的 sq_retire)
+    input  [31 : 0]                      clr_addr,
     input  [DC_SETS - 1 : 0]             sq_blk,       // SQ 里"B 尚未落盘"的条目所占的组号位图
 
     // ---- 观测量 ----
@@ -118,7 +134,7 @@ module dcache #(
     // ==================== 1. 网表声明 ====================
     wire [EW - 1 : 0]        rdata_w;
     wire [31 : 0]            rd_addr_w;                  // 本拍摆上 SRAM 读口的地址
-    wire [DC_IW - 1 : 0]     rd_set_w, q_set_w, inv_set_w, new_set_w;
+    wire [DC_IW - 1 : 0]     rd_set_w, q_set_w, inv_set_w, clr_set_w, new_set_w;
     wire [OFF_W - 1 : 0]     q_off_w;
     wire [TAG_W - 1 : 0]     rd_tag_w;
     wire [DC_WAYS - 1 : 0]   way_hit_g, set_valid_w;
@@ -385,6 +401,7 @@ module dcache #(
 
     // ==================== 8. 行有效位图 ====================
     assign inv_set_w = ONE_SET ? {DC_IW{1'b0}} : inv_addr[TAGHI - 1 : SPLIT];
+    assign clr_set_w = ONE_SET ? {DC_IW{1'b0}} : clr_addr[TAGHI - 1 : SPLIT];
     // 最后一字落地才置位; 污染 / 同拍 store 失效命中本组 ⇒ 不置
     assign vset_w = fill_last_w && !fill_poison_r && !fill_poison_now_w
                  && !(inv_valid && (inv_set_w == fill_set_r));
@@ -393,10 +410,14 @@ module dcache #(
         if (!rst_n) begin
             valid_r <= {(DC_WAYS * DC_SETS){1'b0}};
         end else begin
-            // ★ store 提交: 清该组**全部路**的 valid (不看 tag; 离线实测与"命中才失效"同值)
-            if (inv_valid)
+            // ★ store **退休**才失效, 不是提交 (第七条不变量): 提交到退休之间该行的字节由
+            //   第 4 节的合并链 (mem_subsystem.sq_merge_byte_f) 逐字节兜住 —— 而那条链的覆盖窗口
+            //   与这里的有效窗口**在同一个 posedge 结束** (sq_ret_p++ 与 valid_r<=0 同拍),
+            //   下一拍两者同时消失, 既不会"合并没了行还在"(读旧值) 也不会"行没了合并还在"(白清)。
+            //   收益: store 打在驻留行上时不再立刻打掉它, 后续 load 仍能命中。
+            if (clr_valid)
                 for (gi = 0; gi < DC_WAYS; gi = gi + 1)
-                    valid_r[gi * DC_SETS + inv_set_w] <= 1'b0;
+                    valid_r[gi * DC_SETS + clr_set_w] <= 1'b0;
             // ★ 发起填充即清 valid —— 不清就是"旧数据冒充新 tag"的假命中
             if (fill_start_w) valid_r[victim_way_w * DC_SETS + new_set_w] <= 1'b0;
             // 中途置位会把半行当整行交付

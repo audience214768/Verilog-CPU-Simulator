@@ -37,6 +37,8 @@ module tb_dcache;
     reg         fill_req_ready;
     reg         inv_valid;
     reg  [31:0] inv_addr;
+    reg         clr_valid;
+    reg  [31:0] clr_addr;
     reg  [SETS-1:0] sq_blk;
 
     wire        hit_valid;
@@ -90,6 +92,7 @@ module tb_dcache;
         .fill_req_ready (fill_req_ready),
         .fill_rsp_valid (fill_rsp_valid), .fill_rsp_data (fill_rsp_data),
         .inv_valid (inv_valid), .inv_addr (inv_addr), .sq_blk (sq_blk),
+        .clr_valid (clr_valid), .clr_addr (clr_addr),
         .busy (busy), .fill_busy (fill_busy)
     );
 
@@ -107,6 +110,7 @@ module tb_dcache;
         .fill_req_ready (1'b1),
         .fill_rsp_valid (1'b0), .fill_rsp_data (32'd0),
         .inv_valid (1'b0), .inv_addr (32'd0), .sq_blk (1'b0),
+        .clr_valid (1'b0), .clr_addr (32'd0),
         .busy (b_busy), .fill_busy (b_fill_busy)
     );
 
@@ -153,6 +157,7 @@ module tb_dcache;
             rst_n = 1'b0; lk_start = 1'b0; lk_addr = 32'd0; lk_width = 2'd2; lk_idx = 4'd0;
             rsp_ovr = 1'b0; ms_ready = 1'b1; fill_req_ready = 1'b1;
             inv_valid = 1'b0; inv_addr = 32'd0; sq_blk = {SETS{1'b0}};
+            clr_valid = 1'b0; clr_addr = 32'd0;
             repeat (3) @(posedge clk);
             rst_n = 1'b1;
             @(posedge clk);
@@ -326,11 +331,11 @@ module tb_dcache;
             idle(2);
         end
 
-        // ============ T5 store 提交按索引失效 (不看 tag) ============
-        $display("=== T5 store 提交按索引失效 (不看 tag)");
+        // ============ T5 store 失效的**两个**时点: 提交不清 valid, 退休才清 (按索引, 不看 tag) ============
+        $display("=== T5 store 提交不清 valid (仍命中), 退休才清 (必缺失)");
         // 先把 set 0 清干净再重填 0x0800 那行 —— T4 各分支留下的组内状态不同, 这里不依赖它
-        @(negedge clk); inv_valid = 1'b1; inv_addr = 32'h0000_0800;
-        @(negedge clk); inv_valid = 1'b0;
+        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0800;
+        @(negedge clk); clr_valid = 1'b0;
         idle(1);
         accept(32'h0000_0800, 2'd2, 4'd8);        // 刚失效 ⇒ 必缺失, 填上
         expect_ms(32'h0000_0800, 4'd8);
@@ -339,15 +344,22 @@ module tb_dcache;
         accept(32'h0000_0808, 2'd2, 4'd8);        // 0x0800 那行刚填好 ⇒ 命中
         expect_hit(32'h0000_0808, 4'd8, 32'hC0DE_0202);
         idle(1);
+        // ★ 提交一拍: 行**不下架**。该行那个字确实已经旧了, 但字节由 mem_subsystem 的合并链
+        //   (sq_merge_byte_f) 在交付时逐字节覆盖, 覆盖窗口与这里的 valid 窗口同拍结束。
         @(negedge clk); inv_valid = 1'b1; inv_addr = 32'h0000_0000;  // 同组 (set 0) 不同行
         @(negedge clk); inv_valid = 1'b0;
         idle(1);
         accept(32'h0000_0808, 2'd2, 4'd9);
-        expect_ms(32'h0000_0808, 4'd9);           // idxinv: 同组即失效
+        expect_hit(32'h0000_0808, 4'd9, 32'hC0DE_0202);   // 提交**不**清 valid ⇒ 仍命中
+        idle(1);
+        // ★ 退休一拍: 清该组**全部路** (不看 tag) —— 此后缓存里那个字节是错值, 必须下架
+        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0000;
+        @(negedge clk); clr_valid = 1'b0;
+        idle(1);
+        accept(32'h0000_0808, 2'd2, 4'd10);
+        expect_ms(32'h0000_0808, 4'd10);          // 退休清同组 ⇒ 必缺失
         run_fill;
         idle(2);
-        accept(32'h0000_0808, 2'd2, 4'd10);
-        expect_hit(32'h0000_0808, 4'd10, 32'hC0DE_0202);
 
         // ============ T6 起填时 SQ 有未落盘的同组 store ⇒ 本次填充作废 ============
         $display("=== T6 起填时 SQ 有未落盘的同组 store ⇒ 本次填充作废");
@@ -358,8 +370,8 @@ module tb_dcache;
         accept(32'h0000_0020, 2'd2, 4'd12);
         expect_hit(32'h0000_0020, 4'd12, 32'hC0DE_0008);
         idle(1);
-        @(negedge clk); inv_valid = 1'b1; inv_addr = 32'h0000_0020;  // 先失效, 再重填
-        @(negedge clk); inv_valid = 1'b0;
+        @(negedge clk); clr_valid = 1'b1; clr_addr = 32'h0000_0020;  // 先失效, 再重填
+        @(negedge clk); clr_valid = 1'b0;
         sq_blk[1] = 1'b1;
         idle(1);
         accept(32'h0000_0020, 2'd2, 4'd13);
