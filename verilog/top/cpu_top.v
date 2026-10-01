@@ -16,7 +16,11 @@ module cpu_top #(
     parameter PRF_SIZE     = 64,
     parameter LSQ_SIZE     = 16,
     parameter BHT_SIZE     = 32,
-    parameter RAS_SIZE     = 8
+    parameter RAS_SIZE     = 8,
+    // 回滚 walker 每拍撤销的 ROB 条目数。与 ISSUE_WIDTH **解耦**: 发射宽度决定"一拍进多少",
+    // 回滚宽度决定"一拍退多少", 二者最优值不同 (错路长度 R 与批宽无关)。
+    // 见 docs/plan.md: 一次误预测花 R 拍 (1 拍检测 + R-1 拍逐条撤), 加宽即削掉 R-1 那部分。
+    parameter ROLLBACK_WIDTH = 4
 ) (
     input  clk,
     input  rst_n,
@@ -74,7 +78,7 @@ module cpu_top #(
     wire                           ret_sample;
     wire [RW - 1 : 0]                  misp_fs_w;
     wire [(ISSUE_WIDTH + 1) * PRF_SIZE - 1 : 0] rt_clear_c;   // one-hot 掩码累加链 (rename clear)
-    wire [(ISSUE_WIDTH + 1) * PRF_SIZE - 1 : 0] flclr_c;      // one-hot 掩码累加链 (walker flush clear)
+    wire [(ROLLBACK_WIDTH + 1) * PRF_SIZE - 1 : 0] flclr_c;      // one-hot 掩码累加链 (walker flush clear)
     wire [(ISSUE_WIDTH + 1) * LSQ_SIZE - 1 : 0] inv_c;        // one-hot 掩码累加链 (commit invalidate)
     // execute_slot 输出 (每槽) + misp 汇出链 (最老优先前缀 OR)
     wire [ISSUE_WIDTH - 1 : 0]        misp_det_w;
@@ -143,21 +147,23 @@ module cpu_top #(
     );
 
     // ---- rat / free_list ----
-    wire [ISSUE_WIDTH * PW - 1 : 0] map_out1, map_out2, alloc_val, walk_flush_old;
+    wire [ISSUE_WIDTH * PW - 1 : 0] map_out1, map_out2, alloc_val;
+    wire [ROLLBACK_WIDTH * PW - 1 : 0] walk_flush_old;
     wire [32 * PW - 1 : 0]          map_arch;
     wire [PCW - 1 : 0]            fl_count;
-    wire [ISSUE_WIDTH - 1 : 0]    rename_valid, walk_flush_valid;
-    wire [ISSUE_WIDTH * 5 - 1 : 0]  walk_flush_rd;
-    wire [ISSUE_WIDTH - 1 : 0]    fl_push_valid;
-    wire [ISSUE_WIDTH * PW - 1 : 0] fl_push_preg;
-    rat #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_rat (
+    wire [ISSUE_WIDTH - 1 : 0]    rename_valid;
+    wire [ROLLBACK_WIDTH - 1 : 0] walk_flush_valid;
+    wire [ROLLBACK_WIDTH * 5 - 1 : 0]  walk_flush_rd;
+    wire [ROLLBACK_WIDTH - 1 : 0]    fl_push_valid;
+    wire [ROLLBACK_WIDTH * PW - 1 : 0] fl_push_preg;
+    rat #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE), .ROLLBACK_WIDTH(ROLLBACK_WIDTH)) u_rat (
         .clk(clk), .rst_n(rst_n),
         .map_out1(map_out1), .map_out2(map_out2), .map_arch(map_arch),
         .read_rs1(d_rs1), .read_rs2(d_rs2),
         .rename_valid(rename_valid), .rename_rd(d_rd), .rename_new(alloc_val),
         .flush_valid(walk_flush_valid), .flush_rd(walk_flush_rd), .flush_old(walk_flush_old)
     );
-    free_list #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_fl (
+    free_list #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE), .ROLLBACK_WIDTH(ROLLBACK_WIDTH)) u_fl (
         .clk(clk), .rst_n(rst_n),
         .alloc_val(alloc_val), .count_out(fl_count),
         .pop_req(rename_valid), .push_valid(fl_push_valid), .push_preg(fl_push_preg)
@@ -360,12 +366,12 @@ module cpu_top #(
     assign fs_eff_w = flushing_r ? ((misp_valid && misp_older_w) ? misp_fs_w : flush_fs_r)
  : misp_fs_w;
     assign rem_w    = walk_ptr_r - fs_eff_w;   // 待回滚条数 (fs+1..walk_ptr]
-    assign walk_done = flushing_r && (rem_w <= ISSUE_WIDTH);
-    wire [ISSUE_WIDTH * RW - 1 : 0] walk_idx_w;
-    wire [ISSUE_WIDTH - 1 : 0]    walked_valid;
-    wire [ISSUE_WIDTH * PW - 1 : 0] wlk_push_preg;
+    assign walk_done = flushing_r && (rem_w <= ROLLBACK_WIDTH);
+    wire [ROLLBACK_WIDTH * RW - 1 : 0] walk_idx_w;
+    wire [ROLLBACK_WIDTH - 1 : 0]    walked_valid;
+    wire [ROLLBACK_WIDTH * PW - 1 : 0] wlk_push_preg;
     generate
-        for (jj = 0; jj < ISSUE_WIDTH; jj = jj + 1) begin : walk
+        for (jj = 0; jj < ROLLBACK_WIDTH; jj = jj + 1) begin : walk
             assign walk_idx_w[jj * RW +: RW] = walk_ptr_r - jj;            // 回绕
             assign walked_valid[jj]        = flushing_r && (rem_w > jj);
             // 回滚 rename 状态: rat.flush(恢复 old_pnum) + free_list push(new_pnum) + ready_table 清零
@@ -386,7 +392,7 @@ module cpu_top #(
     endgenerate
 
     // ==================== 3. 发射 (B2) + 执行槽分发 (B1/B3/B4) ====================
-    assign rt_flush_clear_req = flclr_c[(ISSUE_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];
+    assign rt_flush_clear_req = flclr_c[(ROLLBACK_WIDTH - 1) * PRF_SIZE +: PRF_SIZE];
 
     // ---- 计数链 (前缀累加; 段值在 slt/cmt generate 内生成) ----
     wire [(ISSUE_WIDTH + 1) * 3 - 1 : 0] wr_acc, mem_acc, sel_acc, br_acc, com_acc, v_acc;
@@ -828,8 +834,11 @@ module cpu_top #(
     assign sw_width = sw_width_c[(ISSUE_WIDTH - 1) * 2 +: 2];
     wire marker_commit = |marker_acc;
     // free_list push 端口复用: walker | commit (互斥: flushing 期间 commit 冻结)
-    assign fl_push_valid = flushing_r ? walked_valid : cmt_push_v;
-    assign fl_push_preg  = flushing_r ? wlk_push_preg : cmt_push_p;
+    // commit 侧只有 ISSUE_WIDTH 项 ⇒ 零扩展到 ROLLBACK_WIDTH (高位 push_ok 恒 0, 不写池)
+    assign fl_push_valid = flushing_r ? walked_valid
+                                      : {{(ROLLBACK_WIDTH - ISSUE_WIDTH){1'b0}}, cmt_push_v};
+    assign fl_push_preg  = flushing_r ? wlk_push_preg
+                                      : {{(ROLLBACK_WIDTH - ISSUE_WIDTH) * PW{1'b0}}, cmt_push_p};
 
     // ==================== 6. 时序 (walker FSM / halt / ret_val / 计数器) ====================
     always @(posedge clk) begin
@@ -844,7 +853,7 @@ module cpu_top #(
         end else if (flushing_r) begin
             // 中途新误预测: 更老才扩范围 (walk_ptr 照常递减, 防重复回滚)
             if (misp_valid && misp_older_w) flush_fs_r <= misp_fs_w;
-            walk_ptr_r <= walk_ptr_r - ISSUE_WIDTH;   // 回绕
+            walk_ptr_r <= walk_ptr_r - ROLLBACK_WIDTH;   // 回绕
             if (walk_done) flushing_r <= 1'b0;
         end
     end

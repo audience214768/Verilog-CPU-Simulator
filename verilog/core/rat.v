@@ -2,9 +2,12 @@
 // 组合读口含批内转发: 读口 i 看到 rename[j] (j<i) 的映射, 最后匹配者 (j 最大) 赢
 // 写优先级: flush (walker 回滚) > rename; 同槽多写同一 rd: 后写覆盖
 //   (rename: 批内 j 最大赢; flush: 槽序更老者赢, 回滚收敛于最老 old)
+// flush 三端口宽度由 ROLLBACK_WIDTH 决定 (与发射宽度解耦): walker 槽序 jj 递增 = 年龄递减,
+//   故 jj 最大者最后写、赢 —— 加宽只提高循环上界, 不得改方向或加 break, 否则回滚收敛到错值
 module rat #(
-    parameter ISSUE_WIDTH = 1,
-    parameter PRF_SIZE    = 64
+    parameter ISSUE_WIDTH    = 1,
+    parameter PRF_SIZE       = 64,
+    parameter ROLLBACK_WIDTH = 1
 ) (
     input  clk,
     input  rst_n,
@@ -19,9 +22,9 @@ module rat #(
     input  [ISSUE_WIDTH * 5 - 1 : 0]  rename_rd,
     input  [ISSUE_WIDTH * $clog2(PRF_SIZE) - 1 : 0] rename_new,
     // B: flush (walker 回滚, 写优先级 > rename)
-    input  [ISSUE_WIDTH - 1 : 0]    flush_valid,
-    input  [ISSUE_WIDTH * 5 - 1 : 0]  flush_rd,
-    input  [ISSUE_WIDTH * $clog2(PRF_SIZE) - 1 : 0] flush_old
+    input  [ROLLBACK_WIDTH - 1 : 0]    flush_valid,
+    input  [ROLLBACK_WIDTH * 5 - 1 : 0]  flush_rd,
+    input  [ROLLBACK_WIDTH * $clog2(PRF_SIZE) - 1 : 0] flush_old
 );
     localparam PW = $clog2(PRF_SIZE);
 
@@ -37,7 +40,7 @@ module rat #(
             for (k = 0; k < ISSUE_WIDTH; k = k + 1)
                 if (rename_valid[k] && (rename_rd[k * 5 +: 5] != 5'd0))
                     map_r[rename_rd[k * 5 +: 5]] <= rename_new[k * PW +: PW];
-            for (k = 0; k < ISSUE_WIDTH; k = k + 1)
+            for (k = 0; k < ROLLBACK_WIDTH; k = k + 1)
                 if (flush_valid[k] && (flush_rd[k * 5 +: 5] != 5'd0))
                     map_r[flush_rd[k * 5 +: 5]] <= flush_old[k * PW +: PW];
         end

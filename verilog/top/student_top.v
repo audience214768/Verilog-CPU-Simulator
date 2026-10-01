@@ -14,6 +14,7 @@ module student_top #(
     parameter LSQ_SIZE    = 16,
     parameter BHT_SIZE    = 32,
     parameter RAS_SIZE    = 8,
+    parameter ROLLBACK_WIDTH = 4,    // 回滚 walker 每拍撤销的条目数 (与 ISSUE_WIDTH 解耦)
     parameter IC_SIZE       = 1024,  // I-cache 总容量 (字节)
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
@@ -72,7 +73,8 @@ module student_top #(
 
     cpu_top #(
         .ISSUE_WIDTH(ISSUE_WIDTH), .ROB_SIZE(ROB_SIZE), .RS_SIZE(RS_SIZE),
-        .PRF_SIZE(PRF_SIZE), .LSQ_SIZE(LSQ_SIZE), .BHT_SIZE(BHT_SIZE), .RAS_SIZE(RAS_SIZE)
+        .PRF_SIZE(PRF_SIZE), .LSQ_SIZE(LSQ_SIZE), .BHT_SIZE(BHT_SIZE), .RAS_SIZE(RAS_SIZE),
+        .ROLLBACK_WIDTH(ROLLBACK_WIDTH)
     ) u_cpu (
         .clk(clock), .rst_n(rst_n),
         .imem_addr(imem_addr), .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),

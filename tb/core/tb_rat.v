@@ -20,7 +20,10 @@ module tb_rat;
     reg  [IW * 5 - 1 : 0]  flush_rd;
     reg  [IW * PW - 1 : 0] flush_old;
 
-    rat #(.ISSUE_WIDTH(IW), .PRF_SIZE(PRF)) dut (
+    // ROLLBACK_WIDTH 必须显式传: 它是 flush 三端口的宽度, 默认 1 (回滚 walker 每拍撤 1 条)。
+    // 本 TB 按 IW 个 flush 槽建模 (C5 多槽同 rd 更老赢), 不传就等于只驱动 slot0 —— 该用例会
+    // 静默失效 (端口截断不报错), 见 2026-10-01 的 W=4 回归。
+    rat #(.ISSUE_WIDTH(IW), .PRF_SIZE(PRF), .ROLLBACK_WIDTH(IW)) dut (
         .clk(clk), .rst_n(rst_n),
         .map_out1(map_out1), .map_out2(map_out2), .map_arch(map_arch),
         .read_rs1(read_rs1), .read_rs2(read_rs2),

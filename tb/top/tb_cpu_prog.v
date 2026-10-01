@@ -35,6 +35,7 @@ module tb_cpu_prog;
     parameter LSQ_SIZE_TB     = 16;
     parameter BHT_SIZE_TB     = 32;
     parameter RAS_SIZE_TB     = 8;
+    parameter ROLLBACK_WIDTH_TB = 4;
 
     reg clk = 1'b0, rst_n = 1'b0;
     always #5 clk = ~clk;
@@ -57,7 +58,8 @@ module tb_cpu_prog;
 
     cpu_top #(.ISSUE_WIDTH(ISSUE_WIDTH_TB),
               .ROB_SIZE(ROB_SIZE_TB), .RS_SIZE(RS_SIZE_TB), .PRF_SIZE(PRF_SIZE_TB),
-              .LSQ_SIZE(LSQ_SIZE_TB), .BHT_SIZE(BHT_SIZE_TB), .RAS_SIZE(RAS_SIZE_TB)) dut (
+              .LSQ_SIZE(LSQ_SIZE_TB), .BHT_SIZE(BHT_SIZE_TB), .RAS_SIZE(RAS_SIZE_TB),
+              .ROLLBACK_WIDTH(ROLLBACK_WIDTH_TB)) dut (
         .clk(clk), .rst_n(rst_n),
         .halt(halt), .ret_val(ret_val),
         .commit_count(commit_count), .flush_count(flush_count),
@@ -163,6 +165,59 @@ module tb_cpu_prog;
         end
     end
 
+    // ---- 错路条数 R 直方图 (walker 并行化的收益标尺): 每次误预测记 rob_last_w - misp_fs_w ----
+    //   意义: 回滚 walker 一拍撤销 ISSUE_WIDTH 项 ⇒ 一次误预测的冲刷拍数 ≈ 1 + ceil(R/ISSUE_WIDTH)
+    //   与上面 STALL 行的 flushcyc 互为校验 (对不上说明冲刷期还有别的阻塞源 ⇒ 先重新归因再动 RTL)
+    //   bin: 0:R<=1 1:R=2 2:R=3 3:R=4 4:R=5-8 5:R=9-16 6:R>=17
+    //   采样点在**冲刷首拍**, 直接读 FSM 自己 latch 的两个值 (别的时刻 misp_fs_w 已随新误预测变过):
+    //     walk_ptr_r = rob_last_w-1 (最年轻有效条目), flush_fs_r = 触发冲刷的那条分支
+    //     ⇒ 错路条数 R = walk_ptr_r - flush_fs_r + 1, 预测冲刷拍 = max(1, ceil((R-1)/W)) + 1
+    integer rh [0 : 6];
+    integer r_sum;
+    integer rb;
+    integer f_cyc, wd_n, ep_len, ep_max, ep_sum, ep_n;
+    reg fl_q;
+    reg [31 : 0] r_now_w;
+    always @(negedge clk) begin
+        fl_q <= dut.flushing_r;
+        if (rst_n && !dut.halt_q_r) begin
+            if (dut.flushing_r) begin
+                f_cyc  = f_cyc + 1;
+                ep_len = ep_len + 1;
+                if (dut.walk_done) wd_n = wd_n + 1;
+            end else if (ep_len != 0) begin
+                ep_n = ep_n + 1; ep_sum = ep_sum + ep_len;
+                if (ep_len > ep_max) ep_max = ep_len;
+                ep_len = 0;
+            end
+            if (dut.flushing_r && !fl_q) begin
+                // ★ 必须按 RW 位**模**运算: set_last 已把 rob_last 截到 misp_fs+1, 故此刻
+                //   walk_ptr_r = 截断前 tail - 1、flush_fs_r = misp_fs_w, 二者跨 0 回绕时
+                //   32 位减法会给出负数 (实测 247/578 如此), 而 RTL 的 rem_w 是 RW 位无符号。
+                r_now_w = (dut.walk_ptr_r - dut.flush_fs_r + 1'b1) & (ROB_SIZE_TB - 1);
+                rb = (r_now_w <= 1) ? 0 : (r_now_w == 2) ? 1 : (r_now_w == 3) ? 2
+                   : (r_now_w == 4) ? 3 : (r_now_w <= 8) ? 4 : (r_now_w <= 16) ? 5 : 6;
+                rh[rb] = rh[rb] + 1;
+                r_sum  = r_sum + r_now_w;
+            end
+        end
+    end
+
+    // ---- load/store 地址流 (离线 D-cache 模拟; +LTRACE=1 打开, 落 sim/ltr_<prog>.txt) ----
+    //   只记**被接受**的 load: ld_start_valid && !ld_busy —— 与 memory.v 的握手一致
+    //   (ld_busy==0 是当场兑现的承诺, 见 CLAUDE.md 的 cpu_top↔存储契约)
+    //   store 记 memory.v 真正落盘的那些 (sw_valid && sw_addr < MEM_SIZE); 越界的那条是
+    //   MMIO 0x80000000 停机写, 不是内存访问, 剔除
+    integer ltrace_on, lfd;
+    always @(negedge clk) begin
+        if (rst_n && (lfd != 0)) begin
+            if (ld_start_valid && !ld_busy)
+                $fwrite(lfd, "L %08x %0d\n", ld_start_addr, ld_start_width);
+            if (sw_valid && (sw_addr < MEM_SIZE))
+                $fwrite(lfd, "S %08x %0d\n", sw_addr, sw_width);
+        end
+    end
+
     // ---- 不变量: PRF 分配唯一性 (同一 preg 同时至多被一条在飞指令持有) ----
     // 违反 = free_list 池里有重复项 (把仍在用的 preg 提前/重复回收)。后果: 两条在飞指令分到同一
     // prd, 后者写入 PRF 而依赖者按前者判就绪 ⇒ 读到错值, 或生产者标签对不上 ⇒ 依赖者永不就绪
@@ -179,7 +234,8 @@ module tb_cpu_prog;
             // 先回收 (commit/walker 的 push), 再分配 —— 与本拍语义一致 (分配读的是旧池)
             // 回收条件与 free_list.push_ok **逐字一致** (只挡 preg 0): 恒等映射区 1..31 被架构
             //   RAT 放弃时照常回池 (W=4 缺陷 8 的新策略), 旧影子模型在这里多挡了一道 `>= 32`。
-            for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1)
+            // ★ push 侧按 ROLLBACK_WIDTH_TB 扫 (walker 一拍归还多项), alloc 侧仍是 ISSUE_WIDTH_TB
+            for (pi = 0; pi < ROLLBACK_WIDTH_TB; pi = pi + 1)
                 if (dut.fl_push_valid[pi] && (dut.fl_push_preg[pi * PW_TB +: PW_TB] != {PW_TB{1'b0}}))
                     preg_held[dut.fl_push_preg[pi * PW_TB +: PW_TB]] <= 1'b0;
             for (pi = 0; pi < ISSUE_WIDTH_TB; pi = pi + 1) begin
@@ -261,7 +317,7 @@ module tb_cpu_prog;
                         fi = PRF_SIZE_TB;   // 一拍只报一次
                     end
             // 本拍 push 的 preg 若已在活动区 ⇒ 就是它造出的重复项 (定位 push 来源)
-            for (fi = 0; fi < ISSUE_WIDTH_TB; fi = fi + 1)
+            for (fi = 0; fi < ROLLBACK_WIDTH_TB; fi = fi + 1)
                 if (dut.fl_push_valid[fi]) begin
                     for (fj = 0; fj < PRF_SIZE_TB - 32; fj = fj + 1)
                         if ((fj < dut.u_fl.sp) &&
@@ -360,7 +416,7 @@ module tb_cpu_prog;
                          dut.fl_count);
             // walker 回滚口 (定位 RAT 被写成非单射/池内重复的老 old)
             if (dut.flushing_r || dut.misp_valid)
-                for (te = 0; te < ISSUE_WIDTH_TB; te = te + 1)
+                for (te = 0; te < ROLLBACK_WIDTH_TB; te = te + 1)
                     $display("   FLU[%0d] v=%b rd=%0d old=%0d widx=%0d fs=%0d wp=%0d rem=%0d",
                              te, dut.walk_flush_valid[te], dut.walk_flush_rd[te * 5 +: 5],
                              dut.walk_flush_old[te * PW_TB +: PW_TB],
@@ -424,7 +480,12 @@ module tb_cpu_prog;
             st_cyc = 0; st_iss = 0; st_flush = 0; st_nob = 0;
             st_rob = 0; st_rs = 0; st_fl = 0; st_lsq = 0; st_misp = 0;
             for (mi = 0; mi < 7; mi = mi + 1) begin
-                kj[mi] = 0; mj[mi] = 0;
+                kj[mi] = 0; mj[mi] = 0; rh[mi] = 0;
+            end
+            r_sum = 0; f_cyc = 0; wd_n = 0; ep_len = 0; ep_max = 0; ep_sum = 0; ep_n = 0;
+            if (ltrace_on) begin
+                lfd = $fopen($sformatf("sim/ltr_%0s.txt", nm), "w");
+                if (lfd == 0) $display("WARN: 打不开 sim/ltr_%0s.txt (目录 sim/ 不存在?)", nm);
             end
             while (!dut.ret_latched_r && cyc < MAX_CYCLE
                    && ((perf_n == 0) || (cyc < perf_n))) begin
@@ -466,6 +527,25 @@ module tb_cpu_prog;
             $display("JUMP: %0s taken jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d | misp jal=%0d ret=%0d jalr=%0d beq=%0d bne=%0d bxx=%0d",
                      nm, kj[0], kj[1], kj[2], kj[3], kj[4], kj[5],
                      mj[0], mj[1], mj[2], mj[3], mj[4], mj[5]);
+            // 错路条数直方图: meanR 是 walker 并行化的收益标尺 (并行化只削 ceil(R/W), 削不掉那 1 拍检测)
+            // R = 错路条数 (walker 要撤的 ROB 条目数)。W=1 时一次误预测恰花 R 拍 (1 拍检测 + R-1 拍逐条撤),
+            // 故 sumR 应与 STALL 行的 flushcyc 几乎相等 —— 这是本探针的自校验门禁 (±5%)。
+            $display("RL: %0s 冲刷次数=%0d sumR=%0d meanR=%0d.%02d maxR=%0d | 实测 flushcyc=%0d 差=%0d.%01d%% | flushing_r拍=%0d walk_done次=%0d",
+                     nm, ep_n, r_sum,
+                     (ep_n > 0) ? (r_sum / ep_n) : 0,
+                     (ep_n > 0) ? (((r_sum % ep_n) * 100) / ep_n) : 0,
+                     (rh[5] > 0) ? 16 : 0,
+                     st_flush,
+                     (st_flush > 0) ? (((r_sum - st_flush) * 100) / st_flush) : 0,
+                     (st_flush > 0) ? ((((r_sum - st_flush) * 1000) / st_flush) % 10) : 0,
+                     f_cyc, wd_n);
+            // 冲刷 epoch 长度 = 一次误预测占用的总拍数 (检测拍 + flushing_r 拍)
+            $display("FEP: %0s epoch数=%0d 均长=%0d.%02d 最长=%0d (含检测拍)",
+                     nm, ep_n,
+                     (ep_n > 0) ? ((ep_sum + ep_n) / ep_n) : 0,
+                     (ep_n > 0) ? ((((ep_sum + ep_n) % ep_n) * 100) / ep_n) : 0, ep_max + 1);
+            $display("RH: %0s R1=%0d R2=%0d R3=%0d R4=%0d R5-8=%0d R9-16=%0d",
+                     nm, rh[0], rh[1], rh[2], rh[3], rh[4], rh[5]);
             // 自由表分布 (诊断): 池内空闲 sp / 架构映射落在池区的个数 mapped_ge32。
             // 空机时 sp 恒为 FREE_NUM (架构映射全在恒等区 0..31) —— 恒等区被放弃时也会回池, 不再是泄漏
             nh = 0;
@@ -473,6 +553,10 @@ module tb_cpu_prog;
                 if (dut.map_arch[fi * PW_TB +: PW_TB] >= 32) nh = nh + 1;
             $display("FREELIST: %0s sp=%0d FREE_NUM=%0d mapped_ge32=%0d rob_empty=%b",
                      nm, dut.u_fl.sp, PRF_SIZE_TB - 32, nh, dut.rob_empty);
+            if (lfd != 0) begin
+                $fclose(lfd);
+                lfd = 0;
+            end
         end
     endtask
 
@@ -498,6 +582,7 @@ module tb_cpu_prog;
         if (!$value$plusargs("PERF=%d", perf_n))    perf_n    = 0;
         if (!$value$plusargs("BAD=%h", bad_pc))     bad_pc    = 0;
         if (!$value$plusargs("FLCHK=%d", flchk))    flchk     = 0;
+        if (!$value$plusargs("LTRACE=%d", ltrace_on)) ltrace_on = 0;
         if (dump_cyc == 0) $dumpoff;      // +DUMP=0: 完全不记录 (长程序 VCD 可达数百 MB)
 
         run_prog(prog_name);

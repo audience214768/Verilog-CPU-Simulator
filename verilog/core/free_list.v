@@ -8,16 +8,17 @@
 //   push 正好落在本拍 pop 腾出的槽位 (组合读先于边沿写, 读到的是旧值, 不冲突);
 //   本拍 push 的项本拍不可分配 (无旁路) → count_out = sp
 module free_list #(
-    parameter ISSUE_WIDTH = 1,
-    parameter PRF_SIZE    = 64
+    parameter ISSUE_WIDTH    = 1,
+    parameter PRF_SIZE       = 64,
+    parameter ROLLBACK_WIDTH = 1
 ) (
     input  clk,
     input  rst_n,
     output [ISSUE_WIDTH * $clog2(PRF_SIZE) - 1 : 0] alloc_val,      // 槽 i: 栈顶起第 pc_pre[i] 个 (仅 pop_req[i] 时有效)
     output [$clog2(PRF_SIZE + 1) - 1 : 0]            count_out,      // 本拍可分配量 (= 栈内空闲数)
     input  [ISSUE_WIDTH - 1 : 0]    pop_req,        // 弹出 (逐槽; 同拍多槽按槽序取栈顶起连续项)
-    input  [ISSUE_WIDTH - 1 : 0]    push_valid,     // 回收 (commit 与 walker 复用, 二者互斥)
-    input  [ISSUE_WIDTH * $clog2(PRF_SIZE) - 1 : 0] push_preg
+    input  [ROLLBACK_WIDTH - 1 : 0]    push_valid,     // 回收 (commit 与 walker 复用, 二者互斥)
+    input  [ROLLBACK_WIDTH * $clog2(PRF_SIZE) - 1 : 0] push_preg
 );
     localparam PW  = $clog2(PRF_SIZE);
     localparam PCW = $clog2(PRF_SIZE + 1);
@@ -40,27 +41,31 @@ module free_list #(
     //   new_pnum==0 的条目 (cpu_top 的 fl_push_valid 直接用 walked_valid), 必须留这一挡,
     //   否则 preg 0 进池后被分配出去, x0 不再恒为 0。其余 1..31 在架构映射放弃它时照常回池,
     //   空机时池恒为 PRF_SIZE - 32 = 32 项 >= ISSUE_WIDTH ⇒ 结构性死锁消失。
-    wire [ISSUE_WIDTH - 1 : 0] push_ok;
-    wire [ISSUE_WIDTH * PCW - 1 : 0] pc_pre, ps_pre;   // 槽 i 之前的 pop/push 数 (排他前缀)
-    wire [ISSUE_WIDTH * PCW - 1 : 0] pc_inc, ps_inc;   // 含槽 i 的累计
+    // push 端口按 ROLLBACK_WIDTH 定宽 (walker 与 commit 复用, 二者互斥), pop 仍是 ISSUE_WIDTH
+    wire [ROLLBACK_WIDTH - 1 : 0] push_ok;
+    wire [ISSUE_WIDTH * PCW - 1 : 0] pc_pre, pc_inc;   // pop 前缀 (发射宽度)
+    wire [ROLLBACK_WIDTH * PCW - 1 : 0] ps_pre, ps_inc; // push 前缀 (回滚宽度)
     genvar i, c;
     generate
-        for (c = 0; c < ISSUE_WIDTH; c = c + 1) begin : ok
+        for (c = 0; c < ROLLBACK_WIDTH; c = c + 1) begin : ok
             assign push_ok[c] = push_valid[c] && (push_preg[c * PW +: PW] != {PW{1'b0}});
         end
+        // pop 计数链: 只到 ISSUE_WIDTH
         for (i = 0; i < ISSUE_WIDTH; i = i + 1) begin : cnt
-            // 槽 i 之前 = 前一槽的含己累计
             wire [PCW - 1 : 0] pc_pv = (i == 0) ? {PCW{1'b0}} : pc_inc[(i - 1) * PCW +: PCW];
-            wire [PCW - 1 : 0] ps_pv = (i == 0) ? {PCW{1'b0}} : ps_inc[(i - 1) * PCW +: PCW];
             assign pc_pre[i * PCW +: PCW] = pc_pv;
-            assign ps_pre[i * PCW +: PCW] = ps_pv;
             assign pc_inc[i * PCW +: PCW] = pc_pv + {{(PCW - 1){1'b0}}, pop_req[i]};
-            assign ps_inc[i * PCW +: PCW] = ps_pv + {{(PCW - 1){1'b0}}, push_ok[i]};
             assign alloc_val[i * PW +: PW] = pool[sp - 1'b1 - pc_pv];
+        end
+        // push 计数链: 到 ROLLBACK_WIDTH (walker 一拍可归还的项数)
+        for (i = 0; i < ROLLBACK_WIDTH; i = i + 1) begin : pcnt
+            wire [PCW - 1 : 0] ps_pv = (i == 0) ? {PCW{1'b0}} : ps_inc[(i - 1) * PCW +: PCW];
+            assign ps_pre[i * PCW +: PCW] = ps_pv;
+            assign ps_inc[i * PCW +: PCW] = ps_pv + {{(PCW - 1){1'b0}}, push_ok[i]};
         end
     endgenerate
     wire [PCW - 1 : 0] pop_cnt  = pc_inc[(ISSUE_WIDTH - 1) * PCW +: PCW];
-    wire [PCW - 1 : 0] push_cnt = ps_inc[(ISSUE_WIDTH - 1) * PCW +: PCW];
+    wire [PCW - 1 : 0] push_cnt = ps_inc[(ROLLBACK_WIDTH - 1) * PCW +: PCW];
 
     assign count_out = sp;
 
@@ -73,7 +78,7 @@ module free_list #(
                 pool[k] <= BASE + (FREE_NUM - 1 - k);
         end else begin
             sp <= sp - pop_cnt + push_cnt;
-            for (k = 0; k < ISSUE_WIDTH; k = k + 1)
+            for (k = 0; k < ROLLBACK_WIDTH; k = k + 1)
                 if (push_ok[k])
                     pool[sp - pop_cnt + ps_pre[k * PCW +: PCW]] <= push_preg[k * PW +: PW];
         end
