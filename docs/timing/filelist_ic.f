@@ -36,6 +36,7 @@ core/lsq.v
 core/cdb.v
 core/axi_lite_master.v
 core/icache.v
+core/dcache.v
 core/mem_subsystem.v
 
 # --- top ---

@@ -19,6 +19,9 @@ module student_top #(
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
+    parameter DC_SIZE       = 2048,  // D-cache 总容量 (字节; 0 = 旁路)
+    parameter DC_LINE_WORDS = 8,     // D-cache 行字数 (2 的幂)
+    parameter DC_WAYS       = 1,     // D-cache 相联度
     parameter LD_INFLIGHT = 8,       // 在飞 load 上限
     parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
     parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
@@ -90,7 +93,9 @@ module student_top #(
     mem_subsystem #(
         .ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE),
         .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
-        .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH), .LD_INFLIGHT(LD_INFLIGHT),
+        .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH),
+        .DC_SIZE(DC_SIZE), .DC_LINE_WORDS(DC_LINE_WORDS), .DC_WAYS(DC_WAYS),
+        .LD_INFLIGHT(LD_INFLIGHT),
         .SQ_DEPTH(SQ_DEPTH), .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH)
     ) u_mem (
         .clk(clock), .rst_n(rst_n),

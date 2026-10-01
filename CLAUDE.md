@@ -29,8 +29,9 @@ verilog/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块�
 ### 模块清单: 
 top=student_top (官方顶层: AXI4-Lite 端口, 例化下面两个) + cpu_top (乱序流水线, 存储接口已外露为端口);
 front=fetch,decode,bht,ras;
-core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,axi_lite_master (纯 AXI 协议), mem_subsystem (取指预取窗口 +
-load 适配 + 已提交 store 队列), memory (仅 TB 用的固定 1 拍存储, student_top 不再例化);
+core=rat,free_list,rob,rs,ready_table,prf,lsq,cdb,axi_lite_master (纯 AXI 协议), icache, dcache,
+mem_subsystem (取指预取窗口 + load 适配 + 已提交 store 队列; 内含 I/D 两个 cache 与三路 AR 仲裁),
+memory (仅 TB 用的固定 1 拍存储, student_top 不再例化);
 exec=adder32,mul,alu,branch,div
 ### cpu_top ↔ 存储的握手契约 (新写存储器/换存储必须照此实现, 细节见各文件头注释):
 - `imem_addr` = **本拍要向存储请求的批地址** (需求, 不是"上一拍发过的"); 存储必须在下一拍把**上一拍地址**

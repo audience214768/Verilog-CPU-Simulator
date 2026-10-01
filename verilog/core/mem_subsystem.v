@@ -1,5 +1,6 @@
 // 存储子系统: 把 cpu_top 的存储接口 (与 core/memory.v:10-38 逐一对位) 接到 axi_lite_master
-// 内部三块: load 适配 / L1 指令缓存 (core/icache.v) / 已提交 store 队列 (store_queue)
+// 内部四块: load 适配 (含 L1 数据缓存 core/dcache.v) / L1 指令缓存 (core/icache.v) /
+//           已提交 store 队列 (store_queue) / 读口仲裁
 //
 // 【为什么不能简单直连】fetch.v 的隐含契约是"地址 A 上总线, 下一拍 inst_data 就是 A 处指令"
 // (memory.v 的同步读), 而 AXI 读要 ~12 拍。故中间必须有缓存: 未命中那拍不交付 (imem_valid=0),
@@ -17,11 +18,19 @@
 //   缓存把数据与 tag 一起放进 sram_fakeram (每比特便宜约 7 倍), DFF 只剩 IC_LINES 位 valid 位图。
 //
 // 【load 通路】ld_busy==0 是**必须当场兑现**的硬承诺 (lsq.v:158 组合自 !ld_busy, 且收到即置 issued;
-//   反悔 ⇒ 该条目永久在飞 ⇒ head 卡死): 故 ld_busy 只由"在飞数 + 读口是否有空位"组合决定, 且 load
-//   在发请求时**优先于**取指预取。每个被接受的 load **恰好**回一个 ld_done_valid (回包与请求一一对应,
-//   且 rresp 不参与门控 —— LSQ 没有错误口, 少一个脉冲就是死锁)。
-//   子字抽取: araddr 强制 4 字节对齐, 回包右移 8*addr[1:0] 后**零扩展** (符号扩展由 lsq.v:291-297 做)。
+//   反悔 ⇒ 该条目永久在飞 ⇒ head 卡死): 故 ld_busy 只由"在飞数 + D-cache 当拍能否收下"组合决定, 且
+//   load 在发请求时**优先于**两条填充。每个被接受的 load **恰好**回一个 ld_done_valid (交付源与请求
+//   一一对应, 且 rresp 不参与门控 —— LSQ 没有错误口, 少一个脉冲就是死锁)。
+//   子字抽取: araddr 强制 4 字节对齐, 数据右移 8*addr[1:0] 后**零扩展** (符号扩展由 lsq.v:291-297 做)。
 //   ⚠ 由此不支持跨 4 字节边界的非对齐访问 (memory.v 的平铺字节数组支持); 编译产出的 C 代码不会产生。
+//
+// 【L1 数据缓存 (core/dcache.v)】未命中 ⇒ 发一笔 AR (走第 6 节仲裁) 并按行填充; 命中 ⇒ T+1 当拍交付。
+//   全部不变量 (单交付源/命中降级/skid/MSHR 合并/写偷读/填充污染) 见 dcache.v 头注释, 改这一节前先读它。
+//   本模块只多担两件事:
+//     a) **完成序 ≠ 接受序** ⇒ 地址/宽度/idx 记在**按缺失推送序**的 miss 队列里 (推送时写、回包时读),
+//        命中则直接取 dcache 当拍给的 hit_*; 交付数据的字节合并链因此只需**一条**, 输入由 dl_* 选。
+//     b) **store 一致性**: 提交即按索引失效 (`inv_valid`), 并把"B 尚未落盘"的 SQ 条目所占组号位图
+//        (`sq_blk`) 交给 dcache 判填充污染 —— 两者缺一都会把旧数据装进行 (静默算错)。
 //
 // 【store 可见性空洞 —— 本次唯一不可简化处】已提交 store 立即离开 LSQ (cpu_top 的 cmt_invalidate),
 //   而 lsq.v 的字节合并只看仍在 LSQ 里的更老条目; 加上从机对读/写**随机**决定先后 ⇒ 一个在旧 store
@@ -33,6 +42,8 @@
 //        比完成的 load 老 ⇒ 命中 lsq.v 的 `(j - hd) < dd` 合并。本模块**不**重复并入 (并入即组合环)
 //     4) 退休条件比 B 握手更严: B 已握手 **且** 该 B 到达时已发出的 load 都已完成 —— 那些 load 的读
 //        可能在该 store 落到从机之前就被服务了; 之后发出的 load 必在落盘之后才被服务, 无需再兜
+//     5) ★ 有 D-cache 后 (2)(4) 还要加一条: 命中是**从缓存**交付的, 它同样可能读到旧值, 而缓存里的
+//        旧值不会自己消失 ⇒ 上面两条对命中路径同样必需 (故 (2) 的合并链必须同时覆盖命中与回包)。
 //
 // 复位异步低有效 (与 axi_lite_master 一致; ASAP7 标准单元库只有异步复位触发器)
 module mem_subsystem #(
@@ -42,6 +53,12 @@ module mem_subsystem #(
     parameter IC_LINE_WORDS = 8,      // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,      // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,      // 1 = 顺需求行预取下一行
+    // L1 数据缓存 (core/dcache.v)。DC_SIZE=0 ⇒ 全缺失, 每次 load 都走 AXI (消融对照)。
+    // ★ 这三个必须原样透传给 u_dc; 本模块只**重算**一遍组号切分 (见 DC_SPLIT/DC_TAGHI), 两处
+    //   的公式必须逐字一致 —— 不一致会让 sq_blk 的位图与 dcache 的 fill_set_r 对不上号。
+    parameter DC_SIZE       = 2048,   // D-cache 总容量 (字节)
+    parameter DC_LINE_WORDS = 8,      // D-cache 行字数 (2 的幂)
+    parameter DC_WAYS       = 1,      // D-cache 相联度
     parameter LD_INFLIGHT   = 8,      // 在飞 load 上限
     parameter SQ_DEPTH      = 8,      // 已提交未可见 store 队列深度
     // ★ RD_DEPTH ≥ 2 * IC_LINE_WORDS, 且必须是 2 的幂 (axi_lite_master 的指针按 2^PW 取模)。
@@ -102,9 +119,19 @@ module mem_subsystem #(
     localparam LD_IW = $clog2(LD_INFLIGHT);
     localparam LIW   = $clog2(LSQ_SIZE);
     localparam SQ_IW = $clog2(SQ_DEPTH);
-    // AXI 读 tag: 1 位足矣 —— 回包与请求同序 (AXI 按 AR 序回), 填充侧只需区分"这条回包是
-    // load 的还是取指填充的"; 行号/字号由 icache 内部数回包得到, 不进 tag。
-    localparam TW    = 1;
+    // AXI 读 tag: 2 位, **按值精确比较** (不是拿最高位当"是不是 load"的开关)。
+    //   回包与请求同序 (AXI 按 AR 序回), 故同 tag 内不需要序号; 但读通道现在有三个用户, 而取指
+    //   填充与 D-cache 填充是两条**独立**的计数器链 —— 用 1 位区分时 D 填充的回包会被 icache 数进
+    //   自己的格子 (装错行/装错字)。同一个 tag 内部的顺序由各自的 fill_cnt 保证。
+    localparam TW       = 2;
+    localparam [1:0] TAG_IFILL = 2'b00;    // 取指填充
+    localparam [1:0] TAG_LOAD  = 2'b01;    // load 需求读
+    localparam [1:0] TAG_DFILL = 2'b10;    // D-cache 行填充
+    // dcache.v 的组号切分 —— 必须与那里第 100~105 行逐字一致 (sq_blk 的位序靠它对齐)
+    localparam DC_SETSR = DC_SIZE / (4 * DC_LINE_WORDS * DC_WAYS);
+    localparam DC_SETS  = (DC_SETSR < 1) ? 1 : (1 << $clog2(DC_SETSR));
+    localparam DC_IW    = (DC_SETS < 2) ? 1 : $clog2(DC_SETS);
+    localparam DC_SPLIT = 2 + $clog2(DC_LINE_WORDS);   // 组号的低位 (= 行内字偏移 + 字节偏移)
 
     // 宽度编码 (00=1 01=2 10=4 字节) → 字节数 / 选通掩码
     function [2 : 0] wd_bytes;
@@ -130,6 +157,15 @@ module mem_subsystem #(
     wire [SQ_IW - 1 : 0] wr_req_tag, wr_resp_tag;
     wire [1 : 0]         wr_resp_resp;
 
+    // 跨节连线 —— 驱动器分别在第 2/3/4/5 节, 这里只声明 (iverilog 要求"先声明后引用",
+    // 把声明跟着驱动器走会让引用点报 Unable to bind)。
+    wire                  dc_hit_valid, dc_ms_valid, dc_busy, dc_fill_valid, dc_fill_ready;
+    wire                  dc_unused_fill_busy, dc_ms_ready, dc_ms_fire_w, dfill_rsp_valid_w;
+    wire [31 : 0]         dc_hit_word, dc_hit_addr, dc_ms_addr, dc_fill_addr;
+    wire [1 : 0]          dc_hit_width, dc_ms_width;
+    wire [LIW - 1 : 0]    dc_hit_idx, dc_ms_idx;
+    wire [DC_SETS - 1 : 0] sq_blk_w;
+
     axi_lite_master #(
         .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH), .RD_TW(TW), .WR_TW(SQ_IW)
     ) u_axi (
@@ -152,8 +188,13 @@ module mem_subsystem #(
     assign rd_resp_ready = 1'b1;      // 回包当场消化: 取指写窗口, load 当拍出 ld_done_valid
     assign wr_resp_ready = 1'b1;      // B 只用于置 sq_b_ack
 
-    // ==================== 2. load 通路 ====================
-    reg [LD_INFLIGHT * 32 - 1 : 0]  ld_addr_r;
+    // ==================== 2. load 通路 (D-cache + miss 队列) ====================
+    // ★ 完成序 ≠ 接受序 ⇒ 地址/宽度/idx 必须记在**按缺失推送序**的队列里, 不能再像"无缓存版"
+    //   那样回包时按接受序的读指针取 —— 命中在 T+1 交付、缺失在 LATENCY 后交付, 两者交错时按
+    //   接受序配数据会把 A 的 idx 连上 B 的数据 (静默写错目的寄存器)。故:
+    //     · 推送 (ms_valid && ms_ready) 时把 dcache 给的 payload 压进 ld_*_r
+    //     · 回包 (ld_resp_hs) 时按 ld_rd_p 取用 —— AXI 按 AR 序回, 而缺失推送序就是 AR 发射序
+    reg [LD_INFLIGHT * 32 - 1 : 0]  ld_addr_r;   // miss 队列: 推送时写, 回包时读
     reg [LD_INFLIGHT * 2 - 1 : 0]   ld_width_r;
     reg [LD_INFLIGHT * LIW - 1 : 0] ld_idx_r;
     // 指针位宽 = LD_IW+1 (不是 LD_IW): 在飞数要能表示到 LD_INFLIGHT **本身**, 而 LD_IW 位的差
@@ -163,36 +204,70 @@ module mem_subsystem #(
     reg [LD_IW : 0]                 ld_wr_p, ld_rd_p;
 
     wire [LD_IW : 0] ld_inflight_w = ld_wr_p - ld_rd_p;
-    // ★ 硬承诺: 有在飞余量**且**读口有空位才说不忙; 且 load 在发请求上优先于取指预取
-    wire ld_accept = ld_start_valid && !ld_busy;
-    assign ld_busy = (ld_inflight_w >= LD_INFLIGHT) || !rd_req_ready;
-    wire ld_resp_hs = rd_resp_valid && rd_resp_tag[TW - 1];   // tag 最高位 1 = load (见第 5 节)
+    wire ld_accept  = ld_start_valid && !ld_busy;
+    wire ld_resp_hs = rd_resp_valid && (rd_resp_tag == TAG_LOAD);
+    // ★ 占用 = 已推送未回包 + **本拍正在推送的那条**。后一项是"推送比接受晚"的补账:
+    //   接受发生在 T, 写指针要到 T+1(或更晚, park 时)才动, 而接受那一刻数组槽还没被占。
+    //   不补这一项时: 数组满 8 条 (满槽) 那拍若在飞数=8 且本拍有推送, 上一拍放行的接受
+    //   会在下一拍推到第 9 条 ⇒ `ld_wr_p[LD_IW-1:0]` 回绕, **覆盖最老那条的 addr/width/idx**
+    //   ⇒ 它的回包带着新 load 的 idx ⇒ LSQ 清错 issued_r 位、正确那位恒 1 ⇒ head 卡死 (全机冻结)。
+    //   实测 hanoi: t=1193 打印 inflight=8 wr=3 rd=11 slot=3 (live = 槽 3..2 全 8 格) —— 铁证。
+    //   ★ 归纳: 接受 ⇒ busy=0 ⇒ 查表寄存器空闲或本拍被消化 ⇒ **在飞未推送的 load 至多 1 条**,
+    //     且它的推送最早在下一拍 ⇒ 只要接受那拍 `在飞 + 本拍推送 + 1 <= LD_INFLIGHT` 就永不越界。
+    //   (dcache 的 busy 管的是"查表寄存器能否收下", 管不到槽位计数, 两项缺一不可。)
+    wire [LD_IW : 0] ld_occ_w = ld_inflight_w + {{LD_IW{1'b0}}, dc_ms_fire_w};
+    // ★ 硬承诺: 有槽位余量**且** D-cache 当拍收得下才说不忙。`!rd_req_ready` 已**不**进门:
+    //   命中不占 AXI 槽位, 拿通道可用性闸接受会把纯命中流一起掐死; 缺失推不出去时 dcache 用
+    //   查表寄存器本身当 skid 并当拍抬高 busy, 由 busy 这一项独立兜住 (见 dcache.v 第二条不变量)。
+    assign ld_busy = (ld_occ_w >= LD_INFLIGHT) || dc_busy;
+
+    wire [31 : 0]      ld_a_w = ld_addr_r[ld_rd_p[LD_IW - 1 : 0] * 32 +: 32];
+    wire [1 : 0]       ld_w_w = ld_width_r[ld_rd_p[LD_IW - 1 : 0] * 2 +: 2];
+    wire [LIW - 1 : 0] ld_i_w = ld_idx_r[ld_rd_p[LD_IW - 1 : 0] * LIW +: LIW];
+
+    // ---- D-cache (端口连线已在第 1 节声明) ----
+    dcache #(
+        .DC_SIZE(DC_SIZE), .DC_LINE_WORDS(DC_LINE_WORDS), .DC_WAYS(DC_WAYS), .LSQ_SIZE(LSQ_SIZE)
+    ) u_dc (
+        .clk(clk), .rst_n(rst_n),
+        .lk_valid(ld_accept), .lk_addr(ld_start_addr), .lk_width(ld_start_width), .lk_idx(ld_start_idx),
+        .rsp_busy(ld_resp_hs),
+        .hit_valid(dc_hit_valid), .hit_word(dc_hit_word), .hit_addr(dc_hit_addr),
+        .hit_width(dc_hit_width), .hit_idx(dc_hit_idx),
+        .ms_valid(dc_ms_valid), .ms_addr(dc_ms_addr), .ms_width(dc_ms_width), .ms_idx(dc_ms_idx),
+        .ms_ready(dc_ms_ready),
+        .fill_req_valid(dc_fill_valid), .fill_req_addr(dc_fill_addr), .fill_req_ready(dc_fill_ready),
+        .fill_rsp_valid(dfill_rsp_valid_w), .fill_rsp_data(rd_resp_data),
+        .inv_valid(sw_valid), .inv_addr(sw_addr), .sq_blk(sq_blk_w),
+        .busy(dc_busy), .fill_busy(dc_unused_fill_busy)
+    );
+
+    assign ld_done_valid = dc_hit_valid || ld_resp_hs;       // dcache 保证二者互斥 ⇒ 每拍恰一个
+    assign ld_done_idx   = dc_hit_valid ? dc_hit_idx : ld_i_w;
+
+    // 交付数据的统一 mux: 命中与回包互斥 ⇒ 第 4 节的字节合并链只需**一条**, 输入由 dl_* 选。
+    // (复制两条合并链不仅白费面积, 还会让"合并只看 SQ 快照"这条论证出现两个副本。)
+    wire [31 : 0] dl_addr_w  = dc_hit_valid ? dc_hit_addr  : ld_a_w;
+    wire [1 : 0]  dl_width_w = dc_hit_valid ? dc_hit_width : ld_w_w;
+    wire [31 : 0] dl_word_w  = dc_hit_valid ? dc_hit_word  : rd_resp_data;
+    wire [31 : 0] dl_raw_w   = dl_word_w >> {dl_addr_w[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             ld_wr_p <= {(LD_IW + 1){1'b0}};
             ld_rd_p <= {(LD_IW + 1){1'b0}};
         end else begin
-            if (ld_accept)  ld_wr_p <= ld_wr_p + 1'b1;
-            if (ld_resp_hs) ld_rd_p <= ld_rd_p + 1'b1;
+            if (dc_ms_fire_w) ld_wr_p <= ld_wr_p + 1'b1;
+            if (ld_resp_hs)   ld_rd_p <= ld_rd_p + 1'b1;
         end
     end
     always @(posedge clk) begin
-        if (ld_accept) begin
-            ld_addr_r[ld_wr_p[LD_IW - 1 : 0] * 32 +: 32]  <= ld_start_addr;
-            ld_width_r[ld_wr_p[LD_IW - 1 : 0] * 2 +: 2]   <= ld_start_width;
-            ld_idx_r[ld_wr_p[LD_IW - 1 : 0] * LIW +: LIW] <= ld_start_idx;
+        if (dc_ms_fire_w) begin
+            ld_addr_r[ld_wr_p[LD_IW - 1 : 0] * 32 +: 32]  <= dc_ms_addr;
+            ld_width_r[ld_wr_p[LD_IW - 1 : 0] * 2 +: 2]   <= dc_ms_width;
+            ld_idx_r[ld_wr_p[LD_IW - 1 : 0] * LIW +: LIW] <= dc_ms_idx;
         end
     end
-
-    // 回包与请求同序 (AXI 保证按 AR 序) ⇒ 读指针所指即本条
-    wire [31 : 0]      ld_a_w   = ld_addr_r[ld_rd_p[LD_IW - 1 : 0] * 32 +: 32];
-    wire [1 : 0]       ld_w_w   = ld_width_r[ld_rd_p[LD_IW - 1 : 0] * 2 +: 2];
-    wire [LIW - 1 : 0] ld_i_w   = ld_idx_r[ld_rd_p[LD_IW - 1 : 0] * LIW +: LIW];
-    wire [31 : 0]      ld_raw_w = rd_resp_data >> {ld_a_w[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
-
-    assign ld_done_valid = ld_resp_hs;
-    assign ld_done_idx   = ld_i_w;
 
     // ==================== 3. L1 指令缓存 ====================
     // 交付语义与原来的取指预取窗口逐一对位 (同拍 imem_addr 请求 / 下一拍 inst_data + imem_valid /
@@ -200,16 +275,17 @@ module mem_subsystem #(
     // core/icache.v 头注释 —— 改这一节前先读那份注释。
     wire          fill_req_valid_w;
     wire [31 : 0] fill_req_addr_w;
-    // ★ 填充为 load 让路: load 被收下的那拍绝不接受填充请求。icache 只在 fill_hs 那拍推进
-    //   fill_word_r, 被抢走就原地重试 ⇒ 让路不丢位置、不重发 (重发会让 A 的回包落进 B 的格)。
-    wire          fill_req_ready_w = rd_req_ready && !ld_accept;
+    // ★ 填充为需求 load 让路: 口径是"本拍真正的需求 AR 用户"(= dc_ms_valid), **不是**"本拍有
+    //   load 被接受"。有 D-cache 后两者不再是同一件事 —— 命中流的 ld_accept 每拍为 1 却不占 AR
+    //   槽, 拿它让路会把取指填充与 D 填充双双饿死。定义在第 6 节 (与另两个 ready 一起看)。
     // icache 的 fill_busy 是纯观测量, 本模块不用。**必须接一根真实导线**, 不能写 `.fill_busy()`:
     // 空连接在 MODE=diagnose 的 OPT_HIER (-hieropt) 下会报 "Port fill_busy ... not found in
     // module $paramod$...\icache" —— 该 pass 会重写参数化模块的端口表, 空连接项处理不了。
     // (MODE=opt 走 -flatten, 没有这个 pass, 所以一直没暴露)
     wire          unused_fill_busy_w;
-    // 回包分流: tag 最高位 (=TW-1) 为 0 ⇒ 取指填充, 为 1 ⇒ load (与第 5 节仲裁同源)
-    wire          fill_rsp_valid_w = rd_resp_valid && !rd_resp_tag[TW - 1];
+    // 回包分流: 按 tag **值**精确比较 (三个读用户各一个码字, 见第 1 节 TW 的注释)
+    wire          fill_rsp_valid_w = rd_resp_valid && (rd_resp_tag == TAG_IFILL);
+    assign dfill_rsp_valid_w = rd_resp_valid && (rd_resp_tag == TAG_DFILL);
 
     icache #(
         .ISSUE_WIDTH(ISSUE_WIDTH), .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
@@ -286,19 +362,42 @@ module mem_subsystem #(
         end
     endfunction
 
-    wire [7 : 0] ld_m0 = sq_merge_byte_f(ld_a_w + 32'd0,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[7 : 0]);
-    wire [7 : 0] ld_m1 = sq_merge_byte_f(ld_a_w + 32'd1,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[15 : 8]);
-    wire [7 : 0] ld_m2 = sq_merge_byte_f(ld_a_w + 32'd2,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[23 : 16]);
-    wire [7 : 0] ld_m3 = sq_merge_byte_f(ld_a_w + 32'd3,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, ld_raw_w[31 : 24]);
+    // ★ 合并链的输入是 dl_* (命中数据或回包数据) —— 命中路径同样可能读到缓存里的旧值, 必须一起兜
+    wire [7 : 0] ld_m0 = sq_merge_byte_f(dl_addr_w + 32'd0,
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[7 : 0]);
+    wire [7 : 0] ld_m1 = sq_merge_byte_f(dl_addr_w + 32'd1,
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[15 : 8]);
+    wire [7 : 0] ld_m2 = sq_merge_byte_f(dl_addr_w + 32'd2,
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[23 : 16]);
+    wire [7 : 0] ld_m3 = sq_merge_byte_f(dl_addr_w + 32'd3,
+                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[31 : 24]);
 
     // 零扩展 (符号由 lsq.v:291-297 按 is_unsigned_r 做)
-    assign ld_done_data = (ld_w_w == 2'b10) ? {ld_m3, ld_m2, ld_m1, ld_m0}
-                        : (ld_w_w == 2'b01) ? {16'd0, ld_m1, ld_m0}
+    assign ld_done_data = (dl_width_w == 2'b10) ? {ld_m3, ld_m2, ld_m1, ld_m0}
+                        : (dl_width_w == 2'b01) ? {16'd0, ld_m1, ld_m0}
                         : {24'd0, ld_m0};
+
+    // SQ 里"B 尚未落盘"(sq_b_ack_r==0) 的条目所占的**组号位图** —— 交给 dcache 判填充污染。
+    // 只要该组有未落盘的 store, 填充读回的数据就可能混进旧值 ⇒ 本次填充作废 (见 dcache.v 第五条
+    // 不变量)。只查"安装那一拍 SQ 里有没有"不够: store 可能在最后一字落地前就退休出队。
+    // 组号切分必须与 dcache.v 一致 (见第 1 节 DC_SPLIT/DC_IW)。
+    function [DC_SETS - 1 : 0] sq_blk_f;
+        input [SQ_DEPTH * 32 - 1 : 0] q_a;
+        input [SQ_DEPTH - 1 : 0]      q_v;
+        input [SQ_DEPTH - 1 : 0]      q_ack;
+        integer m;
+        reg [DC_SETS - 1 : 0] blk;
+        reg [DC_IW - 1 : 0]   st;
+        begin
+            blk = {DC_SETS{1'b0}};
+            for (m = 0; m < SQ_DEPTH; m = m + 1) begin
+                st = (DC_SETS < 2) ? {DC_IW{1'b0}} : q_a[m * 32 + DC_SPLIT +: DC_IW];
+                if (q_v[m] && !q_ack[m]) blk[st] = 1'b1;
+            end
+            sq_blk_f = blk;
+        end
+    endfunction
+    assign sq_blk_w = sq_blk_f(sq_addr_r, sq_v_w, sq_b_ack_r);
 
     // 提交入队 / 发上总线 / 退休 (三指针: wr 入队, snd 已发, ret 已可弃)
     wire sq_push = sw_valid && !sq_full_w;
@@ -337,8 +436,11 @@ module mem_subsystem #(
                 sq_b_ack_r[wr_resp_tag] <= 1'b1;
                 sq_ticket_r[wr_resp_tag * 16 +: 16] <= ld_issue_cnt_r;
             end
-            if (ld_accept)  ld_issue_cnt_r <= ld_issue_cnt_r + 16'd1;
-            if (ld_resp_hs) ld_done_cnt_r  <= ld_done_cnt_r + 16'd1;
+            if (ld_accept)    ld_issue_cnt_r <= ld_issue_cnt_r + 16'd1;
+            // ★ 必须数 ld_done_valid (= 命中 ∪ 回包), 不是 ld_resp_hs: 命中不回 AXI, 只数回包
+            //   会让计数器每命中一次就落后 1 ⇒ sq_ret_ok 的模 2^15 比较先"未到"后"提前到",
+            //   表现为条目先滞留再被提前退休 (提前退休 = 合并兜底失效 = 静默算错)。
+            if (ld_done_valid) ld_done_cnt_r  <= ld_done_cnt_r + 16'd1;
         end
     end
     always @(posedge clk) begin
@@ -349,8 +451,24 @@ module mem_subsystem #(
         end
     end
 
-    // ==================== 5. 读口仲裁 (load 优先) ====================
-    assign rd_req_valid = ld_accept || fill_req_valid_w;
-    assign rd_req_addr  = ld_accept ? {ld_start_addr[31 : 2], 2'b00} : fill_req_addr_w;
-    assign rd_req_tag   = ld_accept ? 1'b1 : 1'b0;      // 1=load, 0=取指填充 (TW=1, 见第 1 节)
+    // ==================== 5. 读口仲裁 (需求 load > 取指填充 > 数据填充) ====================
+    // 三个用户各一个 tag 码字; 优先级即下面的串行 "&& !更高优先者"。三者都是有限长度的事务
+    // (load 一笔、填充 IC_LINE_WORDS / DC_LINE_WORDS 笔) ⇒ 低优先者不会被无限饿死。
+    // ★ 让路口径 (旧式写法在这里是错的): `fill_req_ready = rd_req_ready && !ld_accept` 在
+    //   有 D-cache 后会把两条填充都饿死 —— 命中流的 ld_accept 每拍为 1 却不占 AR 槽。正确的
+    //   让路条件是"本拍真正的需求 AR 用户" = dc_ms_valid。
+    wire demand_ar_w = dc_ms_valid;
+    assign dc_ms_fire_w = dc_ms_valid && dc_ms_ready;
+
+    assign rd_req_valid = demand_ar_w || fill_req_valid_w || dc_fill_valid;
+    assign rd_req_addr  = demand_ar_w       ? {dc_ms_addr[31 : 2], 2'b00}
+                        : fill_req_valid_w ? fill_req_addr_w
+                        :                    dc_fill_addr;
+    assign rd_req_tag   = demand_ar_w       ? TAG_LOAD
+                        : fill_req_valid_w ? TAG_IFILL
+                        :                    TAG_DFILL;
+
+    assign dc_ms_ready      = rd_req_ready;                                  // 需求 load: 最高
+    assign fill_req_ready_w = rd_req_ready && !demand_ar_w;                  // 取指填充: 次之
+    assign dc_fill_ready    = rd_req_ready && !demand_ar_w && !fill_req_valid_w;   // D 填充: 最低
 endmodule

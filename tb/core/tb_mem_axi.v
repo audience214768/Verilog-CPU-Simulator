@@ -47,6 +47,8 @@ module tb_mem_axi;
     localparam SA_BASE = 32'h0000_0300;            // store 区
     localparam RA_BASE = 32'h0000_0500;            // 竞态区
     localparam T7_BASE = 32'h0000_0680;            // 队列回绕区
+    localparam T9_H    = 32'h0000_0C00;            // T9 命中行 (组 32)
+    localparam T9_M    = 32'h0000_0E00;            // T9 缺失行 (组 48)
 
     reg clk = 1'b0;
     wire rst_n;
@@ -776,6 +778,33 @@ module tb_mem_axi;
             ld_done_tb = ld_done_tb + 1;
         end
         $display("PASS: T8 concurrent in-flight loads (LD_INFLIGHT=%0d)", LD_INFLIGHT);
+
+        // ---- T9 命中与缺失交错: 后发的命中先完成, idx 与数据不得错配 ----
+        // 有 D-cache 后**完成序 ≠ 接受序**: 命中 T+1 交付, 缺失要等 AXI 回包 (LATENCY 拍)。
+        // 若仍按"接受序的读指针"在回包时取地址/idx, 这里就会把 idx=2 的地址配上 idx=3 的数据
+        // —— 静默写错目的寄存器, 而账本 (收下数 == 完成数) 照样平衡, 只有逐条比对 idx↔data
+        // 才抓得出来。前半段先把一行填进缓存并确认第二字确实命中, 后半段才发"先缺后中"这一对。
+        fetch_wait(FA_PARK, FETCH_MAX);
+        ld_push(T9_H,         2'b10, 4'd1); ld_wait(80);   // 触发填充, 把 T9_H 那行装进缓存
+        ld_push(T9_H + 32'd4, 2'b10, 4'd7); ld_wait(80);   // 同一行第二字 ⇒ 必须命中
+        expect_v(cap_ld_idx  === 4'd7,                    "T9 warm-up idx");
+        expect_v(cap_ld_data === mem_word(T9_H + 32'd4),  "T9 warm-up data (line not installed?)");
+
+        done_q_rp = done_q_wp;                             // 只留本用例的完成记录
+        pend_done = 0;
+        ld_push(T9_M,         2'b10, 4'd2);                // 缺失: 发 AR, LATENCY 拍后才回
+        ld_push(T9_H + 32'd8, 2'b10, 4'd3);                // 命中: 两拍后即交付
+        wait_done(200);
+        expect_v(done_q_idx[done_q_rp]  === 4'd3,                  "T9 hit must complete first (idx=3)");
+        expect_v(done_q_data[done_q_rp] === mem_word(T9_H + 32'd8), "T9 first completion data mismatched");
+        done_q_rp = done_q_rp + 1; pend_done = pend_done - 1;
+        ld_inflight_tb = ld_inflight_tb - 1; ld_done_tb = ld_done_tb + 1;
+        wait_done(200);
+        expect_v(done_q_idx[done_q_rp]  === 4'd2,           "T9 miss must complete second (idx=2)");
+        expect_v(done_q_data[done_q_rp] === mem_word(T9_M), "T9 second completion data mismatched");
+        done_q_rp = done_q_rp + 1; pend_done = pend_done - 1;
+        ld_inflight_tb = ld_inflight_tb - 1; ld_done_tb = ld_done_tb + 1;
+        $display("PASS: T9 out-of-order hit/miss completion keeps idx<->data pairing");
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect_v(ld_inflight_tb == 0, "load bookkeeping not balanced");
