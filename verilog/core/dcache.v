@@ -91,11 +91,32 @@
 //     吸收"这一路本来就安全 (同拍结束的两窗口 + 合并链), 所以安全上界就是"同行有未可见条目"。
 //     这个上界在实践中很紧: 条目一旦可见 (吸收进行 / 或已落盘) 就不再污染。
 //
+// 【★ 下一行预取 (M5; DC_PREFETCH = 0/1/2) —— 复用填充器, 只多一个"起填理由"】
+//   动机 (§35.3 实测): 等存储的 79~89% 是 head load 等**自己那笔需求缺失的回包**, 往返恒 14 拍
+//   (官方 LATENCY 10 + 4 拍握手), 推送时零排队 ⇒ 唯一的方向是**减少 head 遇到的缺失次数**。
+//   触发键是**本次访问的行** (缺 L ⇒ 取 L+1), 与"下一笔缺失落在哪一行"无关。
+//     =1: 需求缺失**真起填**那拍登记下一行; =2: 每次**命中交付**那拍登记下一行 (I-cache 现行做法)。
+//   登记的下一行**不当拍起填**, 而是进 1 槽 `dpf_*` 排队, 由填充器空闲时消化 —— 需求永远优先。
+// ★ **存在性检查是硬要求, 不是优化** (pf_present_w): 对**已驻留**的行再起一次填充 ⇒ victim 落到
+//   另一路 ⇒ 安装时的不变量 1 清理会把那一路的**脏副本静默作废** (只清 valid/dirty, 不写回) ⇒
+//   该行吸收过的 store 永远到不了内存, 之后的重填读回旧值 —— 与第三段头注释里那次事故同形。
+//   今天"对已驻留行再起填"不会发生, 靠的是"pf_* 只由**缺失**的路写入"这条被动性质; 预取是
+//   **主动**去找行, 而相邻行属**不同组**、各自独立被驱逐 ⇒ 撞上已驻留行是常态, 必须显式查。
+//   查法复用 store 口的 DFF tag 镜像 (第 9 节 st_hit_g 同款): 组合查, **不占 SRAM 读口、不占拍**,
+//   代价只有 DC_WAYS 个比较器。检查与起填判定**同一拍**, 故不存在"查完到起填之间被别人装进来"
+//   的窗口 (那一拍引擎被 `!fill_busy_r && !pf_v_r && !dc_demand_w` 锁住)。
+// ★ 预取**不走** fill_pend_w 那条排队路 (那是需求的): 被挡住的预取直接丢弃 —— 预取晚一拍就没用,
+//   不值得为它挤掉一次需求的排队机会。故 `dpf_v_r` 只影响"空闲时起哪一行", 不占任何正确性资源。
+// ★ 起填口完全复用现成的填充器 (fill_base_new_w 多一个源) ⇒ 受害路/LRU/写回捕获/污染中止/
+//   RMW 窗口/写回同行冲突**全部自动继承**。尤其污染中止是**必须**继承的: SQ 里有未可见 store 的
+//   行, 预取读回的是旧值 —— 装进去就是静默算错 (§第 5 节)。
+//
 // 复位异步低有效 (与 axi_lite_master / icache / mem_subsystem 一致; ASAP7 库只有异步复位触发器)
 module dcache #(
     parameter DC_SIZE       = 2048,     // 总容量 (字节; 0 = 旁路, 见 DC_OFF)
     parameter DC_LINE_WORDS = 8,        // 每行字数 (2 的幂)
     parameter DC_WAYS       = 1,        // 相联度 (2 的幂; 1/2/4… 均可)
+    parameter DC_PREFETCH   = 0,        // 下一行预取: 0=关 1=需求缺失起填那拍预取下一行 2=每次命中交付那拍预取
     parameter LSQ_SIZE      = 16,       // 仅为 idx 宽度
     // 组数由上面三个参数推出; 必须是 parameter (而非 localparam) 才能出现在端口声明里。
     // * 向上取到 2 的幂: SRAM 的地址线宽按组数取, 非 2 的幂会让高位地址越界 ($fatal)。
@@ -210,6 +231,13 @@ module dcache #(
     wire                     miss_pending_w, coalesce_w, same_line_w;
     wire                     lk_same_fill_w, lk_wb_wait_w, lk_wait_src_w, lk_cacheable_w;
     wire                     ms_fire_w, fill_go_w, fill_pend_w, fill_start_w, fill_blk_w;
+    wire                     dc_demand_w;                          // ---- 第 5 节: 下一行预取 (M5) ----
+    wire [31 : 0]            dc_fill_line_w;                       // (★ 必须单独一行: `wire a,b;` 两位都只 1 bit)
+    wire                     pf_trig_w, pf_start_w, dpf_sel_w, dpf_start_w, pf_present_w;
+    wire [31 : 0]            pf_base_w;
+    wire [DC_IW - 1 : 0]     pf_set_w;
+    wire [TAG_W - 1 : 0]     pf_tag_w;
+    wire [DC_WAYS - 1 : 0]   pf_hit_g;
     wire                     fill_wr_w, fill_hs_w, fill_last_w, fill_poison_now_w, vset_w;
     wire                     fill_abort_w;
     wire                     byp_word_w, byp_raw_w, byp_valid_w;   // ---- 第 5b 节: M2 填充数据旁路 ----
@@ -261,6 +289,9 @@ module dcache #(
     reg                      fill_poison_r;              // 粘滞: 途中出现过未落盘的同组 store
     reg  [31 : 0]            pf_base_r;                  // 待填行 (填充忙时排队的 1 条)
     reg                      pf_v_r;
+    // ---- 下一行预取 (M5): 1 槽排队 + 组合存在性查 (DC_PREFETCH=0 时整块被综合优化掉) ----
+    reg                      dpf_v_r;                    // 排队着一条预取
+    reg  [31 : 0]            dpf_base_r;                 // 预取行基址
     // ---- 部分字 store 的读-改-写 (第 9 节): 读相 → 合成 → 写相 ----
     reg                      rmw_rd1_r;                  // 读相后一拍: rdata_w 上正是命中路的老字
     reg                      rmw_v_r;                    // 整字已合成, 等写口空
@@ -359,8 +390,36 @@ module dcache #(
     assign ms_idx   = lk_idx_r;
 
     // ==================== 5. 填充器 (单 MSHR + 1 条排队) ====================
-    assign fill_base_new_w = (pf_v_r && !fill_busy_r) ? pf_base_r
-                                                      : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}};
+    // ---- 下一行预取 (M5; 详细论证见头注释) ----
+    // dc_fill_line_w = **需求侧**要填的行 (排队那条优先), 不含预取项 ⇒ 与 fill_blk_w 无组合环;
+    //   dc_demand_w 也刻意不含 fill_blk_w / rmw_hold_w (那两项要靠 fill_base_new_w 算) ⇒ 无环。
+    assign dc_fill_line_w = (pf_v_r && !fill_busy_r) ? pf_base_r
+                                                     : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}};
+    assign dc_demand_w    = miss_pending_w && !coalesce_w && !DC_OFF && lk_cacheable_w;
+    // 触发: =1 需求缺失**真起填**那拍 (=2 用一次**命中交付**那拍) ⇒ 登记它的下一行
+    assign pf_trig_w      = (DC_PREFETCH == 1) ? (fill_go_w || pf_start_w)
+                          : ((DC_PREFETCH == 2) ? (hit_valid && lk_cacheable_w) : 1'b0);
+    assign pf_base_w      = ((DC_PREFETCH == 1) ? dc_fill_line_w
+                                                : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}})
+                          + (DC_LINE_WORDS * 4);
+    // 存在性查 (DFF tag 镜像, 与 st_hit_g 同款 —— 不占读口) + 可缓存 (AXI 内存只到 0x0fffffff)
+    assign pf_set_w = ONE_SET ? {DC_IW{1'b0}} : dpf_base_r[TAGHI - 1 : SPLIT];
+    assign pf_tag_w = dpf_base_r[TAGHI +: TAG_W];
+    generate
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : pfcmp
+            assign pf_hit_g[gj] = valid_r[gj * DC_SETS + pf_set_w]
+                && (tag_r[gj * (DC_SETS * TAG_W) + pf_set_w * TAG_W +: TAG_W] == pf_tag_w);
+        end
+    endgenerate
+    assign pf_present_w = |pf_hit_g;
+    // 起填条件: 排队有效 + 目标确实不在 + 可缓存 + 引擎空闲 + **无需求在等** (需求绝对优先)
+    assign dpf_sel_w   = (DC_PREFETCH != 0) && dpf_v_r && !pf_present_w
+                      && (dpf_base_r[31 : 28] == 4'h0)
+                      && !fill_busy_r && !pf_v_r && !dc_demand_w;
+    assign dpf_start_w = dpf_sel_w && !fill_blk_w && !rmw_hold_w;
+    assign fill_base_new_w = dpf_sel_w ? dpf_base_r
+                          : ((pf_v_r && !fill_busy_r) ? pf_base_r
+                                                     : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}});
     assign new_set_w       = ONE_SET ? {DC_IW{1'b0}} : fill_base_new_w[TAGHI - 1 : SPLIT];
 
     // ---- 写回状态 (捕获 → 排水 → 等 B); 三者的定义与"谁给谁让路"见头注释第五条 ----
@@ -387,11 +446,11 @@ module dcache #(
     //   被挡住的 miss 落进 fill_pend_w ⇒ 排队等窗口结束, 不丢。
     assign fill_blk_w  = (wb_line_busy_w && (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT]))
                       || (wb_buf_busy_w && vic_v_w && vic_dirty_w);
-    assign fill_go_w   = miss_pending_w && !coalesce_w && !fill_busy_r && !pf_v_r && !DC_OFF
-                      && lk_cacheable_w && !fill_blk_w && !rmw_hold_w;
+    assign fill_go_w   = dc_demand_w && !fill_busy_r && !pf_v_r && !fill_blk_w && !rmw_hold_w;
     assign fill_pend_w = miss_pending_w && !coalesce_w && !fill_go_w && !DC_OFF && lk_cacheable_w;
     assign pf_start_w   = pf_v_r && !fill_busy_r && !fill_blk_w && !rmw_hold_w;   // 本拍起填的正是排队那条
-    assign fill_start_w = pf_start_w || fill_go_w;                                // 排队的那条优先
+    // 三个起填理由 (互斥): 排队的那条需求 > 本拍的需求 > 预取 (预取只在无需求、无排队时才有 dpf_sel_w)
+    assign fill_start_w = pf_start_w || fill_go_w || dpf_start_w;
 
     // ★ 被污染的填充不再发新 AR。污染后回包一定被丢弃 (见下面 fill_wr_w), 再发就是白占读通道
     //   —— A2 实测读通道占用已到 46~78%, 是三个读用户共享的瓶颈。实测污染率: towers 35% /
@@ -525,6 +584,8 @@ module dcache #(
             fill_poison_r <= 1'b0;
             pf_v_r        <= 1'b0;
             pf_base_r     <= 32'd0;
+            dpf_v_r       <= 1'b0;
+            dpf_base_r    <= 32'd0;
             wbc_pend_r    <= 1'b0;
             wbc_lat_r     <= 1'b0;
             wbc_set_r     <= {DC_IW{1'b0}};
@@ -580,6 +641,17 @@ module dcache #(
                 pf_base_r <= {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}};
             end else if (fill_start_w) begin
                 pf_v_r    <= 1'b0;                                      // 排队的那条已起填
+            end
+            // ---- 下一行预取 (M5): 起填 / 登记 / 目标已被别人装进来就释放 ----
+            // 三支互斥 (`dpf_sel_w` 与 `pf_trig_w` 同拍时以"已起填"为准 ⇒ 丢掉本次登记, 不亏:
+            // 预取只是机会性的, 丢一条不影响任何正确性资源)。释放那支是为了不把唯一那槽永久锁死。
+            if (dpf_start_w) begin
+                dpf_v_r <= 1'b0;
+            end else if (pf_trig_w) begin
+                dpf_v_r    <= 1'b1;
+                dpf_base_r <= pf_base_w;
+            end else if (dpf_v_r && pf_present_w) begin
+                dpf_v_r <= 1'b0;
             end
             // ---- WB 排水: 背靠背推 DC_LINE_WORDS 笔 (写通道上 WB 优先); 推完转 hold 等 B ----
             if (wb_last_push_w) begin

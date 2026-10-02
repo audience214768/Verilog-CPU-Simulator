@@ -82,6 +82,7 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `DC_SIZE` | 1024 | D-cache 容量（字节），`0` = 旁路 | dcache, mem_subsystem |
 | `DC_LINE_WORDS` | 8 | D-cache 行宽（字） | dcache, mem_subsystem |
 | `DC_WAYS` | 2 | D-cache 相联度（≥2 走 LRU，1 路零额外触发器） | dcache, mem_subsystem |
+| `DC_PREFETCH` | 2 | D-cache 下一行预取：`0`=关 / `1`=需求缺失**起填那拍**登记下一行 / `2`=每次**命中交付**那拍登记（现行基线，geo +7.72%）；复用填充器，登记行**起填前查存在性**（硬要求，见 `dcache.v` 头注释） | dcache, mem_subsystem |
 | `LD_INFLIGHT` | 4 | 在飞 load 上限（AXI 未完成读数） | mem_subsystem |
 | `SQ_DEPTH` | 4 | 已提交未可见 store 队列深度 | mem_subsystem |
 | `RD_DEPTH` | 16 | AXI 读事务 FIFO 深度（**约束：≥2×`IC_LINE_WORDS` 且为 2 的幂**） | mem_subsystem, axi_lite_master |
@@ -517,7 +518,7 @@ student_top                      ← 官方要求的顶层；复位取反 + 例�
 │   └── 核内各模块                ← front/exec/core（div.v 为 C1 新增，execute_slot 含 D/Q/W 三级）
 └── mem_subsystem                ← 存储子系统                              【已实现】
     ├── icache                   ← I 侧直接映射行缓存（IC_SIZE/IC_LINE_WORDS/IC_BYPASS/IC_PREFETCH）【已实现】
-    ├── dcache                   ← D 侧组相联行缓存（DC_SIZE/DC_LINE_WORDS/DC_WAYS）           【已实现】
+    ├── dcache                   ← D 侧组相联行缓存（DC_SIZE/DC_LINE_WORDS/DC_WAYS/DC_PREFETCH）【已实现】
     ├── load 适配                ← 子字抽取 + miss 队列（在推送时写、回包时读）+ 按序记账
     ├── store_queue              ← 已提交未生效的 store（同时是 AXI 写队列）
     ├── AR 仲裁                  ← 需求 load > 取指填充 > D 填充（AXI 读只有 1 AR/拍）
@@ -644,6 +645,7 @@ student_top                      ← 官方要求的顶层；复位取反 + 例�
 | 缺失处理 | **非阻塞（MSHR + 次级未命中合并）** | 10 拍延迟下 IPC 的最大杠杆；同行的多个 load 必须并入同一 MSHR，否则退化成 10 拍/行 | **D 侧已做**（1 个在填 + 1 条排队 + 在填行合并）；I 侧仍用下一行预取，见下注 |
 | D 写策略 | ~~**写直达 + 不写分配**~~ → **写直达 + 按索引失效（`idxinv`）**，失效时点 = **SQ 退休** | 原判据"不写分配避免 store 未命中先取行"仍成立；但**命中时**必须让行失效，否则读到旧值。`idxinv` = 清该**组**全部 valid，不看 tag：零 SRAM 访问、零 tag 比较、零写口仲裁，与"命中才失效"逐配置同值（离线实测）。**失效时点必须在退休**（上注 4）：提交即失效会让行活不过一条 store，实测差 2.05% | **D 侧已实现** |
 | I 预取 | `IC_PREFETCH`（默认开） | AXI4-Lite **无 burst**，16 B 行 = 4 笔事务，顺序取全靠预取分摊 | 已实现（下一行预取，非多 MSHR） |
+| D 预取 | `DC_PREFETCH=2`（默认开） | §35 实测"等存储"79~89% 是 head load 等**自己那笔缺失**的回包（往返恒 14 拍 = `LATENCY`10+4，不可优化）⇒ 唯一方向是**减少 head 撞上缺失的次数**。触发键 = **本次访问的行**（缺/中 L ⇒ 取 L+1） | 已实现（下一行预取；登记行**起填前显式查存在性**，否则会静默作废另一路的脏副本）|
 | 阵列实现 | **一律 `sram_fakeram`** | 只有它会被框架估算面积并计入总面积；寄存器组按标准单元 DFF 计，贵 ~7×（0.2916 vs 0.042 µm²/bit） | **I/D 两侧均已实现** |
 
 > **注（v1 的实际取舍）**：上表"非阻塞 MSHR + 次级未命中合并"**未在 I 侧 v1 实现** ——

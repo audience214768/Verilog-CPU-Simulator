@@ -61,6 +61,7 @@ module mem_subsystem #(
     parameter DC_SIZE       = 2048,   // D-cache 总容量 (字节)
     parameter DC_LINE_WORDS = 8,      // D-cache 行字数 (2 的幂)
     parameter DC_WAYS       = 1,      // D-cache 相联度
+    parameter DC_PREFETCH   = 0,      // D-cache 下一行预取 (0=关 1=需求缺失起填时 2=每次命中交付时)
     parameter LD_INFLIGHT   = 8,      // 在飞 load 上限
     parameter SQ_DEPTH      = 8,      // 已提交未可见 store 队列深度
     // ★ RD_DEPTH ≥ 2 * IC_LINE_WORDS, 且必须是 2 的幂 (axi_lite_master 的指针按 2^PW 取模)。
@@ -239,7 +240,8 @@ module mem_subsystem #(
 
     // ---- D-cache (端口连线已在第 1 节声明) ----
     dcache #(
-        .DC_SIZE(DC_SIZE), .DC_LINE_WORDS(DC_LINE_WORDS), .DC_WAYS(DC_WAYS), .LSQ_SIZE(LSQ_SIZE)
+        .DC_SIZE(DC_SIZE), .DC_LINE_WORDS(DC_LINE_WORDS), .DC_WAYS(DC_WAYS), .LSQ_SIZE(LSQ_SIZE),
+        .DC_PREFETCH(DC_PREFETCH)
     ) u_dc (
         .clk(clk), .rst_n(rst_n),
         .lk_valid(ld_accept), .lk_addr(ld_start_addr), .lk_width(ld_start_width), .lk_idx(ld_start_idx),

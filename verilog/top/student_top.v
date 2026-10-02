@@ -7,7 +7,8 @@
 //   手写程序用的 TERM marker 判定保留 (OR 并存), 两条路径互不干扰。
 // 复位: 外部 reset 高有效 ⇒ 内部 rst_n = ~reset (异步低有效, 与 ASAP7 触发器一致)
 // 基准参数 = §二十二/§二十三 的效率拐点 c2 (η = geo IPC / 面积 最高):
-//   本 RTL (写粒度 8→32) 实测 9860.9 µm² / geo IPC 0.5922 / 275.9 MHz (2026-10-02, 19/19 门禁通过)
+//   geo IPC **0.6997** (官方 make perf, 19/19 门禁通过, M5 之后; 见 plan.md §三十七)
+//   面积 9860.9 µm² / 275.86 MHz 是 `c2b` 综合点 (**M2/M5 之前**; M5 按用户裁定未综合 ⇒ 这两个数不含 M5)
 //   选它当基准的理由是"性价比 + 优化空间", 不是档位线 (见 plan.md §二十七)
 module student_top #(
     parameter ISSUE_WIDTH = 1,
@@ -25,6 +26,7 @@ module student_top #(
     parameter DC_SIZE       = 1024,  // D-cache 总容量 (字节; 0 = 旁路)
     parameter DC_LINE_WORDS = 8,     // D-cache 行字数 (2 的幂)
     parameter DC_WAYS       = 2,     // D-cache 相联度 (2 路: SRAM 面积不变, geo IPC +2.2%, 见 plan.md §十六)
+    parameter DC_PREFETCH   = 2,     // D-cache 下一行预取: 0=关 1=需求缺失起填那拍预取下一行 2=每次命中交付那拍预取 (现行基线)
     parameter LD_INFLIGHT = 4,       // 在飞 load 上限
     parameter SQ_DEPTH    = 4,       // 已提交 store 队列深度
     parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
@@ -100,6 +102,7 @@ module student_top #(
         .IC_SIZE(IC_SIZE), .IC_LINE_WORDS(IC_LINE_WORDS),
         .IC_BYPASS(IC_BYPASS), .IC_PREFETCH(IC_PREFETCH),
         .DC_SIZE(DC_SIZE), .DC_LINE_WORDS(DC_LINE_WORDS), .DC_WAYS(DC_WAYS),
+        .DC_PREFETCH(DC_PREFETCH),
         .LD_INFLIGHT(LD_INFLIGHT),
         .SQ_DEPTH(SQ_DEPTH), .RD_DEPTH(RD_DEPTH), .WR_DEPTH(WR_DEPTH)
     ) u_mem (

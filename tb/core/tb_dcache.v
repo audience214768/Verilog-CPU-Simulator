@@ -17,6 +17,10 @@
 // WB 口: 受害路脏 ⇒ 捕获读 + DC_LINE_WORDS 笔整字写 + 逐笔 B; TB 核对地址/数据/笔数 (T15)。
 `timescale 1ns/1ps
 module tb_dcache;
+    // M5 预取口径。**parameter** (不是 localparam) ⇒ 可用 iverilog -Ptb_dcache.DC_PREFETCH=n 覆盖:
+    //   make -f Makefile.tb run TB=core/tb_dcache IV="iverilog -Ptb_dcache.DC_PREFETCH=0"   (关: T1~T16)
+    // 默认 = 2 (现行基线; 跑 T17 的 M5 用例)
+    parameter  DC_PREFETCH   = 2;
     localparam DC_SIZE       = 2048;
     localparam DC_LINE_WORDS = 8;
     // TB 自带参数副本 (不随 student_top.v 的基准参数变, 见 tools/README 坑 4) ⇒
@@ -30,6 +34,7 @@ module tb_dcache;
     localparam IW      = $clog2(SETS);
     localparam SPLIT   = 2 + OFF_W;
     localparam TAGHI   = SPLIT + IW;
+    localparam TAG_W   = 32 - TAGHI;
     localparam LOAD_LAT = 2;
     localparam FILL_LAT = 6;
     localparam WB_LAT   = 3;                      // WB 每笔写 → B 的延迟
@@ -108,7 +113,7 @@ module tb_dcache;
     // ---------------- DUT ----------------
     dcache #(
         .DC_SIZE (DC_SIZE), .DC_LINE_WORDS (DC_LINE_WORDS),
-        .DC_WAYS (DC_WAYS), .LSQ_SIZE (LSQ_SIZE)
+        .DC_WAYS (DC_WAYS), .LSQ_SIZE (LSQ_SIZE), .DC_PREFETCH (DC_PREFETCH)
     ) dut (
         .clk (clk), .rst_n (rst_n),
         .lk_valid (lk_valid), .lk_addr (lk_addr), .lk_width (lk_width), .lk_idx (lk_idx),
@@ -130,7 +135,8 @@ module tb_dcache;
 
     // 旁路实例: DC_SIZE=0 必须永不命中、永不起填
     dcache #(
-        .DC_SIZE (0), .DC_LINE_WORDS (DC_LINE_WORDS), .DC_WAYS (DC_WAYS), .LSQ_SIZE (LSQ_SIZE)
+        .DC_SIZE (0), .DC_LINE_WORDS (DC_LINE_WORDS), .DC_WAYS (DC_WAYS), .LSQ_SIZE (LSQ_SIZE),
+        .DC_PREFETCH (0)
     ) dut_off (
         .clk (clk), .rst_n (rst_n),
         .lk_valid (lk_valid), .lk_addr (lk_addr), .lk_width (lk_width), .lk_idx (lk_idx),
@@ -233,6 +239,33 @@ module tb_dcache;
                 $display("FAIL: 无 wb_v_r 却抬 wb_req_valid (t=%0t)", $time);
                 errors = errors + 1;
             end
+        end
+    end
+
+    // ---------------- M5 预取的硬不变量 ----------------
+    // ★ **起填那一拍, 目标行必须不在缓存里**。若在 ⇒ 安装会走到第 8 节的不变量 1 清理, 把另一路
+    //   那条 (可能**脏**) 的副本静默作废 (只清 valid/dirty, 不写回) ⇒ 该行吸收过的 store 永远
+    //   到不了内存, 之后重填读回旧值 (与 dcache.v 头注释里 def_wr4 那次事故同形)。
+    //   需求填充靠"确认缺失"天然满足; **预取是主动去找行**, 相邻行又属不同组、各自独立被驱逐,
+    //   撞上已驻留行是常态 ⇒ 必须靠 dcache 里的 pf_present_w 显式保证 ⇒ 这里把它钉死。
+    wire [IW - 1 : 0]   fl_set_w = dut.fill_base_new_w[TAGHI - 1 : SPLIT];
+    wire [TAG_W - 1 : 0] fl_tag_w = dut.fill_base_new_w[TAGHI +: TAG_W];
+    integer dk;
+    always @(posedge clk) begin
+        if (rst_n && dut.fill_start_w) begin
+            for (dk = 0; dk < DC_WAYS; dk = dk + 1) begin
+                if (dut.valid_r[dk * SETS + fl_set_w]
+                    && (dut.tag_r[dk * (SETS * TAG_W) + fl_set_w * TAG_W +: TAG_W] === fl_tag_w)) begin
+                    $display("FAIL: 起填的行已在缓存里 (way %0d set %0d base=%h t=%0t) —— 存在性检查失效",
+                             dk, fl_set_w, dut.fill_base_new_w, $time);
+                    errors = errors + 1;
+                end
+            end
+        end
+        // 预取不得与需求抢填充器: 起填理由是预取时, 本拍必须没有需求在等
+        if (rst_n && dut.dpf_start_w && dut.dc_demand_w) begin
+            $display("FAIL: 预取挤掉了需求起填 (t=%0t)", $time);
+            errors = errors + 1;
         end
     end
 
@@ -394,6 +427,33 @@ module tb_dcache;
         end
     endtask
 
+    // ---- M5 用: 某一行此刻是否驻留 (直查 DUT 的 valid/tag 镜像; 只读, 不驱动) ----
+    function line_valid;
+        input [31:0] base;
+        integer lw;
+        reg [IW - 1 : 0]   ls;
+        reg [TAG_W - 1 : 0] lt;
+        begin
+            ls = base[TAGHI - 1 : SPLIT];
+            lt = base[TAGHI +: TAG_W];
+            line_valid = 1'b0;
+            for (lw = 0; lw < DC_WAYS; lw = lw + 1)
+                if (dut.valid_r[lw * SETS + ls]
+                    && (dut.tag_r[lw * (SETS * TAG_W) + ls * TAG_W +: TAG_W] === lt))
+                    line_valid = 1'b1;
+        end
+    endfunction
+
+    task wait_line(input [31:0] base, input [8*96-1:0] msg);
+        integer guard;
+        begin
+            guard = 0;
+            while (!line_valid(base) && guard < 400) begin @(negedge clk); guard = guard + 1; end
+            if (guard >= 400) begin $display("FAIL: %0s (base=%h t=%0t)", msg, base, $time); errors = errors + 1; end
+            @(negedge clk);
+        end
+    endtask
+
     // ---------------- 主流程 ----------------
     integer cap_n, ms_n, done_n, wb_n0;
     reg     st_ans;
@@ -403,9 +463,14 @@ module tb_dcache;
     reg [31:0] wb_a;                                  // T15b 正在写回的那一行 (受害行由替换策略定, 不写死)
     integer k;
     integer g8;                                       // T8/T8b 的等待计数器
+    integer fr0;                                      // T17 的填充发包数快照
     initial begin
         $dumpfile("sim/core/tb_dcache.vcd");
         $dumpvars(0, tb_dcache);
+
+        // T1..T16 是**无预取**口径的定向用例 (它们的期望里写死了"不该有自发填充") ⇒ 只在 =0 下跑;
+        // M5 的两档 (=1/=2) 另有一组用例, 见下面 else 支。编译口径用 iverilog -Ptb_dcache.DC_PREFETCH=n。
+        if (DC_PREFETCH == 0) begin
 
         // ============ T1 复位恒等 ============
         $display("=== T1 复位恒等");
@@ -846,6 +911,58 @@ module tb_dcache;
         fill_line(32'h0000_0180);                  // set 12
         accept(32'h0000_0180, 2'd2, 4'd15);
         expect_hit(32'h0000_0180, 4'd15, 32'hC0DE_0060);
+
+        end else begin
+            // ============ M5 下一行预取 (DC_PREFETCH = 1/2) ============
+            // 要证四件: ①预取行确实被装进缓存; ②装进来的**数据正确** (走的是同一个填充器 ⇒ 行内
+            // 字序/污染中止/受害路/写回全部继承); ③口径 2 的触发键是**命中交付**而不是缺失;
+            // ④**目标是已驻留行时绝不重复起填** —— 那是唯一能把不变量 1 的清理变成"静默作废脏副本"
+            // 的入口, 由上面的常驻监视器钉住 (它在本块里被真实走到)。
+            $display("=== T17 M5 下一行预取 (DC_PREFETCH=%0d)", DC_PREFETCH);
+            do_reset;
+            // ---- ① 触发键: =1 是"需求缺失**起填**那一拍", =2 是"**命中交付**那一拍" ----
+            accept(32'h0000_0100, 2'd2, 4'd1);         // set 8, 缺失 ⇒ 填充
+            expect_ms(32'h0000_0100, 4'd1);
+            run_fill;
+            idle(4);
+            if (DC_PREFETCH == 1) begin
+                // 起填那拍已登记; 填充器忙完就起预取 ⇒ 这里只等它装进来 (不碰 0x120)
+                wait_line(32'h0000_0120, "T17 =1 需求缺失起填后未预取下一行");
+            end else begin
+                chk(!line_valid(32'h0000_0120), "T17 =2 未命中交付前不得预取 (触发键是命中)");
+                accept(32'h0000_0100, 2'd2, 4'd2);     // 命中交付 ⇒ 本拍登记下一行
+                expect_hit(32'h0000_0100, 4'd2, 32'hC0DE_0040);
+                wait_line(32'h0000_0120, "T17 =2 命中交付后未预取下一行");
+            end
+            chk(line_valid(32'h0000_0120), "T17 预取行未驻留");
+            idle(4);
+            // ---- ② 预取行的数据正确, 且**命中** (不再走缺失口) ----
+            accept(32'h0000_0120, 2'd2, 4'd3);
+            expect_hit(32'h0000_0120, 4'd3, 32'hC0DE_0048);
+            idle(4);
+            // ---- =2 的链式: 命中一条**预取来的**行也要能续取它的下一行 ----
+            if (DC_PREFETCH == 2) begin
+                wait_line(32'h0000_0140, "T17 =2 命中预取行后未续取下一行");
+                idle(4);
+                accept(32'h0000_0140, 2'd2, 4'd5);
+                expect_hit(32'h0000_0140, 4'd5, 32'hC0DE_0050);
+                idle(4);
+            end
+            // ---- ④ 目标已驻留 ⇒ 预取必须被挡住 (只发本行那 8 笔 AR) ----
+            // 0x0E0 的下一行正是已驻留的 0x100 (=1 会在 0x0E0 起填那拍登记 0x100)。
+            // 只对 =1 量: =2 的触发键是命中, 这段里还有别的命中在登记预取, 计数不干净。
+            if (DC_PREFETCH == 1) begin
+                fr0 = n_fill_req;
+                accept(32'h0000_00E0, 2'd2, 4'd4);
+                expect_ms(32'h0000_00E0, 4'd4);
+                run_fill;
+                idle(60);                              // 给"万一被放行"的预取留足起填+发包的时间
+                chk(n_fill_req - fr0 == DC_LINE_WORDS, "T17 目标已驻留 ⇒ 只应发本行那 8 笔 AR");
+                chk(line_valid(32'h0000_0100), "T17 已驻留的目标行不得被重复安装作废");
+                chk(!dut.dpf_v_r, "T17 目标已驻留 ⇒ 排队槽应释放");
+                idle(60);
+            end
+        end
 
         // ============ 收尾: 全局账本 ============
         idle(200);                                 // 排空所有在飞的 AR
