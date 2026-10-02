@@ -41,6 +41,9 @@ module tb_fetch;
     //   (imem_valid=0) 就等价于"该地址还取不到" ⇒ 直接跟随 imem_valid。固定 1 拍存储下恒 1,
     //   DUT 的 pc_lead_w 于是恒成立, 与改动前的"每拍顺序推进"逐拍一致。
     wire                imem_hit = imem_valid;
+    // imem_direct: "本拍到达是直通行交付"。本 TB 的存储没有跨行装配 (IW=1 下 DUT 的 straddle 恒 0)
+    //   ⇒ 与 imem_valid 同值 (与 imem_hit 同一套理由)。
+    wire                imem_direct = imem_valid;
 
     fetch #(.ISSUE_WIDTH(IW), .BHT_SIZE(BHT), .RAS_SIZE(RAS)) dut (
         .clk(clk), .rst_n(rst_n),
@@ -49,7 +52,8 @@ module tb_fetch;
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(bht_upd_req), .bht_upd_idx(bht_upd_idx), .bht_upd_taken(bht_upd_taken),
         .ras_restore_valid(ras_restore_valid), .ras_restore_head(ras_restore_head),
-        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit), .stall(stall),
+        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .imem_direct(imem_direct), .stall(stall),
         .redirect_valid(redirect_valid), .redirect_pc(redirect_pc), .halt(halt)
     );
 
@@ -82,8 +86,9 @@ module tb_fetch;
     endfunction
 
     // ---- 模型状态 (TB 自身的取指影子, 不读 DUT 内部信号) ----
-    reg [31 : 0] m_pc;                  // 本拍 pc_r
-    reg [31 : 0] m_pc_prev;             // 上一拍 pc_r = 本拍 imem_addr_d 槽 0
+    reg [31 : 0] m_pc;                  // 本拍 pc_r (= imem 地址的"保持"支)
+    reg [31 : 0] m_an;                  // 本拍 imem_addr 槽 0 = DUT 的 exp_next_w (组合, 见 model_comb 末)
+    reg [31 : 0] m_ad;                  // 上一拍 imem_addr 槽 0 = 本拍 imem_addr_d 槽 0 (= 到达批基址)
     reg [31 : 0] m_exp;                 // 本拍期望交付地址 exp_pc_r
     reg [IW - 1 : 0]      m_fvalid;
     reg [IW * 32 - 1 : 0] m_fraw, m_fpc, m_ftarget;
@@ -118,7 +123,7 @@ module tb_fetch;
     generate
         for (si = 0; si < IW; si = si + 1) begin : im
             assign inst_data[si * 32 +: 32]
-                 = imem_valid ? imem[((m_pc_prev >> 2) + si) % IMEM_N] : STALE;
+                 = imem_valid ? imem[((m_ad >> 2) + si) % IMEM_N] : STALE;
         end
     endgenerate
 
@@ -150,9 +155,9 @@ module tb_fetch;
         reg [RA : 0] hprev;
         reg pt_seen;
         begin
-            // B1) 握手: 到达地址 (m_pc_prev) == exp_pc; 批寄存器空或本拍被发射则可接收;
+            // B1) 握手: 到达地址 (m_ad) == exp_pc; 批寄存器空或本拍被发射则可接收;
             //     halt 冻结 (不接收); 到达即所求却因满被丢弃 → rewind (pc 回退重取)
-            m_arr  = (m_pc_prev == m_exp);
+            m_arr  = (m_ad == m_exp);
             m_capok = (m_fvalid == {IW{1'b0}}) || ((m_fvalid != {IW{1'b0}}) && !stall);
             // imem_valid: 数据未回时 inst_data 是旧值 → 不得接收, 也不得回退 (与 DUT 的 cap_w/rewind_w 一致)
             m_cap  = m_arr && m_capok && !halt && imem_valid;
@@ -169,7 +174,7 @@ module tb_fetch;
             m_ptc = 1'b0; m_flow = 32'd0; pt_seen = 1'b0;
             for (li = 0; li < IW; li = li + 1) begin
                 raw   = inst_data[li * 32 +: 32];
-                pc_i  = m_pc_prev + 32'd4 * li;
+                pc_i  = m_ad + 32'd4 * li;
                 opc   = raw[6 : 0];
                 hprev = m_h[li * (RA + 1) +: (RA + 1)];
                 is_jal  = (opc == 7'b1101111);
@@ -205,6 +210,15 @@ module tb_fetch;
                 m_snap[li * RA +: RA] = m_h[(li + 1) * (RA + 1) +: RA];
                 pt_seen = pt_seen || m_ptaken[li];
             end
+            // B3) 本拍请求地址 = DUT 的 exp_next_w (必须与 exp_pc_r 的推进同源; 见 fetch.v 该 assign)
+            //     转向拍 (接收且有预测跳转 / 重定向) 地址**当拍**就跟上, 稳态下退化为 pc_r。
+            //     TB 里 imem_direct ≡ imem_valid ⇒ cap_nb_w ≡ cap_w, 故直接用 m_cap。
+            //     复位期 (rst_n=0) 强制退回 m_pc: 与 DUT 一致 (寄存器被钉住, 而 imem_addr_d 的复位值
+            //     就是 pc_r=0 的各槽; 提前推进会让存储去取另一行, 释放后错绑首批)。
+            m_an = !rst_n          ? m_pc
+                 : redirect_valid  ? redirect_pc
+                 : m_cap           ? (m_ptc ? m_flow : (m_exp + 32'd4 * IW))
+                 :                   m_pc;
         end
     endtask
 
@@ -222,7 +236,7 @@ module tb_fetch;
             end else if (m_cap) begin
                 m_fraw = inst_data;                     // 到达数据 (上一拍地址的字)
                 for (li = 0; li < IW; li = li + 1)
-                    m_fpc[li * 32 +: 32] = m_pc_prev + 32'd4 * li;   // = 上一拍 imem_addr_d
+                    m_fpc[li * 32 +: 32] = m_ad + 32'd4 * li;   // = 本拍 imem_addr_d
                 m_ftaken  = m_ptaken;
                 m_ftarget = m_ptarget;
                 m_fras    = m_snap;
@@ -238,10 +252,10 @@ module tb_fetch;
             exp_p = m_exp;
             if (redirect_valid)   m_exp = redirect_pc;
             else if (m_cap)       m_exp = m_ptc ? m_flow : (m_exp + 32'd4 * IW);
-            // A3) PC 推进 + 地址延迟 (m_pc_prev 更新后 imem 数据随之切换到本拍地址)
+            // A3) PC 推进 + 地址延迟 (m_ad 更新后 imem 数据随之切换到本拍地址)
             //     预测目标优先于 stall 保持: 到达批被接收时 exp_pc 已跳到其目标, pc 必须跟随,
             //     否则 pc 之后只顺序推进, 到达流再也追不上 exp_pc = 永久失步 (F14)
-            m_pc_prev = m_pc;
+            m_ad = m_an;      // imem_addr 延迟一拍 (DUT 的 imem_addr_d); 转向拍起这里就不再等于 m_pc
             // pc 语义 = "下拍要向存储请求的批地址" (DUT 的 pc_next):
             //   redirect > 满批丢弃回退 > 预测目标 > halt 冻结 > 批被接收 (+1 批)
             //   > 落后一个批且期望批已可取 (imem_hit, 补发下一批请求) > 退回请求 exp_pc
@@ -298,9 +312,9 @@ module tb_fetch;
                 bad = bad + 1;
             end
             for (li = 0; li < IW; li = li + 1)
-                if (imem_addr[li * 32 +: 32] !== (m_pc + 32'd4 * li)) begin
+                if (imem_addr[li * 32 +: 32] !== (m_an + 32'd4 * li)) begin
                     $display("FAIL: imem_addr[%0d] = %h expect %h", li,
-                             imem_addr[li * 32 +: 32], m_pc + 32'd4 * li);
+                             imem_addr[li * 32 +: 32], m_an + 32'd4 * li);
                     bad = bad + 1;
                 end
             if (f2i_valid !== m_fvalid) begin
@@ -408,7 +422,8 @@ module tb_fetch;
         $dumpvars(0, tb_fetch);
 
         m_pc = 0;
-        m_pc_prev = 0;
+        m_an = 0;
+        m_ad = 0;
         m_exp = 0;
         m_fvalid = 0; m_fraw = 0; m_fpc = 0; m_ftaken = 0; m_ftarget = 0; m_fras = 0;
         m_cap = 0; m_ptc = 0; m_flow = 0; m_rops_ok = 0; m_rpv = 0;
@@ -421,18 +436,22 @@ module tb_fetch;
         m_h = 0;
 
         clr_all();
-        #23 rst_n = 1;
-        #1;   // 第一个 posedge 之前: 求出复位拍的组合量 (供 F1 断言 ras/head_snap), 首个 tick 会重算
+        // 复位保持期内断言 (rst_n 仍为 0)。★ 必须在释放前取: 释放到首个 posedge 之间的那半个周期
+        //   rst_n 已是 1, 地址推进已生效 (这是同步复位寄存器的固有边界, 与 DUT 的组合逻辑无关)
+        #21;
         model_comb;         // 复位期间 memory 已在读地址 0 → 首拍即交付批 0..4W-4
+        check_all();
 
         // F1 复位: PC=0 (imem_addr=0,4,8,C), 无批输出, exp_pc=0
-        check_all();
         if ((imem_addr[0 * 32 +: 32] !== 32'd0) || (f2i_valid !== {IW{1'b0}})
          || (dut.pc_r !== 32'd0) || (dut.exp_pc_r !== 32'd0)) begin
             $display("FAIL: F1 reset"); errors = errors + 1;
         end else begin
             $display("PASS: F1 reset");
         end
+
+        #2 rst_n = 1;
+        #1;   // 首个 posedge 前: 重算组合量 (rst_n 已释放)
 
         // F2 顺序取指: 复位拍 memory 已在读地址 0 → 首拍即交付批 0/4/8/C (无请求延迟)
         tick();
@@ -442,16 +461,20 @@ module tb_fetch;
         end else begin
             $display("PASS: F2 first batch 0..12");
         end
-        // 该批本拍被发射 → 次拍批寄存器空 (memory 读 1 拍 + 批寄存 1 拍的交付延迟)
+        // ★ 取指同拍推进 (见 fetch.v exp_next_w): 接收那拍就把下一批地址发出去 ⇒ 交付流从首批起
+        //   就是**满吞吐** (旧写法的"memory 1 拍 + 批寄存 1 拍 = 启动空一拍"已消失), 且 pc 与
+        //   exp_pc 每拍同步前进 (旧写法 pc 恒领先一个批; 交付节奏与吞吐两者都不变)。
+        //   "批被发射后不得重发"这条性质改由逐拍模型对照 (段 2) 与 stall 保持 (F3) 覆盖。
         tick();
-        if ((f2i_valid !== {IW{1'b0}}) || (dut.pc_r !== 32'd32)) begin
-            $display("FAIL: F2b issued batch cleared"); errors = errors + 1;
-        end else begin
-            $display("PASS: F2b issued batch cleared");
-        end
-        // 稳态: 每拍交付一批, PC 恒领先交付批 2 批 (= 32)
-        fetch_until(32'h10, 4);
         expect_batch(32'h10);
+        if (dut.pc_r !== 32'd32) begin
+            $display("FAIL: F2b steady pc=%h (expect 20)", dut.pc_r); errors = errors + 1;
+        end else begin
+            $display("PASS: F2b one batch per cycle from the first");
+        end
+        // 稳态: 每拍交付一批
+        tick();
+        expect_batch(32'h20);
         if (dut.pc_r !== 32'd48) begin
             $display("FAIL: F2c steady pc=%h (expect 30)", dut.pc_r); errors = errors + 1;
         end else begin
@@ -833,6 +856,55 @@ module tb_fetch;
             $display("PASS: F15c batch delivered once data returns");
         end
         imem[8'hC0] = NOP;
+
+        // ---- F16 取指同拍推进: 到达批内有预测跳转时, **接收那一拍**的 imem_addr 就已经是跳转目标 ----
+        // 旧写法 (imem_addr ≡ pc_r) 要等 pc 在下一拍跟上 ⇒ 目标批晚一拍到, f2i 空一拍 —— 这就是
+        // nobatch 气泡 (docs/plan.md §二十五)。断言点就是"写入跳转后不等 posedge, 地址立刻变"。
+        clr_all();
+        tick();                                        // 走到稳态 (到达批基址 == exp_pc_r)
+        saved_pc = dut.exp_pc_r;                       // 本拍正在交付的那一批
+        imem[saved_pc >> 2] = jal_enc(5'd0, 32'h40);   // 把该批首槽改成 jal x0, +0x40 (imm 是偏移)
+        #1;
+        if (imem_addr[0 * 32 +: 32] !== (saved_pc + 32'h40)) begin
+            $display("FAIL: F16 same-cycle advance on predicted take (addr=%h expect %h)",
+                     imem_addr[31 : 0], saved_pc + 32'h40);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F16 imem_addr follows the take in the same cycle");
+        end
+        tick();                                        // 接收该批 → f2i 出 jal, exp/pc 同拍跳到目标
+        if ((f2i_valid[0] !== 1'b1) || (f2i_pc[31 : 0] !== saved_pc)
+         || (f2i_pred_taken[0] !== 1'b1) || (dut.exp_pc_r !== (saved_pc + 32'h40))) begin
+            $display("FAIL: F16b jal batch (pc=%h expect %h, exp=%h, taken=%b)",
+                     f2i_pc[31 : 0], saved_pc, dut.exp_pc_r, f2i_pred_taken);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F16b batch delivered and PC follows the target");
+        end
+
+        // ---- F17 重定向同拍推进: redirect_valid 那一拍地址就是 redirect_pc ----
+        // 每类误预测同样白丢一拍; 旧写法要等 pc 跟随重定向之后才发出目标请求。
+        clr_all();
+        tick();                                        // 稳态
+        redirect_valid = 1'b1;  redirect_pc = 32'h280;
+        #1;
+        if (imem_addr[0 * 32 +: 32] !== 32'h280) begin
+            $display("FAIL: F17 redirect address not issued in the same cycle (addr=%h)",
+                     imem_addr[31 : 0]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F17 redirect target issued in the redirect cycle");
+        end
+        tick();                                        // 重定向生效 (清批 + pc/exp 同跳)
+        redirect_valid = 1'b0;
+        tick();                                        // 目标批到达即交付 (旧写法要再等一拍)
+        if ((f2i_valid[0] !== 1'b1) || (f2i_pc[31 : 0] !== 32'h280)) begin
+            $display("FAIL: F17b target batch not delivered next cycle (%b @%h)",
+                     f2i_valid, f2i_pc[31 : 0]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F17b target batch delivered one cycle after the redirect");
+        end
         clr_all();
         tick();
 
@@ -848,7 +920,10 @@ module tb_fetch;
                 clr_all();
                 for (k2 = 0; k2 < IW; k2 = k2 + 1) begin
                     rsel = {$random} % 10;
-                    imem[((m_pc + 32'd4 * k2) >> 2) % IMEM_N]
+                    // 预填"本拍要请求的那个批" = m_an (转向拍起 m_an ≠ m_pc; 稳态下两者相同)。
+                    // 本拍抽到的 redirect_pc 来不及填 ⇒ 那条目标会读到 NOP 滑道 (只影响跳转覆盖率,
+                    // imem 已全量初始化成 NOP, 不会出现 x)。
+                    imem[((m_an + 32'd4 * k2) >> 2) % IMEM_N]
                         = (rsel == 0) ? jal_enc({$random} % 32, rnd_imm4(512))
                         : (rsel == 1) ? jalr_enc({$random} % 32, {$random} % 32, rnd_imm4(512))
                         : (rsel == 2) ? b_enc({$random} % 32, {$random} % 32, rnd_imm4(512))

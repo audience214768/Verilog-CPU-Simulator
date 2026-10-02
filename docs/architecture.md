@@ -190,7 +190,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 | `f2i_pred_taken[W-1:0]` | out | W | 同上 | BHT 预测（随指令流动） |
 | `f2i_pred_target[W-1:0]` | out | 32×W | 同上 | jal=pc+imm；ret=ras.top；其他 jalr=pc+4 |
 | `f2i_ras_snap[W*RA-1:0]` | out | RA×W | 同上 | 误预测恢复载荷 = 取指时**本槽 ops 之后**的 ras head（仅 branch/jalr 有意义） |
-| `imem_addr[W*32-1:0]` | out | 32×W | 存储 | **本拍要请求的批地址**（= 需求地址，不是"上次请求的地址"） |
+| `imem_addr[W*32-1:0]` | out | 32×W | 存储 | **下一条要交付的批基址 = `exp_pc_r` 的下一个值**（组合输出；稳态下 == `pc_r`，见「取指握手」） |
 | `inst_data[W*32-1:0]` | in | 32×W | 存储 | 上一拍 `imem_addr` 处的指令（可带任意延迟） |
 | `imem_valid` | in | 1 | 存储 | `inst_data` 确实是取自 `imem_addr_d` 的新数据（延迟未到时为 0，此时 `inst_data` 是旧值） |
 | `imem_hit` | in | 1 | 存储 | 本拍 `imem_addr` 上**整批 W 个字**都已可取（用于判断能否把请求提前一批；固定 1 拍存储恒为 1） |
@@ -204,17 +204,33 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 - `imem_addr_d` = 上一拍锁存的地址 = 本拍 `inst_data` 所属地址；`imem_valid` 区分"数据真回来了"与"仍是旧值"
 - `exp_pc_r` = 下一条要交付给 decode 的批地址；`arr_ok = (imem_addr_d[0] == exp_pc_r)` 才算"这一批是想要的"
 - 接收条件 `cap_w = arr_ok && cap_ok && !halt && imem_valid`，`cap_ok = 批寄存器空 || 本拍批被发射`（`batch_taken = |f2i_valid && !stall`）
-- **核心抽象：`imem_addr` 是"本拍要请求的批地址"（需求地址）**，不是"上一拍请求过的地址"。数据没到就把请求
-  **停在 `exp_pc_r` 上重复请求它**，于是存储查找的地址恒等于期望地址，数据一到即接收。
+- **核心抽象：`imem_addr` 是"下一条要交付的批基址"（= `exp_pc_r` 的下一个值，组合输出）**，不是"上一拍请求过的
+  地址"。存储契约是"本拍地址 → 下拍交付"，而接收判据是 `arr_ok_w = (imem_addr_d == exp_pc_r)` ⇒
+  **`imem_addr(T)` 必须 ≡ `exp_pc_r(T+1)`**：转向的那一拍就得把新地址发出去，否则目标批晚一拍到、`f2i` 空一拍
+  （= `nobatch` 气泡，`plan.md` §二十五）。稳态下 `pc_r == exp_pc_r`，本式退化为 `pc_r`（与 §二十九 之前的
+  `imem_addr ≡ pc_r` 逐位相同）；只有两类**转向拍**才提前跟上：到达批内有预测跳转（接收拍）、`redirect_valid` 拍。
+  数据没到就把请求**停在 `pc_r`（= `exp_pc_r`）上重复请求它**，于是存储查找的地址恒等于期望地址，数据一到即接收。
   只有 `imem_hit`（期望批**整批 W 个字**都已可取 —— 必须与接收侧的 `imem_valid = &slot_hit` 同口径）成立时，
   才允许把请求**提前一批**：`pc_lead_w = (pc_r == exp_pc_r) && imem_hit && !stall`。
-  不加 `imem_hit` 门控而"无条件落后就补发"会致命：数据未回的拍盲目超前 → 下一拍到达的不是期望批 → 退回 →
+- **`imem_direct`（icache → fetch，不见于 cpu_top 端口）**：本拍到达是"直通行交付"的**无环版** `imem_valid`
+  （不含跨行装配支 ⇒ 不依赖 `imem_addr`）。同拍推进与 RAS ops 必须用它选通，否则
+  `ras_top → flow_c → imem_addr → cur_a_w → asm_ok_w → imem_valid → cap_w → fetch_ok → ras_ops → ras_top`
+  是一条结构性组合环。W=1 下跨行装配不可达，二者逐位相等（`tb_icache` 有逐拍断言）。
+- **`imem_hit` 门控不可省**：不加它而"无条件落后就补发"会致命：数据未回的拍盲目超前 → 下一拍到达的不是期望批 → 退回 →
   再超前 → **请求地址每拍翻转、预取流永远重启、一条 AR 也发不出去**（实测见 `docs/plan.md` §14.3 缺陷 1）。
   **口径必须整批**：W≥2 下若只比批首（"槽 0 到了"），槽 1 未到时也会超前 → 下一拍 `arr_ok` 成立但
   `imem_valid=0` → 退回 → 又超前 → 同样每拍翻转（实测见 `docs/plan.md` §15.10.18）；W=1 时整批 ≡ 批首
-- 不变量：**`pc_r ∈ { exp_pc_r, exp_pc_r + 4W }`**（相等 = 下一批请求还没发出；差一批 = 已有一条在飞）
+- **复位期（`rst_n=0`）强制 `imem_addr = pc_r`**：复位窗口内所有寄存器被钉在复位值上（`imem_addr_d` 的复位值
+  正是 `pc_r=0` 的各槽），若此时就按"下一条要交付的批"提前推进，存储会去取 `exp_pc_r+4W` 那一行；释放后
+  `imem_addr_d(=0)` 与存储实际持有的行对不上，那一行若恰在 5 拍复位窗口内填好（cache 填一行只要十几拍）
+  ⇒ **首个到达批被错绑成批 0**（数据是 `exp_pc_r+4W` 的、pc 却标 0）。模型驱动的 TB 存储复现不了这条。
+- 不变量：**`pc_r ∈ { exp_pc_r, exp_pc_r + 4W }`**（§二十九 之前：相等 = 下一批请求还没发出，差一批 = 稳态；
+  §二十九 之后**相等才是稳态** —— 领先的那一批由组合的 `imem_addr` 承担，`pc_r` 只在 stall/halt/迟到拍
+  退回 `exp_pc_r` 重复请求时才有意义）
 - 好处：stall 保持 PC 造成的重复请求、预测跳转/redirect 拍的在途错路读出，全部被地址比对自动丢弃，无需任何作废信号（省 4 个寄存器与计数对齐逻辑）；反之若到达的正是期望地址（例如 redirect 目标恰在途）也照收不误
-- **稳态时序**：`pc_r = exp_pc_r + 4W`（请求领先 1 批），每拍交付 1 批；一次预测跳转 = 1 拍气泡（在途的顺序批被丢弃）
+- **稳态时序（§二十九 起）**：`pc_r == exp_pc_r`，每拍交付 1 批**从第一拍起就是满吞吐**（旧写法的
+  "memory 1 拍 + 批寄存 1 拍"启动空一拍已消失）；预测跳转与重定向的**那一拍**地址就跟着转向
+  ⇒ 不再白丢一拍（旧：一次预测跳转 = 1 拍气泡 = `nobatch`）
 - **满批丢弃回退（rewind）**：stall 期间到达的正是 `exp_pc` 批却因批寄存器满被丢弃 → 该批若不管就永久丢失。故丢弃拍把 PC **回退到 `exp_pc_r`** 重取（该分支被 `pc_next` 的默认分支覆盖，单独删掉不报错——保留为使本条自身完整）
 - **`pred_ok_w` 也必须含 `imem_valid`**：它只看地址，而 `imem_valid==0` 时 `inst_data` 是旧的，用陈旧指令的预测目标改 PC 就是被垃圾指令劫持 PC
 - 固定 1 拍存储（`core/memory.v`）下 `imem_hit` 恒 1 ⇒ 上述规则与旧规则**逐拍等价**（`tb_fetch` 逐拍比对过）
@@ -404,7 +420,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 - 异步低有效复位（ASAP7 库只有异步复位触发器）。
 
 ### core/mem_subsystem.v（新增，CPU 侧端口与 `memory.v:10-38` 逐一对位）
-内部：**I-cache**（`core/icache.v`：IC_SIZE 字节直接映射行缓存 + 行预取；取指口对外仍是"本拍批地址"语义）、
+内部：**I-cache**（`core/icache.v`：IC_SIZE 字节直接映射行缓存 + 行预取；取指口对外仍是"下一条要交付的批基址"语义）、
 **D-cache**（`core/dcache.v`：DC_SIZE 字节 / DC_LINE_WORDS 字行 / DC_WAYS 路组相联，写回 + 脏位）、
 **load 适配**（子字抽取 + miss 队列，推送时写、回包时读 + 按序记账）、
 **已提交 store 队列**（`SQ_DEPTH`，补 `commit → B 握手` 之间的可见性空洞）、
@@ -414,6 +430,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 |---|---|
 | 取指 | `imem_hit` / `imem_valid` 的口径是**整批 W 个字**（见 fetch 一节）；I-cache 命中 1 拍，未命中走填充 |
 | `imem_valid` | 仅当"本拍 `inst_data` 对应的地址"与回包地址相等时才拉高 |
+| `imem_direct` | `imem_valid` 的**无环投影**（不含跨行装配支，不依赖 `imem_addr`），供 fetch 组合同拍推进请求；不变量 `imem_direct ⇒ imem_valid`，W=1 下二者逐位相等（见 fetch 一节） |
 | `ld_busy==0` | **必须当场兑现**：`lsq.v` 的 `ld_start_valid` 组合自 `!ld_busy` 且收到即置 `issued_r`；反悔 ⇒ 该条目永久在飞 ⇒ head 卡死 ⇒ 全机死锁 |
 | 完成脉冲 | 每个被接受的 load **恰好**一个 `ld_done_valid`（`rresp` **不参与门控** —— LSQ 没有错误口） |
 | 子字 | `araddr` 强制 4 字节对齐；回包右移 `8*addr[1:0]` 后**零扩展**（符号扩展由 `lsq.v` 做）；⚠ 不支持跨 4 字节边界的非对齐访问 |

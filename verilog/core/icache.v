@@ -16,6 +16,12 @@
 //      —— rd_addr_q(T) 就是①在 T−1 拍的取值, 故 tag 与数据必然同源。**不是**拿 imem_addr 去比。
 //   ③ imem_hit(T) = !straddle(imem_addr[0](T)) && &_g valid[line(imem_addr[g](T))]
 //      —— 保守 (不查 tag), 同拍、整批口径。
+//   ④ imem_direct(T) = 本拍到达是"直通行"交付 (= !st_wait_r && ②)。**不得依赖 imem_addr**:
+//      fetch 拿它做"把一个新请求组合地提前到本拍"的选通 (取指同拍推进, fetch.v 的 exp_next_w)。
+//      ② 的装配支 (asm_ok_w) 里 base_same_w 要用 cur_a_w = imem_addr[0] ⇒ 若直接拿 imem_valid
+//      当选通就成环 (imem_addr → cur_a_w → asm_ok_w → imem_valid → 选通 → imem_addr)。
+//      装配交付因此**不做**同拍重定向 (照旧推迟一拍), 换掉一个组合环; W=1 下 straddle 恒 0,
+//      ②与④逐位相等, 无任何损失。
 //
 // 【③ 保守为什么安全, 以及为什么 miss 必须挂在"交付失败"上】fetch.v 的 pc_next 末支是 exp_pc_r:
 //   pc_lead_w 最多让 pc 超前**一个批**, 下一拍到达的不是期望批时 pc_next 自动把 pc 拉回 exp_pc_r。
@@ -67,6 +73,8 @@ module icache #(
     output [ISSUE_WIDTH * 32 - 1 : 0] inst_data,      // 对应**上一拍** imem_addr 的批
     output                            imem_valid,     // 本拍 inst_data 确实是对应地址上的指令
     output                            imem_hit,       // 本拍 imem_addr 整批 W 字都已在缓存里 (保守)
+    output                            imem_direct,    // 本拍到达是"直通行"交付 (非跨行装配) —— 供 fetch
+                                                     //   把一个新请求组合地提前到本拍 (见头注释④)
 
     // ---- 到 AXI 读通道 (由上层仲裁; load 优先, 故 ready 可能被抢走) ----
     output                    fill_req_valid,         // 请求读 4 字节 (须保持到 ready)
@@ -196,8 +204,14 @@ module icache #(
     assign base_same_w = (cur_a_w == st_base_r);      // 装配第二拍: 批基址未被重定向/pc 超前改掉
     assign asm_ok_w  = ent_ok_w && base_same_w;
 
-    assign imem_valid = st_wait_r ? asm_ok_w
-                      : (ent_ok_w && !straddle_q && !rd_div_r);
+    assign imem_valid = st_wait_r ? asm_ok_w : imem_direct;
+    // ④ 直通行交付: 不含跨行装配那一支。**本信号不得依赖 imem_addr** —— 它是 fetch 用来把一个新
+    //    请求组合地提前到本拍的选通 (见 fetch.v 的 exp_next_w)。asm_ok_w 里的
+    //    base_same_w 却要用 cur_a_w (= imem_addr[0]) 判断"批基址有没有被重定向改掉" ⇒ 若拿
+    //    imem_valid 当那个选通, 就会成环: imem_addr → cur_a_w → asm_ok_w → imem_valid → 选通 →
+    //    imem_addr。装配拍只占极少数 (且 ISSUE_WIDTH=1 下 straddle 恒 0, 整条路是死代码),
+    //    故装配交付照旧走"请求推迟一拍", 不做同拍重定向 —— 换掉一个组合环。
+    assign imem_direct = !st_wait_r && ent_ok_w && !straddle_q && !rd_div_r;
 
     genvar gw;
     generate

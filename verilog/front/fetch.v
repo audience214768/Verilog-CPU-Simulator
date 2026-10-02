@@ -1,11 +1,13 @@
 // 取指: PC → imem (同步读语义: 本拍地址, 下拍数据) → 寄存批 f2i_*; BHT/JAL/RAS 预测随指令流动
 // 内部实例化 bht + ras; 每批 RAS 操作在接收拍一次性应用 (接收拍之外 ops=0)
-// 握手: pc_r ≡ "本拍要向存储请求的批地址"; 到达数据读自上一拍锁存进存储的地址 imem_addr_d,
+// 握手: imem_addr ≡ "下一条要交付的批基址" = exp_pc_r 的下一个值 (组合; 稳态下 == pc_r 的下一个值,
+//       于是与旧写法 `imem_addr ≡ pc_r` 逐位相同 —— 旧写法里 pc_r 自己就领先一个批; 见文件末
+//       exp_next_w 注释: 转向拍不早发就等于白丢一拍); 到达数据读自上一拍锁存进存储的地址 imem_addr_d,
 //       该地址 == 期望交付地址 exp_pc_r 且 imem_valid (数据确实回来了) 且批寄存器可接收时接收;
 //       redirect 清批并改 PC; halt 冻结取指 (重定向例外)
-// 请求回退 (rewind): 稳态下 pc_r 领先 exp_pc 一个批 (请求在途), 若此时到达的正是 exp_pc 而批
-//       寄存器满 (后端 stall), 该批会被丢弃且 pc 已越过它 → 永远不再交付。故丢弃拍把 pc 回退到
-//       exp_pc 重取; 回退后存储每拍重复交付 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
+// 请求回退 (rewind): 到达的正是 exp_pc 而批寄存器满 (后端 stall) 时, 该批会被丢弃 —— 若不管它,
+//       请求流已越过它 → 永远不再交付。故丢弃拍把 pc 回退到 exp_pc 重取 (由 pc_next 的默认分支覆盖);
+//       回退后存储每拍重复交付 exp_pc, 一旦 stall 解除即可立即接收 (无额外气泡)
 // 失步防护: pc_r 与 exp_pc_r 恒差 0 或一个批。到达批被接收时若其内有预测跳转, exp_pc 跳到该目标,
 //       pc 必须同拍跳到同一目标 —— 故预测跳转优先于一切保持分支 (见 pc_next 注释), 否则两者永久失步。
 //       存储带延迟时 (imem_hit=0: 期望批尚未取到) pc 只停在 exp_pc_r 上重复请求它, 绝不超前 ——
@@ -24,7 +26,7 @@ module fetch #(
     output [ISSUE_WIDTH - 1 : 0]     f2i_pred_taken,
     output [ISSUE_WIDTH * 32 - 1 : 0]  f2i_pred_target,
     output [ISSUE_WIDTH * $clog2(RAS_SIZE) - 1 : 0]  f2i_ras_snap,   // 误预测恢复载荷 = 取指时**本槽 ops 之后**的 ras head
-    output [ISSUE_WIDTH * 32 - 1 : 0]  imem_addr,      // 到 memory 的取指地址 (pc+4i)
+    output [ISSUE_WIDTH * 32 - 1 : 0]  imem_addr,      // 到 memory 的取指地址 = 下一条要交付的批基址 + 4i
     // B: 输入 (透传内部 bht/ras)
     input  [ISSUE_WIDTH - 1 : 0]     bht_upd_req,    // 执行槽 i: 条件分支更新 (透传 bht)
     input  [ISSUE_WIDTH * $clog2(BHT_SIZE) - 1 : 0]  bht_upd_idx,    // 执行槽 i: 索引 (pc>>2)%BHT_SIZE
@@ -35,6 +37,8 @@ module fetch #(
     input                 imem_valid,            // 本拍 inst_data 确实读自 imem_addr_d (变长延迟时可能为 0)
     input                 imem_hit,              // 本拍 imem_addr 上的地址在存储中已可取 (可带延迟的缓冲存储;
                                                  //   固定 1 拍存储恒 1) —— 用来判"能否预先发出下一批请求"
+    input                 imem_direct,           // 本拍 inst_data 是"直通行"交付 (非跨行装配; 固定 1 拍存储恒 1)
+                                                 //   —— 同拍请求推进的选通, 必须不含 imem_addr 依赖 (防组合环)
     input                 stall,                 // 保持 PC 与输出
     input                 redirect_valid,
     input  [31 : 0]         redirect_pc,
@@ -78,6 +82,14 @@ module fetch #(
     //   (负向用例实测: cap_w 这一项是硬要求 (删掉立刻把旧指令当到达批收下);
     //    rewind_w 这一项被 pc_next 的默认分支 (退回 exp_pc_r) 覆盖 —— 单删不报错, 保留为使本条自身完整)
     wire cap_w     = arr_ok_w && cap_ok_w && !halt && imem_valid; // 本拍接收到达 (halt 冻结: 不接收, exp_pc 不动)
+    // 无环版"接收": 只把 imem_valid 换成 imem_direct (直通行交付) —— 供同拍请求推进与 RAS ops 用。
+    //   imem_direct ⇒ imem_valid (见 icache.v 不变量④), 故 cap_nb_w ⇒ cap_w; 两者只在跨行装配交付那拍
+    //   不同 (那时 cap_nb_w=0, 退回旧行为)。用途: ①选通 imem_addr 的组合推进 —— imem_valid 在装配拍
+    //   依赖 imem_addr, 拿它选通会成环; ②选通 ras_ops —— 否则 ras_top → flow_c → imem_addr → cur_a_w
+    //   → asm_ok_w → imem_valid → cap_w → fetch_ok → ras_ops → ras_top 是一条结构性组合环。
+    //   代价 (仅 ISSUE_WIDTH≥2 的跨行装配交付拍): RAS 的 push/pop 少记一次 ⇒ 预测质量, 不影响结果;
+    //   W=1 下 straddle 恒 0, 两者逐位相等, 无代价。
+    wire cap_nb_w  = arr_ok_w && cap_ok_w && !halt && imem_direct;
     wire rewind_w  = arr_ok_w && !cap_ok_w && !halt && imem_valid; // 期望批到达却因满被丢弃 → pc 回退重取 (见头注释)
     // 预测可信条件: 到达数据正是期望批。否则到达的是错路/重复读出的陈旧指令
     // (重定向后 1 拍、预测跳转后 1 拍、stall 期间的重复读出), 若用它的跳转预测改写 pc,
@@ -94,7 +106,7 @@ module fetch #(
     wire [ISSUE_WIDTH - 1 : 0]      pred_taken_w;
     wire [ISSUE_WIDTH * 2 - 1 : 0]  ras_ops_w;
     wire [ISSUE_WIDTH * 32 - 1 : 0] ras_pv_w;
-    wire fetch_ok = cap_w && !redirect_valid && !halt;    // 接收拍 (预测/RAS ops 仅此拍生效)
+    wire fetch_ok = cap_nb_w && !redirect_valid && !halt; // 接收拍 (预测/RAS ops 仅此拍生效; 无环版, 见上)
     // 批内预测前缀链: pt_c[i] = "槽 i 之前已有预测跳转" = 槽 i 是否被截断
     wire [ISSUE_WIDTH : 0]            pt_c;              // pred_taken 前缀 OR
     wire [(ISSUE_WIDTH + 1) * 32 - 1 : 0] flow_c;        // 流式目标链 (首个跳转决定 PC)
@@ -154,9 +166,11 @@ module fetch #(
     end
 
     // ---- PC 推进 (redirect > 满批丢弃回退 > 预测目标 > 批被接收 > 落后补发 > 退回请求 exp_pc) ----
-    // pc_r 的语义 ≡ "本拍要向存储请求的地址" (存储契约: imem_addr 上的地址, 下拍交付其数据)。
+    // pc_r 的语义 ≡ "本拍维持的那个请求地址" (转向拍之外 imem_addr 逐位取自它, 见 exp_next_w)。
     //   与 exp_pc_r (下一批要交付的地址) 的关系恒为 pc_r ∈ { exp_pc_r, exp_pc_r + 4W }:
-    //     相等 = "期望批尚未取到, 正在请求它"; 差一个批 = "已有一批在途" (稳态流水)。
+    //     ★ 两者都能自洽持续, 只有"谁承担在途的那一批"不同 —— §二十九 起 imem_addr 组合地给出
+    //     "下一条要交付的批", 故**相等才是常态**; 迟到拍 pc_lead_w 仍会把 pc 推前一个批
+    //     (那时它就一直停在"差一个批"的形态, 同样正确)。pc_r 只在 stall/halt/迟到拍有意义。
     // 预测目标优先于一切保持分支: 到达批被接收 (cap_w) 时 exp_pc 已推进到其跳转目标,
     //   若因 stall (cpu_top 冲刷期 flushing_r 使然) 而让 pc 停在原地, 到达地址流再也追不上
     //   exp_pc → 取指永久跑飞。带预测跳转的到达批必然是"被接收"的 (arr_ok && !rewind ⇒ cap_ok),
@@ -197,11 +211,30 @@ module fetch #(
         else if (pc_wr_w) pc_r <= pc_next;
     end
 
-    // ---- imem 地址 (当前拍 PC 基址 + 4i) ----
+    // ---- imem 地址 = "下一条要交付的批基址" (取指同拍推进) ----
+    // 存储契约是"本拍地址, 下拍交付", 而接收判据是 arr_ok_w = (imem_addr_d == exp_pc_r) ⇒
+    // **imem_addr(T) 必须 ≡ exp_pc_r(T+1)**: 转向的那一拍就得把新地址发出去, 否则目标批晚一拍到,
+    // f2i 空一拍 (这就是 nobatch 气泡, docs/plan.md §二十五)。
+    // 稳态下 pc 领先 exp_pc 恰好一个批 ⇒ exp_pc_r(T+1) == pc_r(T), 本式与旧写法 (`imem_addr ≡ pc_r`)
+    // 逐位相同; 只有两类转向拍地址才提前跟上:
+    //   · 到达批内有预测跳转 (cap_nb_w && pt_c[W]) —— 旧写法要等 pc 在下拍跟上, 白丢一拍;
+    //   · 重定向 (redirect_valid) —— 同上, 每类误预测白丢一拍。
+    // 末支保持 pc_r (而不是 exp_pc_r): stall/halt/回退/落后补发各支的取舍原样保留, 一行行为不变。
+    // 无环: 选通用 cap_nb_w (不含 imem_addr), 数据来自 imem_addr_d/inst_data (均为寄存器) 与
+    //   exp_pc_r/counters —— 除 RAS (见 cap_nb_w 注释) 外都不经由 imem_addr。
+    // ★ 复位期间（rst_n=0）强制退回 pc_r: 此时所有寄存器都被钉在复位值上, 而 imem_addr_d 的复位值
+    //   正是 pc_r(=0) 的各槽 —— 若复位窗口内就提前推进, 存储会去取 exp_pc_r+4W 那一行, 复位释放后
+    //   imem_addr_d(=0) 与存储实际持有的行对不上: 那一行若恰好在复位窗口内填好 (cache 填一行只要
+    //   十几拍, 官方复位是 5 拍), 首个到达批就会被错绑成批 0 (数据是 exp_pc_r+4W 的, pc 却标 0)。
+    wire [31 : 0] exp_next_w = !rst_n          ? pc_r
+                             : redirect_valid  ? redirect_pc
+                             : cap_nb_w        ? (pt_c[ISSUE_WIDTH] ? flow_c[ISSUE_WIDTH * 32 +: 32]
+                                                                   : (exp_pc_r + 32'd4 * ISSUE_WIDTH))
+                             :                   pc_r;
     genvar g;
     generate
         for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : ia
-            assign imem_addr[g * 32 +: 32] = pc_r + 32'd4 * g;
+            assign imem_addr[g * 32 +: 32] = exp_next_w + 32'd4 * g;
         end
     endgenerate
     // imem_addr_d: imem_addr 延迟一拍 (与 memory 的 inst_data 同地址)

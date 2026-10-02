@@ -69,6 +69,7 @@ module student_top #(
     wire [ISSUE_WIDTH * 32 - 1 : 0] inst_data;
     wire                            imem_valid;
     wire                            imem_hit;
+    wire                            imem_direct;
     wire                            ld_start_valid, ld_busy, ld_done_valid;
     wire [31 : 0]                   ld_start_addr, ld_done_data;
     wire [1 : 0]                    ld_start_width;
@@ -84,6 +85,7 @@ module student_top #(
     ) u_cpu (
         .clk(clock), .rst_n(rst_n),
         .imem_addr(imem_addr), .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .imem_direct(imem_direct),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),
@@ -103,6 +105,7 @@ module student_top #(
     ) u_mem (
         .clk(clock), .rst_n(rst_n),
         .inst_data(inst_data), .imem_addr(imem_addr), .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .imem_direct(imem_direct),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),

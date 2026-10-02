@@ -63,6 +63,7 @@ module tb_cpu_prog;
         .branch_count(branch_count),
         .rob_head(rob_head), .rob_ready_head(rob_ready_head),
         .imem_addr(imem_addr), .inst_data(inst_data), .imem_valid(1'b1), .imem_hit(1'b1),
+        .imem_direct(1'b1),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx), .ld_done_data(ld_done_data),

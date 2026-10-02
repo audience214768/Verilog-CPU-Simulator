@@ -81,6 +81,8 @@ module mem_subsystem #(
     output                            imem_hit,     // 本拍 imem_addr **整批 W 个字**都已在窗口里
                                                    //  (供 fetch 判能否预先发下一批请求; 必须与 imem_valid 同口径,
                                                    //   只比批首会让 W≥2 的 pc 每拍翻转, 见文件内该 assign 的注释)
+    output                            imem_direct,  // 本拍到达是"直通行"交付 (非跨行装配); 供 fetch 把一个新
+                                                   //   请求组合地提前到本拍 —— 必须不含 imem_addr 依赖, 见 icache.v 不变量④
 
     // ---- CPU 侧: load (发起 ≤1/周期, 完成 ≤1/周期) ----
     input                             ld_start_valid,
@@ -308,7 +310,7 @@ module mem_subsystem #(
     ) u_ic (
         .clk(clk), .rst_n(rst_n),
         .imem_addr(imem_addr), .inst_data(inst_data),
-        .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .imem_valid(imem_valid), .imem_hit(imem_hit), .imem_direct(imem_direct),
         .fill_req_valid(fill_req_valid_w), .fill_req_addr(fill_req_addr_w),
         .fill_req_ready(fill_req_ready_w),
         .fill_rsp_valid(fill_rsp_valid_w), .fill_rsp_data(rd_resp_data),

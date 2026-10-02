@@ -38,6 +38,7 @@ module tb_icache;
     wire [127 : 0] w4_inst;
     wire w1_valid, w1_hit, w1_busy, w1_fv, by_valid, by_hit, by_busy, by_fv;
     wire w4_valid, w4_hit, w4_busy, w4_fv, t2_valid, t2_hit, t2_busy, t2_fv;
+    wire w1_dir, by_dir, w4_dir, t2_dir;   // 不变量④: 直通行交付 (不含跨行装配支)
     wire [31 : 0] w1_fa, by_fa, w4_fa, t2_fa;
     wire [31 : 0] w1_rd, by_rd, w4_rd, t2_rd;
     wire          w1_rv, by_rv, w4_rv, t2_rv;
@@ -75,24 +76,28 @@ module tb_icache;
     icache #(.ISSUE_WIDTH(1), .IC_SIZE(1024), .IC_LINE_WORDS(8), .IC_BYPASS(0), .IC_PREFETCH(1)) u_w1 (
         .clk(clk), .rst_n(rst_n),
         .imem_addr(w1_addr), .inst_data(w1_inst), .imem_valid(w1_valid), .imem_hit(w1_hit),
+        .imem_direct(w1_dir),
         .fill_req_valid(w1_fv), .fill_req_addr(w1_fa), .fill_req_ready(fr_ready),
         .fill_rsp_valid(w1_rv), .fill_rsp_data(w1_rd), .fill_busy(w1_busy)
     );
     icache #(.ISSUE_WIDTH(1), .IC_SIZE(1024), .IC_LINE_WORDS(8), .IC_BYPASS(1), .IC_PREFETCH(0)) u_byp (
         .clk(clk), .rst_n(rst_n),
         .imem_addr(by_addr), .inst_data(by_inst), .imem_valid(by_valid), .imem_hit(by_hit),
+        .imem_direct(by_dir),
         .fill_req_valid(by_fv), .fill_req_addr(by_fa), .fill_req_ready(fr_ready),
         .fill_rsp_valid(by_rv), .fill_rsp_data(by_rd), .fill_busy(by_busy)
     );
     icache #(.ISSUE_WIDTH(4), .IC_SIZE(1024), .IC_LINE_WORDS(8), .IC_BYPASS(0), .IC_PREFETCH(0)) u_w4 (
         .clk(clk), .rst_n(rst_n),
         .imem_addr(w4_batch), .inst_data(w4_inst), .imem_valid(w4_valid), .imem_hit(w4_hit),
+        .imem_direct(w4_dir),
         .fill_req_valid(w4_fv), .fill_req_addr(w4_fa), .fill_req_ready(fr_ready),
         .fill_rsp_valid(w4_rv), .fill_rsp_data(w4_rd), .fill_busy(w4_busy)
     );
     icache #(.ISSUE_WIDTH(2), .IC_SIZE(128), .IC_LINE_WORDS(2), .IC_BYPASS(0), .IC_PREFETCH(0)) u_t2 (
         .clk(clk), .rst_n(rst_n),
         .imem_addr(t2_batch), .inst_data(t2_inst), .imem_valid(t2_valid), .imem_hit(t2_hit),
+        .imem_direct(t2_dir),
         .fill_req_valid(t2_fv), .fill_req_addr(t2_fa), .fill_req_ready(fr_ready),
         .fill_rsp_valid(t2_rv), .fill_rsp_data(t2_rd), .fill_busy(t2_busy)
     );
@@ -259,10 +264,26 @@ module tb_icache;
         if (fbsy && vline) bad(tag, "line valid still 1 while fill in progress");
     end endtask
 
+    // 不变量④: imem_direct 是 imem_valid 去掉"跨行装配支"的版本 ⇒ 恒有 direct ⇒ valid。
+    //   u_w1/u_byp 的 W=1 ⇒ span = off+1-1 = off, straddle 恒 0 ⇒ 装配路径整条是死代码,
+    //   两者必须**逐位相等** (这是一条很强的检查: 装配支一旦被误触发就会露馅)。
+    task chk_dir;
+        input dv, vv, w1;
+        input [8 * 16 - 1 : 0] tag;
+        begin
+            if (dv && !vv) bad(tag, "imem_direct=1 but imem_valid=0");
+            if (w1 && (dv !== vv)) bad(tag, "W=1: imem_direct != imem_valid (assembly path must be dead)");
+        end
+    endtask
+
     task tick; begin
         @(posedge clk);
         #1;
         cyc = cyc + 1;
+        chk_dir(w1_dir, w1_valid, 1'b1, "w1");
+        chk_dir(by_dir, by_valid, 1'b1, "byp");
+        chk_dir(w4_dir, w4_valid, 1'b0, "w4");
+        chk_dir(t2_dir, t2_valid, 1'b0, "t2");
         if (chk_en[0]) begin
             chk1(w1_pd);
             chk_fill(u_w1.fill_busy_r, u_w1.valid_r[u_w1.fill_line_r], "w1");

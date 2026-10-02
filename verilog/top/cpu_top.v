@@ -35,6 +35,9 @@ module cpu_top #(
     input  [ISSUE_WIDTH * 32 - 1 : 0] inst_data,
     input                             imem_valid,
     input                             imem_hit,        // 本拍 imem_addr 地址在存储中已可取 (固定 1 拍存储恒 1)
+    input                             imem_direct,     // 本拍 inst_data 是"直通行"交付 (非跨行装配);
+                                                      //   供 fetch 把新请求组合地提前到本拍 (带 cache 的
+                                                      //   存储才有区别; 固定 1 拍存储 TB 恒接 1'b1)
     // load: 发起 ≤1/周期, 完成 ≤1/周期 (idx 由完成脉冲回传)
     output                            ld_start_valid,
     output [31 : 0]                   ld_start_addr,
@@ -124,7 +127,8 @@ module cpu_top #(
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
         .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
-        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit), .stall(fetch_stall),
+        .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
+        .imem_direct(imem_direct), .stall(fetch_stall),
         .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
     );
     wire [ISSUE_WIDTH * 7 - 1 : 0]  d_opcode, d_func7;

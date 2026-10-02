@@ -67,7 +67,7 @@ module tb_mem_axi;
     reg  [1:0]  ld_start_width;
     reg  [LIW-1:0] ld_start_idx;
     wire [ISSUE_WIDTH*32-1:0] inst_data;
-    wire imem_valid, imem_hit, ld_done_valid, ld_busy, sw_ready;
+    wire imem_valid, imem_hit, imem_direct, ld_done_valid, ld_busy, sw_ready;
     wire [31:0] ld_done_data;
     wire [LIW-1:0] ld_done_idx;
     reg  sw_valid;
@@ -91,7 +91,7 @@ module tb_mem_axi;
     ) dut (
         .clk(clk), .rst_n(rst_n),
         .inst_data(inst_data), .imem_addr(imem_addr), .imem_valid(imem_valid),
-        .imem_hit(imem_hit),
+        .imem_hit(imem_hit), .imem_direct(imem_direct),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
         .ld_done_valid(ld_done_valid), .ld_done_idx(ld_done_idx),
