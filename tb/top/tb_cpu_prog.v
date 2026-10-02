@@ -1,15 +1,12 @@
-// 编译程序整机验证 (CPU Simulator 测试集): 每次运行一个程序
-//   镜像 tb/top/prog/<name>.data 与参考模拟器 (RISC-V-Tomasulo-CPU-Simulator) 同格式:
-//     "@地址" 行 + 每行 16 个 2 位 hex 字节 (little-endian) → 直接 $readmemh 进 u_mem.mem
-//   程序结尾 addi a0,x0,255 (0x0FF00513) 提交 → halt; decode 把它视作写 x0, 故 a0 保留
-//   main 的返回值 → ret_val (a0 低 8 位) 与参考 C++ 模拟器输出对照
+// 编译程序整机验证 (官方测试集): 每次运行一个程序
+//   镜像 tb/top/prog/<name>.data = 官方 `testcases/{correctness_*,perf_*}/program.data` **去掉首行 '#'
+//     注释**后的逐字节副本 (格式: "@地址" 行 + 每行 16 个 2 位 hex 字节 little-endian) → $readmemh 进 u_mem.mem
+//   期望返回值一律取自官方 `expected.txt` (TB 的 ret 口 8 位, 故与 8'hFF 取与); 停机靠 sw 到 MMIO
+//     0x80000000 —— cpu_top 的 mmio_exit 已实现该判据; core/memory.v 会把那条越界写丢弃
+//   归因用 +LATENCY=10 更贴近官方 (TB 缺省 3)。本 TB **不含 I-cache** 且 ROB=32, 不是官方那台机器
 //   用法: make run TB=top/tb_cpu_prog ARGS="+PROG=gcd"; 缺省跑 naive
 //   可选: +DUMP=N 只 dump 前 N 拍 (缺省 2000, 0 = 不 dump; VCD 太大时用)
 //   性能微负载 loopjal (jal 自循环) / loopld (lw+分支循环): 无终止指令, **只配 +PERF=N 用** (缺 +PERF 会跑到超时)
-//   perf_{median,multiply,qsort,rsort,towers,vvadd}.data: 官方 perf 用例 (由 testcases/perf_*/program.data
-//     去掉首行 '#' 注释生成, 字节原样)。它们**没有** TERM_RAW, 只靠 sw 到 MMIO 0x80000000 停机 ——
-//     cpu_top 的 mmio_exit 已实现该判据, 故可直接跑、正常停机; core/memory.v 会把那条越界写丢弃
-//     归因用 +LATENCY=10 更贴近官方 (TB 缺省 3)。本 TB **不含 I-cache** 且 ROB=32, 不是官方那台机器
 //   失败: N TESTS FAILED + $stop; 成功: ALL TESTS PASSED + $finish
 `timescale 1ns/1ps
 module tb_cpu_prog;
@@ -433,29 +430,31 @@ module tb_cpu_prog;
         end
     end
 
-    // 期望返回值: 源文件注释 (judgeResult % Mod) 与参考模拟器 (build/code < <name>.data) 输出一致
+    // 期望返回值: 一律取自官方 `testcases/correctness_<name>/expected.txt` (取低 8 位 —— TB 的 ret 口是 8 位)
+    //   2026-10-02: 镜像与期望值**同时**换成官方那份。此前 tb/top/prog/*.data 是 C++ 参考模拟器
+    //   的另一份编译 (与官方同名不同二进制), 19 个程序里 7 个期望值不同 —— 那套已删, 不再保留
     function [7 : 0] exp_ret_f;
         input [8 * 16 - 1 : 0] n;
         begin
-            exp_ret_f = (n == "naive")          ? 8'd94
+            exp_ret_f = (n == "naive")          ? 8'd97
                       : (n == "gcd")            ? 8'd178
                       : (n == "array_test1")    ? 8'd123
                       : (n == "array_test2")    ? 8'd43
                       : (n == "statement_test") ? 8'd50
                       : (n == "lvalue2")        ? 8'd175
                       : (n == "manyarguments")  ? 8'd40
-                      : (n == "expr")           ? 8'd58
+                      : (n == "expr")           ? 8'd136
                       : (n == "multiarray")     ? 8'd115
                       : (n == "basicopt1")      ? 8'd88
-                      : (n == "hanoi")          ? 8'd20
+                      : (n == "hanoi")          ? 8'd184
                       : (n == "bulgarian")      ? 8'd159
-                      : (n == "magic")          ? 8'd106
-                      : (n == "qsort")          ? 8'd105
-                      : (n == "queens")         ? 8'd171
-                      : (n == "pi")             ? 8'd137
+                      : (n == "magic")          ? 8'd216
+                      : (n == "qsort")          ? 8'd81
+                      : (n == "queens")         ? 8'd144
+                      : (n == "pi")             ? 8'd112
                       : (n == "superloop")      ? 8'd134
                       : (n == "tak")            ? 8'd186
-                      : (n == "add100")         ? 8'd186      // 官方 correctness_add_to_100: expected 5050, 取低 8 位
+                      : (n == "add100")         ? 8'd186      // correctness_add_to_100: 5050 = 13*256+186
                       : 8'h00;
         end
     endfunction

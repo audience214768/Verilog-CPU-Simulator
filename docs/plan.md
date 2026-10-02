@@ -57,7 +57,7 @@
 |---|---|---|
 | 功能 | 官方 `make test` **19/19 PASS**；`make perf` **6/6**（退出值全对） | 官方 |
 | ISA | RV32IM 全量（含 DIV/DIVU/REM/REMU、LB/LBU/LH/LHU） | — |
-| 面积 | 默认参数 **16278.380 µm²**；最小实测点 `c2` **9783.027**（档 3 上限 36000） | `-constr`，`results.csv` |
+| 面积 | 默认参数 **16278.380 µm²**（§二十四 修复**前**的 RTL，+16 flop 未计）；最小实测点 `c2` **9783.027**（档 3 上限 36000） | `-constr`，`results.csv` |
 | 频率 | 默认 **165.03 MHz**；六点极差 **±2.4%**（与 ROB/RS/LSQ/容量/发射宽度都无关） | 同上 |
 | IPC | 默认 geo **0.6513**；小参数族 0.5928 ~ 0.6588 | 官方 `make perf` |
 | **最大矛盾** | **频率**：D-cache `WRITE_GRANULARITY=8` ⇒ 72 宏广播，两级吃掉 4.21 ns（占周期 71%） | §二十三 |
@@ -81,10 +81,14 @@
 > `mem_width = f3[1:0]`、`mem_unsigned = f3[2]`，`lsq.v` 按 `width_r`/`is_unsigned_r` 做符号/零扩展，
 > `mem_subsystem.v` 按 `addr[1:0]` 抽子字。单元证据 `tb_lsq` L12a/b/c；端到端证据：6 个 `perf_*` 全用 `lbu`。
 
-> ⚠ **两套测试集不可混用**：官方 `testcases/correctness_*` 与本仓库 `tb/top/prog/*.data`
-> **不是同一批二进制** —— 19 个程序里 **7 个**期望值不同（naive 97/94、expr 136/58、hanoi 184/20、
-> magic 216/106、queens 144/171、qsort 81/105、pi 112/137，格式 `官方/本地`）；官方 `correctness_pi`
-> 与本地 pi 更是**完全不同的程序**。**本仓库 TB 的 PASS 证据不能平移到官方评测。**
+> ✅ **测试集已收敛到官方一套**（2026-10-02 用户裁定"只保留官方测试数据"）：`tb/top/prog/*.data`
+> 已全部换成官方镜像（18 个 correctness 与 `testcases/correctness_*/program.data` **逐 token 相同**，
+> `add100` = `correctness_add_to_100`，`perf_*` 6 个 = `testcases/perf_*`），`tb_cpu_prog.v` 的
+> `exp_ret_f` 同步为官方期望值。~~官方与本地 7 处期望值不同（naive 97/94 …）、官方 pi 与本地 pi
+> 是不同的程序~~ ⇒ **本地 TB 的 PASS 现在与官方评测同源**，可作为回归门禁。
+> 仅 `loopjal`/`loopld` 两个手写小程序无官方对应（无期望值、不进任何套件，不干扰）。
+> 口径差异（分工，非缺陷）：官方走 `student_top` + I/D cache + AXI 从机；本地 TB 走 `cpu_top` +
+> `memory.v`（固定拍数、无 cache、**无 store 队列兜底**）—— 后者更严，正是它抓到了 §二十四。
 
 ### 旧口径存档（本地 TB 体系，2026-09 之前）
 
@@ -2380,6 +2384,60 @@ IPC 只掉 6.0%），是"提款机"极限；**`c5` = 10395.4 µm²**（再省 12
    停顿源（预感：miss 延迟暴露 + LSQ/RS 满 + 唤醒链），这同时回答 §二十二 的悬念。
 3. **面积（P3）**：`c4`/`c5` 已给出"提款机"极限；本轮不再追面积。
 
+#### 二十四、hanoi 静默算错根因：LSQ ↔ 存储的**一拍**竞态（2026-10-02）
+
+**现象**：本地 TB（`cpu_top` + `core/memory.v`）跑 hanoi 算错（ret=249 ≠ 184），而**官方框架
+（`student_top` + I/D cache + AXI4-Lite）在同一份 RTL 上通过**。这正是最危险的一类缺陷：
+真实存在于要提交的 RTL 里，却被评测口径的时序巧合盖住。
+
+**定位链**（每步都是可复现对照，不是推断；ISS 已存为 `tools/iss.py`，用法见 `tools/README.md`）
+1. 自写 RV32IM ISS 当第三方黄金参考 ⇒ hanoi = **3674 条退休指令 / ret=184**。
+2. 提交指令流逐条比对 ⇒ 第 **1675** 条分岔（`0x128 beq t5,t3,0x2b8`：黄金跳、TB 不跳）。
+3. 反向切片 + 写回值比对 ⇒ **第一条错值是 #1667 `lw a5,4(sp)`：黄金 3、TB 4**（陈旧读）。
+4. 黄金程序序 `#1663 LD→4 / #1664 ST←3 / #1667 LD→3` ⇒ 出错的 load **比那条 store 年轻**，
+   程序序上必须看到 3 —— 前向丢了。
+
+**机理（窗口恰为 1 拍）**：设 store S 在周期 m 提交（`sw_valid=1`，`lsq_invalidate[j]=1`）。
+`memory.v` 在 **posedge m+1** 落盘，LSQ 也在**同一沿**清 `valid_r[j]`；而恰在 posedge m+1
+完成的 load，其 `ld_done_data` 取的是**沿前**的存储内容 ⇒
+- 存储侧：写还没生效（快照在写之前）；
+- LSQ 侧：条目已失效，`merge_byte_f` 的字节前向看不到 S。
+**两条路同时丢这个 store** ⇒ 静默读旧值。更早完成的 load 有条目兜、更晚完成的 load 有落盘兜，
+**只有 m+1 这一拍两边都不管**。
+
+**为什么官方口径看不见**：`mem_subsystem` 的**已提交 store 队列（SQ）**把"尚未可见（未吸收且 B 未回）"
+的 store 字节并进完成结果（`mem_subsystem.v` 头注释第 2/4 条），把这一拍补上了；`memory.v` 是
+"落盘即完事"的朴素模型、**没有队列**，所以缺陷在本地 TB 暴露。**这是本地 TB 比官方口径更严，
+不是 TB 的 bug**（也正因如此，它才抓到了这条真缺陷）。
+
+**修复**：`verilog/top/cpu_top.v` 把提交失效**延迟一拍**再送 LSQ（`lsq_invalidate_c` → 寄存器
+`lsq_invalidate`），使条目在**唯一危险的那一拍**仍可供前向。
+- 正确性论证：`kill` 参与 `dead`/`skip`，故 `skip` 与 `free_count` 仍把该槽**当拍**算作已死，
+  head 推进与槽位复用一拍不差 ⇒ 延迟掩码**不可能打到复用后的新住户**（head 只有在 `kill` 置位
+  的那拍才能跳过它）。容量与吞吐无损。
+- 与 SQ 不冲突：两级并入的是同一条 store 的同一批字节，幂等。
+- 代价：官方 `correctness_hanoi` 6616 → **6615 拍**；面积 = +16 个触发器（`LSQ_SIZE` 位，
+  按 §二十三 的 0.95 µm²/flop 约 +15 µm² = 0.1%，**待综合实测**）。
+
+**验证**：本地 TB `+LATENCY=10` ⇒ `PASS: hanoi ret=184 cycles=6486 commit=3674`（与 ISS 的
+3674 条退休指令**逐位相符**），且**未改** `memory.v`（保持朴素语义，好让 TB 继续能照出这一类缺陷）。
+~~旧证据：`/tmp/memory_fix2.v` 在存储模型侧叠字节~~ —— 那是**定位手段**，不是修复。
+
+**留痕（口径）**：本地 TB 的功能配置历史上默认 `MEM_LATENCY=3`；本次复现/修复都在 **`+LATENCY=10`**
+（description.md 唯一口径）下做，随后补测 3 拍档对照：
+
+| hanoi | pristine RTL | 修复后 |
+|---|---|---|
+| TB `+LATENCY=10` | FAIL `ret=249 commit=3068`（陈旧读，见机理） | **PASS ret=184 / 6486 拍 / commit=3674** |
+| TB `+LATENCY=3` | FAIL `ret=249 commit=3068` | **PASS ret=184 / 6486 拍 / commit=3674** |
+| 官方 `correctness_hanoi` | PASS 6616 拍（SQ 兜住） | PASS **6615** 拍 |
+
+⇒ 3 拍与 10 拍**同一条缺陷、同一个数值指纹**（`ret=249` / `commit=3068` 逐位相同），
+不是两个问题；hanoi 的拍数对存储延迟不敏感（两次都是 6486）。
+
+**全量回归（修复后）**：官方 `make test` **19/19 PASS**；官方 `make perf` **6/6**，geo IPC **0.6513**
+与修复前**逐位相同**（各案的 instructions / cycles 一个数都没动 —— 官方口径的 SQ 本就兜住了这一拍，
+延迟一拍只是把覆盖补齐，顺带 hanoi 少 1 拍）；本地 TB（`core/memory.v`，比官方更严）**19/19 PASS**。
 
 ## 附录：归档索引 §1–§12（实现期 debug，问题全部已修复）
 

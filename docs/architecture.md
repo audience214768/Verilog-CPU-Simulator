@@ -354,7 +354,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 | `set_addr_req[W-1:0], set_addr_idx[W*LW-1:0], set_addr_val[W*32-1:0]` | in | (1+LW+32)×W | cpu_top（执行槽） | 地址就绪（地址 = alu 结果） |
 | `set_data_req[W-1:0], set_data_idx[W*LW-1:0], set_data_val[W*32-1:0]` | in | (1+LW+32)×W | cpu_top（执行槽） | store 数据就绪（仅 store） |
 | `flush_mask[LSQ_SIZE]` | in | LSQ_SIZE | cpu_top | 窗口失效 |
-| `invalidate[LSQ_SIZE]` | in | LSQ_SIZE | cpu_top（commit） | store/load 提交后失效 |
+| `invalidate[LSQ_SIZE]` | in | LSQ_SIZE | cpu_top（commit，**延迟一拍**寄存） | store/load 提交后失效；延迟一拍的原因见 `docs/plan.md` §二十四（load 完成数据在沿前采样，条目须在那一拍仍可供前向） |
 | `mem_done_valid, mem_done_idx, mem_done_data` | in | 1/LW/32 | memory | load 完成 |
 | `ld_start_valid, ld_start_addr, ld_start_width, ld_start_idx` | out | 1/32/2/LW | memory | 发起（**内部组合**：最老未完成 load + 所有更老 store 已执行 + memory 有空槽） |
 | `ld_busy` | in | 1 | memory | 飞行槽满 |
@@ -653,7 +653,9 @@ student_top                      ← 官方要求的顶层；复位取反 + 例�
 
 **D 侧 load 可见性合约**（本节最深的坑；**已实现并验证**，是 `store_queue` 退役判据的来源）：
 `0x80000000` 之外，从机对 AR/AW 是**两条独立队列**，跨通道顺序**无保证**（C.4 已实证 LFSR 随机）。
-旧 `memory.v` 靠"load 在读**完成当拍**才读存储阵列"规避了这个问题；换成 AXI 后，
+旧 `memory.v` 靠"load 在读**完成当拍**才读存储阵列"规避了这个问题（**但并非全部**：快照取的是
+时钟沿**前**的内容，而提交 store 的落盘与 LSQ 失效都在那个沿上 ⇒ 仍有 1 拍空洞，
+见 `docs/plan.md` §二十四；该空洞现由 LSQ 侧兜住）；换成 AXI 后，
 读数据是 **AR 被服务那一刻的快照**，而捕获在 **R 到达那一刻**，中间出现空洞：
 
 ```

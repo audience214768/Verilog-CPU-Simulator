@@ -19,6 +19,20 @@
 
 ## 1. 脚本
 
+### `iss.py` —— 最小 RV32IM 模拟器（**功能**侧的第三方黄金参考）
+
+上面那些工具回答"频率卡在哪"，这一个回答"**算错时正确值是多少**"。独立实现一遍 ISA 语义，
+与 RTL 零共享代码 ⇒ 整机算错时不必拿 RTL 自己的输出当自己的标尺（那是循环论证）。
+
+```sh
+tools/iss.py testcases/correctness_hanoi/program.data   # → # insns=3674 exit=[184] a0=184
+tools/iss.py <prog.data> -t                             # 追退休轨迹（每条一行）
+```
+
+停机口径与官方一致（MMIO `0x80000000` 的 32 位 store = 退出值）。实战用法与锚点见
+`docs/plan.md` §二十四：拿它的**退休指令总数**与 TB 的 `commit=` 对齐、拿**退休轨迹**与
+RTL 的提交流逐条比，一次就定位到 hanoi 的第一条错值。
+
 ### `preabc.py` —— 生成保留 RTL 名字的 pre-ABC 网表（归因用）
 
 官方 `scripts/synth.py` 跑完 `abc` 之后所有 RTL 名字都没了（只剩 `_NNNNN_`），于是

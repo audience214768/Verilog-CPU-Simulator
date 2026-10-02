@@ -330,7 +330,17 @@ module cpu_top #(
     wire [ISSUE_WIDTH - 1 : 0]    set_addr_req, set_data_req;
     wire [ISSUE_WIDTH * LW - 1 : 0] set_addr_idx, set_data_idx;
     wire [ISSUE_WIDTH * 32 - 1 : 0] set_addr_val, set_data_val;
-    wire [LSQ_SIZE - 1 : 0] lsq_flush_mask, lsq_invalidate;
+    wire [LSQ_SIZE - 1 : 0] lsq_flush_mask, lsq_invalidate_c;
+    // 提交失效**延迟一拍**送 LSQ: load 完成数据在时钟沿采样 (沿前的存储内容), 而 store 的写与
+    // 条目失效落在同一沿 ⇒ 数据恰在提交后一拍返回的 load 会**两条路同时丢**这个 store
+    // (lsq 的字节前向要求条目仍 valid, 存储侧又还没见到这次写) ⇒ 静默读到陈旧值。
+    // 延迟一拍后, 该条目在唯一危险的那一拍仍可供前向。无容量损失: skip/dead 同拍就把它算作
+    // 已死, head 也正因为 kill 才跳过它 ⇒ 延迟掩码不可能打到已被复用的槽位。
+    reg [LSQ_SIZE - 1 : 0] lsq_invalidate;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) lsq_invalidate <= {LSQ_SIZE{1'b0}};
+        else        lsq_invalidate <= lsq_invalidate_c;
+    end
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
         .clk(clk), .rst_n(rst_n),
         .head(lsq_head_w), .last(lsq_last_w), .full(lsq_full), .free_count(lsq_free_w),
@@ -825,7 +835,7 @@ module cpu_top #(
             assign marker_acc[c] = ce_w[c] && ((cmt_raw == TERM_RAW) || (cmt_raw == TERM_RAW2));
         end
     endgenerate
-    assign lsq_invalidate = inv_c[(ISSUE_WIDTH - 1) * LSQ_SIZE +: LSQ_SIZE];   // 末槽 chunk (链只写到 W-1)
+    assign lsq_invalidate_c = inv_c[(ISSUE_WIDTH - 1) * LSQ_SIZE +: LSQ_SIZE];   // 末槽 chunk (链只写到 W-1)
     assign set_head_valid = (n_commit > 0);
     assign set_head_val   = rob_head_w + n_commit;
     assign sw_valid = |(ce_w & is_store_w);
