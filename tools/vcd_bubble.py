@@ -42,6 +42,9 @@ WANT = {
     U + 'u_lsq.addr_ready': 'lq_ar',
     U + 'u_lsq.data_ready': 'lq_dr',
     U + 'u_lsq.head': 'lq_h',
+    # ★ M1 的**直接**上界: 有一条 load 已就绪 (cand) 但 D-cache 拒收 (ld_busy)。
+    #   这才是"M1 放开闸门能救回多少拍"; 单看 dc_busy 占比会高估 (忙 ≠ 挡住别人)。
+    U + 'u_lsq.cand': 'lq_cand',
     M + 'ld_busy': 'ld_busy',
     M + 'u_ic.fill_busy': 'ic_fill',
     M + 'u_ic.miss_w': 'ic_miss',
@@ -53,6 +56,18 @@ WANT = {
     M + 'u_dc.hit_raw_w': 'dc_hraw',
     M + 'u_dc.rsp_busy': 'dc_rspb',
     M + 'u_dc.ms_fire_w': 'dc_msf',
+    # ---- S0: dc_busy 三层分解 (查表寄存器 51% 里混了三种原因, 干预完全不同) ----
+    M + 'u_dc.lk_wait_r': 'dc_lkwait',      # 同行等待 (coalesce) ⇒ M1/M2
+    M + 'u_dc.lk_replay_r': 'dc_lkrep',     # 重放 (读口被偷 / 命中抢不到交付口) ⇒ M3
+    M + 'u_dc.lk_miss_r': 'dc_lkmiss',      # park: 等 ms_ready (AXI 读 FIFO 满) ⇒ RD_DEPTH
+    M + 'u_dc.rd_ok_r': 'dc_rdok',          # 0 = 本拍这次查表读被写口偷走
+    M + 'u_dc.ms_ready': 'dc_msrdy',
+    M + 'u_dc.fill_abort_w': 'dc_fabort',   # 污染中止 (整行作废, 行永不安装)
+    M + 'u_dc.fill_poison_now_w': 'dc_fpois',
+    M + 'u_dc.fill_rsp_valid': 'dc_frsp',
+    M + 'u_dc.fill_go_w': 'dc_fgo',
+    M + 'u_dc.pf_start_w': 'dc_pfst',
+    M + 'u_dc.pf_v_r': 'dc_pfv',            # 单槽填充队列占用 (覆盖式写入 ⇒ M4 动机)
     M + 'u_axi.rd_full_w': 'axi_rdfull',
     M + 'u_axi.wr_full_w': 'axi_wrfull',
 }
@@ -83,7 +98,14 @@ C = dict(cyc=0, commit=0, iss=0, flush=0, empty=0, emp_ic=0, ready=0, rc_sw=0,
          ld=0, st=0, cf=0, alu=0, ld_ni=0, ld_mem=0, ld_oth=0,
          misp=0, ld_busy=0, dc_miss=0, dc_fill=0, dc_busy=0,
          axi_rd=0, axi_wr=0, sw=0, ic_fill=0,
-         dcb_inst=0, dcb_lk=0, dcb_both=0)
+         dcb_inst=0, dcb_lk=0, dcb_both=0,
+         # S0: lk 侧的三种原因 + 其它
+         dcb_wait=0, dcb_rep=0, dcb_park=0, dcb_steal=0, dcb_oth=0,
+         dw_run=0, dw_ep=0, dw_max=0,
+         dc_msrdy0=0, pf_v=0, f_rsp=0, ldmem_dcbusy=0,
+         blk_dc=0, go_ld=0)
+S0EV = dict(fill_start=0, fill_abort=0, poison=0)   # 边沿事件计数
+_prev = {}
 MISPB = [0] * 4      # 0=jal 1=jalr(含 ret) 2=条件分支 3=其他 (ROB 只存 7 位 opcode, 分不出 ret/f3)
 OP_LOAD, OP_STORE = 0b0000011, 0b0100011
 OP_CF = (0b1100011, 0b1101111, 0b1100111)
@@ -126,7 +148,41 @@ with open(path, 'r', errors='replace') as f:
                         C['dcb_inst'] += 1
                     else:
                         C['dcb_lk'] += 1
+                    if lkb:
+                        # 查表寄存器被占的三种原因 + 边角 (互斥穷尽, 优先级 = 寄存器置位优先级)
+                        if v['dc_lkwait']:
+                            C['dcb_wait'] += 1
+                            C['dw_run'] += 1                     # 同行等待的连续段长 ⇒ 串行化程度
+                            C['dw_max'] = max(C['dw_max'], C['dw_run'])
+                        elif v['dc_lkrep']:
+                            C['dcb_rep'] += 1
+                        elif v['dc_lkmiss']:
+                            C['dcb_park'] += 1
+                        elif not v['dc_rdok']:
+                            C['dcb_steal'] += 1     # 本拍读被偷, 下一拍才转 replay
+                        else:
+                            C['dcb_oth'] += 1       # miss_pending 但 ms_ready=0 (推不出去)
+                if not v['dc_lkwait']:
+                    if C['dw_run']:
+                        C['dw_ep'] += 1
+                    C['dw_run'] = 0
+                if v['lq_cand']:
+                    if v['ld_busy']:
+                        C['blk_dc'] += 1
+                    else:
+                        C['go_ld'] += 1
+                C['dc_msrdy0'] += 1 if not v['dc_msrdy'] else 0
+                C['pf_v'] += 1 if v['dc_pfv'] else 0
+                C['f_rsp'] += 1 if v['dc_frsp'] else 0
+                # 边沿事件: 起填 (两条路径) / 污染中止 / 新污染
+                S0EV['fill_start'] += 1 if ((v['dc_fgo'] and not _prev.get('go')) or
+                                            (v['dc_pfst'] and not _prev.get('pf'))) else 0
+                S0EV['fill_abort'] += 1 if (v['dc_fabort'] and not _prev.get('ab')) else 0
+                S0EV['poison'] += 1 if (v['dc_fpois'] and not _prev.get('po')) else 0
+                _prev['go'], _prev['pf'] = v['dc_fgo'], v['dc_pfst']
+                _prev['ab'], _prev['po'] = v['dc_fabort'], v['dc_fpois']
                 occ = v['rob_free'] < ROB
+                ldmem_now = False
                 if v['commit']:
                     C['commit'] += 1
                 elif v['misp'] or v['flushing']:
@@ -149,6 +205,7 @@ with open(path, 'r', errors='replace') as f:
                                     C['ld_ni'] += 1
                                 elif not ((v['lq_dr'] >> lh) & 1):
                                     C['ld_mem'] += 1
+                                    ldmem_now = True
                                 else:
                                     C['ld_oth'] += 1
                             else:
@@ -159,6 +216,8 @@ with open(path, 'r', errors='replace') as f:
                             C['cf'] += 1
                         else:
                             C['alu'] += 1
+                # 等存储的拍里, D-cache 同时是忙的占多少 (M1 的直接上界: 忙=在替别人排队)
+                C['ldmem_dcbusy'] += 1 if (ldmem_now and v['dc_busy']) else 0
             elif v['halt']:
                 break
             continue
@@ -188,3 +247,19 @@ print(f"  MEM: ld_busy={pc(C['ld_busy'])} dc_misspend={pc(C['dc_miss'])} dc_fill
       f" ic_fill={pc(C['ic_fill'])} misp={C['misp']}")
 print(f"  misp 类型 [jal, jalr/ret, 条件分支, 其他] = {MISPB}")
 print(f"  dc_busy 拆: 安装写={pc(C['dcb_inst'])} 查表寄存器={pc(C['dcb_lk'])} 两者={C['dcb_both']}")
+if C['dcb_lk']:
+    # ★ 子桶的计数口径是 "lk 被占的拍" = dcb_lk + dcb_both (both = 安装写与查表寄存器同拍);
+    #   用 dcb_lk 当分母会算出 >100% (踩过一次)。
+    lk = C['dcb_lk'] + C['dcb_both']
+    q = lambda x: f"{x}({x*100//lk}%lk)"
+    print(f"  [S0] 查表寄存器 {lk} 拍 = 同行等待 {q(C['dcb_wait'])} + 重放 {q(C['dcb_rep'])}"
+          f" + park {q(C['dcb_park'])} + 读被偷 {q(C['dcb_steal'])} + 推不出 {q(C['dcb_oth'])}")
+    print(f"  [S0] 同行等待: {C['dw_ep']} 段, 均长 {C['dcb_wait']/max(C['dw_ep'],1):.1f} 拍,"
+          f" 最长 {C['dw_max']} 拍")
+print(f"  [S0] 起填 {S0EV['fill_start']} 次, 污染中止 {S0EV['fill_abort']} 次"
+      f" ({S0EV['fill_abort']*100//max(S0EV['fill_start'],1)}% 的填充), 新污染 {S0EV['poison']} 次")
+print(f"  [S0] pf_v_r 占用={pc(C['pf_v'])} (单槽填充队列被占 ⇒ 第三条缺失行直接丢)")
+print(f"  [S0] blk_dc: load 就绪但被 D-cache 拒收={pc(C['blk_dc'])} (放行={pc(C['go_ld'])}),"
+      f" 占 dc_busy {C['blk_dc']*100//max(C['dc_busy'],1)}% ← M1 直接上界")
+print(f"  [S0] ms_ready=0 拍={pc(C['dc_msrdy0'])}; 等存储∩dc_busy={pc(C['ldmem_dcbusy'])}"
+      f" (占等存储 {C['ldmem_dcbusy']*100//max(C['ld_mem'],1)}%)")
