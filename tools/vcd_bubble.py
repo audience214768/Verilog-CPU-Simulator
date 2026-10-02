@@ -16,6 +16,7 @@
 口径与自校验见 docs/plan.md §30; 数据表在 §30.2, 变体侧在 §31.5。
 """
 import sys
+from collections import deque
 
 path = sys.argv[1]
 # ROB_SIZE 必须与生成该波形的参数一致: "ROB 空" 的判据是 rob_free == ROB_SIZE,
@@ -70,9 +71,21 @@ WANT = {
     M + 'u_dc.pf_v_r': 'dc_pfv',            # 单槽填充队列占用 (覆盖式写入 ⇒ M4 动机)
     M + 'u_axi.rd_full_w': 'axi_rdfull',
     M + 'u_axi.wr_full_w': 'axi_wrfull',
+    # ---- §35: 等存储细分 (58~72% 的等存储发生在 D-cache 空闲时 ⇒ 必须查清在等谁) ----
+    U + 'u_lsq.issued_r': 'lq_iss',         # 该条目已有 load 请求在飞 (完成脉冲未回)
+    M + 'u_dc.ms_addr': 'dc_msa',           # 本拍推给存储的**需求 load 字节地址**
+    M + 'u_axi.rd_wr_p': 'axi_wp',          # AR 侧: 已压入读队列
+    M + 'u_axi.rd_ar_p': 'axi_ap',          # AR 侧: 已发给 AXI 从机
+    M + 'u_axi.rd_rd_p': 'axi_rp',          # R 侧: 回包已消化
+    # ★ 需求缺失的推送/回包**不另立信号**: Verilator 把"同一条网"的多个层次别名压成**同一个
+    #   VCD 码字**, 解析时后声明者覆盖先声明者 ⇒ 另立的名字恒收不到更新 (踩过一次:
+    #   `u_mem.dc_ms_fire_w` 与 `u_dc.ms_fire_w` 同码, 新名字永远 MISSING)。
+    #   这两条网本来就同码, 直接用已映射的旧名:
+    #     dc_ms_fire_w  ≡ u_dc.ms_fire_w  → 'dc_msf'   (需求缺失推送)
+    #     u_mem.ld_resp_hs ≡ u_dc.rsp_busy → 'dc_rspb' (需求 load 的 AXI 回包被消化)
 }
 
-scope, id2n = [], {}
+scope, id2n, WID = [], {}, {}
 with open(path, 'r', errors='replace') as f:
     for line in f:
         s = line.strip()
@@ -89,6 +102,7 @@ with open(path, 'r', errors='replace') as f:
             full = '.'.join(scope[1:] + [p[4]])
             if full in WANT:
                 id2n[p[3]] = WANT[full]
+                WID[WANT[full]] = int(p[2])
 missing = set(WANT.values()) - set(id2n.values())
 if missing:
     print('# MISSING SIGNALS:', sorted(missing), file=sys.stderr)
@@ -103,13 +117,27 @@ C = dict(cyc=0, commit=0, iss=0, flush=0, empty=0, emp_ic=0, ready=0, rc_sw=0,
          dcb_wait=0, dcb_rep=0, dcb_park=0, dcb_steal=0, dcb_oth=0,
          dw_run=0, dw_ep=0, dw_max=0,
          dc_msrdy0=0, pf_v=0, f_rsp=0, ldmem_dcbusy=0,
-         blk_dc=0, go_ld=0)
+         blk_dc=0, go_ld=0,
+         # §35: 等存储五分类 + 需求缺失往返
+         lm_flight=0, lm_dc=0, lm_occ=0, lm_go=0, lm_stblk=0,
+         ms_n=0, resp_n=0, ld_n=0, st_rsp=0, st_hit=0, st_oth=0,
+         msd0=0, msd1=0, msd2=0, msd3=0)
+# §35 直方图: 在飞段长 / 推送→回包延迟 / 推送那拍的 AR 队列占用 (末格是溢出格)
+NH = 80
+HF = [0] * NH          # head load 单次"在飞"连续段长 (合计)
+HFB = {'rsp': [0] * NH, 'hit': [0] * NH, 'oth': [0] * NH}   # 按段的结束方式分开
+HR = [0] * NH          # dc_ms_fire_w → ld_resp_hs 的拍数
+HA = [0] * 17          # 推送那拍"已压入未发出"的 AR 数
+
 S0EV = dict(fill_start=0, fill_abort=0, poison=0)   # 边沿事件计数
 _prev = {}
 MISPB = [0] * 4      # 0=jal 1=jalr(含 ret) 2=条件分支 3=其他 (ROB 只存 7 位 opcode, 分不出 ret/f3)
 OP_LOAD, OP_STORE = 0b0000011, 0b0100011
 OP_CF = (0b1100011, 0b1101111, 0b1100111)
 t, started = 0, False
+fl_since = -1                 # §35: 当前"head load 在飞"段的起点拍 (未开段 = -1)
+fire_q = deque()              # §35: 需求缺失推送序 (FIFO 配对回包)
+
 with open(path, 'r', errors='replace') as f:
     for line in f:
         if not started:
@@ -174,6 +202,27 @@ with open(path, 'r', errors='replace') as f:
                 C['dc_msrdy0'] += 1 if not v['dc_msrdy'] else 0
                 C['pf_v'] += 1 if v['dc_pfv'] else 0
                 C['f_rsp'] += 1 if v['dc_frsp'] else 0
+                # ---- §35: 需求缺失的往返延迟 (推送序 = 回包序, 严格 FIFO 配对) ----
+                # 推送那拍记下"已压入未发出"的 AR 数 (发出指针 rd_ar_p 落后压入指针 rd_wr_p 多少)
+                if v['dc_msf'] and not _prev.get('mf'):
+                    C['ms_n'] += 1
+                    # §35b: 相邻两次需求缺失的**行**关系 ⇒ "下一行预取"能覆盖多少
+                    _ln = v['dc_msa'] >> 5
+                    if _prev.get('msl') is not None:
+                        _d = _ln - _prev['msl']
+                        C['msd0' if _d == 0 else
+                          ('msd1' if _d == 1 else ('msd2' if _d > 1 else 'msd3'))] += 1
+                    _prev['msl'] = _ln
+                    fire_q.append((C['cyc'], (v['axi_wp'] - v['axi_ap']) & ((1 << WID['axi_wp']) - 1)))
+                _prev['mf'] = v['dc_msf']
+                # 命中率口径: 每笔完成的 load 恰是一个交付脉冲 = 命中 (hit_raw 且非回包拍) 或 回包
+                C['ld_n'] += 1 if (v['dc_hraw'] and not v['dc_rspb']) else 0
+                C['ld_n'] += 1 if v['dc_rspb'] else 0
+                if v['dc_rspb'] and fire_q:
+                    f0, a0 = fire_q.popleft()
+                    C['resp_n'] += 1
+                    HR[min(C['cyc'] - f0, NH - 1)] += 1
+                    HA[min(a0, 16)] += 1
                 # 边沿事件: 起填 (两条路径) / 污染中止 / 新污染
                 S0EV['fill_start'] += 1 if ((v['dc_fgo'] and not _prev.get('go')) or
                                             (v['dc_pfst'] and not _prev.get('pf'))) else 0
@@ -183,6 +232,7 @@ with open(path, 'r', errors='replace') as f:
                 _prev['ab'], _prev['po'] = v['dc_fabort'], v['dc_fpois']
                 occ = v['rob_free'] < ROB
                 ldmem_now = False
+                fl_hit = False
                 if v['commit']:
                     C['commit'] += 1
                 elif v['misp'] or v['flushing']:
@@ -206,6 +256,22 @@ with open(path, 'r', errors='replace') as f:
                                 elif not ((v['lq_dr'] >> lh) & 1):
                                     C['ld_mem'] += 1
                                     ldmem_now = True
+                                    # ★ §35: 这条 head load 在等谁 —— 五类互斥穷尽
+                                    if (v['lq_iss'] >> lh) & 1:
+                                        C['lm_flight'] += 1
+                                        fl_hit = True
+                                        if fl_since < 0:
+                                            fl_since = C['cyc']
+                                    else:
+                                        if (v['lq_cand'] >> lh) & 1:
+                                            if v['dc_busy']:
+                                                C['lm_dc'] += 1
+                                            elif v['ld_busy']:
+                                                C['lm_occ'] += 1
+                                            else:
+                                                C['lm_go'] += 1
+                                        else:
+                                            C['lm_stblk'] += 1
                                 else:
                                     C['ld_oth'] += 1
                             else:
@@ -218,6 +284,17 @@ with open(path, 'r', errors='replace') as f:
                             C['alu'] += 1
                 # 等存储的拍里, D-cache 同时是忙的占多少 (M1 的直接上界: 忙=在替别人排队)
                 C['ldmem_dcbusy'] += 1 if (ldmem_now and v['dc_busy']) else 0
+                # §35: 关掉上一段"在飞" (只统计**连续**在飞段 ⇒ 段长 = 这一笔缺失挡住 head 的拍数)
+                # 归因: 段**上一拍**是哪种交付脉冲 —— 决定这一段是"等自己的 AR"(⇒ 预取能救)
+                #       还是"等同行的填充"(⇒ 只能靠提前发 AR / 更早旁路)
+                if not fl_hit and fl_since >= 0:
+                    _L = min(C['cyc'] - fl_since, NH - 1)
+                    HF[_L] += 1
+                    EPD = 'st_rsp' if _prev.get('rsp2') else ('st_hit' if _prev.get('hit2') else 'st_oth')
+                    HFB[EPD[3:]][_L] += 1
+                    C[EPD] += 1
+                    fl_since = -1
+                _prev['rsp2'], _prev['hit2'] = v['dc_rspb'], (v['dc_hraw'] and not v['dc_rspb'])
             elif v['halt']:
                 break
             continue
@@ -263,3 +340,54 @@ print(f"  [S0] blk_dc: load 就绪但被 D-cache 拒收={pc(C['blk_dc'])} (放�
       f" 占 dc_busy {C['blk_dc']*100//max(C['dc_busy'],1)}% ← M1 直接上界")
 print(f"  [S0] ms_ready=0 拍={pc(C['dc_msrdy0'])}; 等存储∩dc_busy={pc(C['ldmem_dcbusy'])}"
       f" (占等存储 {C['ldmem_dcbusy']*100//max(C['ld_mem'],1)}%)")
+
+
+def hstat(H):
+    """直方图的 (n, 均, 中位, p90, 最长); 末格是溢出格 ⇒ 最长写作 '≥末格'."""
+    n = sum(H)
+    if not n:
+        return 0, 0.0, 0, 0, "-"
+    tot = sum(i * h for i, h in enumerate(H))
+    acc, p50, p90 = 0, -1, -1
+    hi = max(i for i, h in enumerate(H) if h)
+    for i, h in enumerate(H):
+        acc += h
+        if p50 < 0 and acc * 2 >= n:
+            p50 = i
+        if p90 < 0 and acc * 10 >= n * 9:
+            p90 = i
+    return n, tot / n, p50, p90, (f"≥{hi}" if hi == len(H) - 1 else hi)
+
+
+lm = max(C['ld_mem'], 1)
+q5 = lambda x: f"{x}({x*100//lm}%)"
+print(f"  [S3] 等存储 {C['ld_mem']} 拍 = 在飞等回包 {q5(C['lm_flight'])}"
+      f" + D-cache 闸门 {q5(C['lm_dc'])} + miss 队列满 {q5(C['lm_occ'])}"
+      f" + 本拍发射 {q5(C['lm_go'])} + 更老 store 未执行 {q5(C['lm_stblk'])}")
+_n, _m, _p50, _p90, _mx = hstat(HF)
+print(f"  [S3] head 在飞段长: {_n} 段, 均 {_m:.1f} 拍, 中位 {_p50}, p90 {_p90}, 最长 {_mx}")
+_sn = max(C['st_rsp'] + C['st_hit'] + C['st_oth'], 1)
+print(f"  [S3] 段的结束方式: 自己的 AR 回包 {C['st_rsp']}({C['st_rsp']*100//_sn}%)"
+      f" + 命中/旁路 {C['st_hit']}({C['st_hit']*100//_sn}%) + 其它(冲刷/换头) {C['st_oth']}")
+for _k, _lab in (('rsp', '自己的 AR 回包'), ('hit', '命中/旁路'), ('oth', '其它')):
+    H = HFB[_k]
+    _nn = sum(H)
+    _cc = sum(i * h for i, h in enumerate(H))
+    _lng_n = sum(H[6:])
+    _lng_c = sum(i * h for i, h in enumerate(H) if i >= 6)
+    print(f"      {_lab}: {_nn} 段/{_cc} 拍; 其中段长>5 的 {_lng_n} 段/{_lng_c} 拍"
+          f" (短段 = 命中固有延迟 ≤5)")
+_n, _m, _p50, _p90, _mx = hstat(HR)
+print(f"  [S3] 需求缺失 {C['ms_n']} 次 (回包 {C['resp_n']}), 推送→回包:"
+      f" 均 {_m:.1f} 拍, 中位 {_p50}, p90 {_p90}, 最长 {_mx} (裸延迟 = LATENCY + 2)")
+_mn = max(C['msd0'] + C['msd1'] + C['msd2'] + C['msd3'], 1)
+print(f"  [S3b] 相邻两次需求缺失的行: 同一行 {C['msd0']*100//_mn}% | **正好下一行** {C['msd1']*100//_mn}%"
+      f" | 跳跃/回绕 {C['msd2']*100//_mn}% | 回退 {C['msd3']*100//_mn}%")
+print(f"  [S3] load 总交付 {C['ld_n']} 笔, 其中需求缺失 {C['ms_n']} 笔"
+      f" ⇒ D-cache 缺失率 {C['ms_n']*100//max(C['ld_n'],1)}% (同行合并算命中)")
+_ha = sum(HA)
+if _ha:
+    _cum = [sum(HA[:k + 1]) * 100 // _ha for k in range(17)]
+    print(f"  [S3] 推送时'已压入未发出'的 AR 数: " +
+          " ".join(f"{k}:{HA[k]*100//_ha}%" for k in range(9) if HA[k]) +
+          f" | ≥1 占 {100 - _cum[0]}%, ≥4 占 {100 - _cum[3]}%, ≥8 占 {100 - _cum[7]}%")
