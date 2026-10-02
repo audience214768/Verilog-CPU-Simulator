@@ -42,7 +42,7 @@ module tb_dcache;
     always #5 clk = ~clk;
 
     integer errors = 0;
-    integer n_accept = 0, n_done = 0, n_ms = 0, n_fill_req = 0, n_gate = 0, n_steal = 0;
+    integer n_accept = 0, n_done = 0, n_ms = 0, n_fill_req = 0, n_gate = 0, n_steal = 0, n_byp = 0;
 
     // ---------------- DUT 端口 (先声明, 后例化) ----------------
     reg  lk_start;
@@ -217,6 +217,17 @@ module tb_dcache;
                 $display("FAIL: 无 st_valid 却 st_absorb (t=%0t)", $time);
                 errors = errors + 1;
             end
+            // ---- M2 填充旁路的常驻不变量: 旁路交付必须与**在填行**同行 ----
+            // lk_wait_r 有两条来路 (lk_wait_src_w = 等同行填充 | **等写回**), 等写回那条根本没有
+            // "在填的行就是我这一行"这回事。判据若只比行内字偏移 ⇒ 别的行的填充只要字偏移撞上,
+            // 就把**别人行的数据**交付出去 = 静默算错 (实测代价: perf_rsort 退出值 0→1)。
+            // 这条断言让它一旦复发就当场炸; T15b 负责把那个场景造出来。
+            if (dut.byp_valid_w && (dut.lk_addr_r[31:SPLIT] !== dut.fill_base_r[31:SPLIT])) begin
+                $display("FAIL: 填充旁路跨行交付 (lk=%h 在填=%h, t=%0t)",
+                         dut.lk_addr_r, dut.fill_base_r, $time);
+                errors = errors + 1;
+            end
+            if (dut.byp_valid_w) n_byp <= n_byp + 1;
             // WB 三笔账: 排水笔数 = 整行; 每笔地址递增 4; B 不许多不许少 (由 wb_bcnt 守恒保证)
             if (wb_req_valid && wb_req_valid && !wb_ready && !dut.wb_v_r) begin
                 $display("FAIL: 无 wb_v_r 却抬 wb_req_valid (t=%0t)", $time);
@@ -388,6 +399,8 @@ module tb_dcache;
     reg     st_ans;
     integer wt;                                       // T4 多路分支的行 tag 循环
     integer gate_n;                                   // T13 的让路拍数快照
+    integer byp_n;                                    // T15b 的旁路拍数快照
+    reg [31:0] wb_a;                                  // T15b 正在写回的那一行 (受害行由替换策略定, 不写死)
     integer k;
     integer g8;                                       // T8/T8b 的等待计数器
     initial begin
@@ -583,17 +596,27 @@ module tb_dcache;
         accept(32'h0000_0080, 2'd2, 4'd7);        // T8 装上的行仍在
         expect_hit(32'h0000_0080, 4'd7, 32'hC0DE_0020);
 
-        // ============ T9 缺失推送被 ready 挡住 (park) 后地址不得丢失 ============
-        $display("=== T9 缺失推送被 ready 挡住 (park) 后地址不得丢失");
+        // ============ T9 park (ms 推不出去) 后: 地址不得丢失 + **恰好交付一次** ============
+        // ★ 断言口径随 M2 改写, 是**加强不是放宽**: 旧版的 expect_ms 抓的其实是"填充跑完 →
+        //   重放 → 因 lk_miss_r 压住 hit_raw_w 而假重缺失 → 再推一次 ms"这一次**多余推送**
+        //   (逐拍对质过: pre-M2 t=3970000 那一拍 ms_fire_w=1 就是它) —— 那是副产品, 不是契约。
+        //   真契约只有一条: 被接受的 load **恰好交付一次**且数据正确。地址也早就有主 ——
+        //   park 本身就是"ms 满了, 改由单槽填充队列接住自己起填"。
+        $display("=== T9 park (ms 推不出去) 后地址不得丢失, 恰好交付一次");
+        cap_n  = n_accept;
+        done_n = n_done;
         ms_ready = 1'b0;
         idle(1);
         accept(32'h0000_00A4, 2'd2, 4'd7);
         idle(3);
         chk(busy, "T9 park 期间 busy 应为 1");
+        // 地址必须有着落: 要么还在查表寄存器里, 要么已被单槽填充队列接住起了填
+        chk(dut.lk_v_r || dut.pf_v_r || dut.fill_busy_r, "T9 park 的地址两边都不在 (丢了)");
         ms_ready = 1'b1;
-        expect_ms(32'h0000_00A4, 4'd7);           // 被 park 的地址必须原样推出
         run_fill;
-        idle(2);
+        idle(4);
+        chk(n_accept - cap_n == 1, "T9 恰好接受一次");
+        chk(n_done - done_n == 1, "T9 恰好交付一次 (不多不少)");
         accept(32'h0000_00A4, 2'd2, 4'd8);
         expect_hit(32'h0000_00A4, 4'd8, 32'hC0DE_0029);
 
@@ -763,6 +786,46 @@ module tb_dcache;
         idle(2);
         accept(32'h0000_0380, 2'd2, 4'd11);
         expect_hit(32'h0000_0380, 4'd11, 32'h0BAD_0BAD);   // 读回**写回进内存**的老值
+
+        // ============ T15b 等写回的 load 遇上**另一行**的填充 ⇒ 跨行旁路必须被挡住 ============
+        // ★ 这是 M2 第一版**真错过**的一处 (实测: perf_rsort 退出值 0→1), 独立成用例防回归。
+        //   根因: lk_wait_r 有两条来路 (lk_wait_src_w = 等同行填充 | **等写回**), 等写回那条
+        //   根本没有"在填的行就是我这一行"这回事; 判据若只比行内字偏移, 别的行的填充只要字偏移
+        //   撞上, 就把**别人行的数据**交付出去 —— 又快又错。
+        //   共存条件是现成的 (dcache.v:388): fill_blk_w 只在**受害行是脏的**时候才挡填充 ⇒ 写回
+        //   在飞时, 若要驱逐的另一组是空的/干净的, 填充照起 ⇒ fill_busy_r=1 (B 行) 与
+        //   lk_wb_wait_w=1 (A 行) 同拍 —— 两条来路第一次同时为真。T15/T15c 都构造不出这个交叠
+        //   (它们只有写回那一条, 填的是同一行)。
+        $display("=== T15b 等写回 + 另一行在填 ⇒ 跨行旁路必须被挡住");
+        fill_line(32'h0000_03A0);                  // set 29 way0, tag 0
+        fill_line(32'h0000_07A0);                  // way1, tag 1
+        store_ret(32'h0000_03A0, 32'h1111_1111, 2'd2, K_ABSORB);   // 只脏 way0 ⇒ 受害行确定
+        wb_ready = 1'b0;                           // 卡住写通道 ⇒ 写回一直"在飞"
+        accept(32'h0000_0BA0, 2'd2, 4'd20);        // set 29 第三条 ⇒ 驱逐脏的 way0, 写回卡住
+        expect_ms(32'h0000_0BA0, 4'd20);
+        idle(4);
+        chk(wb_req_valid, "T15b 写回应已开始排水");
+        wb_a = {dut.wb_base_r[31:2], 2'b00};       // 受害行由替换策略定, 不写死
+        // (b) 另一组起一次填充: set 30 两路全空 ⇒ 受害行无效 ⇒ 填充不被写回挡住。
+        //     必须排在等写回的 load **之前** —— 等待者一点住查表寄存器, busy 就不再落 0 (M1 的靶子)。
+        accept(32'h0000_03C0, 2'd2, 4'd21);
+        // (a) 这条 load 的行正在写回 ⇒ 停在"等写回"上; 字偏移挑 4 = 填充回包的第 5 拍
+        accept(wb_a + 32'd16, 2'd2, 4'd22);
+        idle(2);
+        chk(dut.lk_wait_r && dut.lk_wb_wait_w, "T15b wb-wait load must stay waiting");
+        // ★ 本用例的三条 chk 消息写成 ASCII: Icarus 把多字节 UTF-8 字符串经
+        //   [8*96-1:0] 端口传递时会毁掉字节序 (长度无关)。诊断信息必须可读。
+        byp_n = n_byp;
+        idle(30);                                  // 覆盖 B 行填充整条 (FILL_LAT + 8 拍 + 收尾)
+        chk(n_byp == byp_n, "T15b CROSS-LINE bypass delivered! (wrong data)");
+        chk(dut.lk_v_r && dut.lk_wait_r, "T15b wb-wait load was delivered early");
+        // (c) 放开写通道 ⇒ 写回落地 ⇒ 该 load 按缺失重走, 读回**写回进内存**的那个字
+        wb_ready = 1'b1;
+        run_wb(wb_n + DC_LINE_WORDS);
+        expect_ms(wb_a + 32'd16, 4'd22);           // 行内第 4 字: store 只碰过第 0 字
+        idle(60);                                  // 0xBA0 与被驱逐行的两笔填充都落地
+        accept(wb_a + 32'd16, 2'd2, 4'd23);
+        expect_hit(wb_a + 32'd16, 4'd23, 32'hC0DE_0000 | (((wb_a + 32'd16) >> 2) & 32'hFFFF));
 
         // ============ T16 写回排水途中复位 ⇒ 干净重启 ============
         $display("=== T16 写回排水途中复位 ⇒ 干净重启");

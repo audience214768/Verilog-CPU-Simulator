@@ -212,6 +212,7 @@ module dcache #(
     wire                     ms_fire_w, fill_go_w, fill_pend_w, fill_start_w, fill_blk_w;
     wire                     fill_wr_w, fill_hs_w, fill_last_w, fill_poison_now_w, vset_w;
     wire                     fill_abort_w;
+    wire                     byp_word_w, byp_raw_w, byp_valid_w;   // ---- 第 5b 节: M2 填充数据旁路 ----
     wire [FIW - 1 : 0]       fill_wi_w, fill_inflight_w;
     wire [WMASK_W - 1 : 0]   wmask_w;
     wire [EW - 1 : 0]        wdata_w;
@@ -325,10 +326,12 @@ module dcache #(
     assign hit_raw_w  = lk_v_r && !lk_miss_r && !lk_wait_r && !lk_replay_r && rd_ok_r && any_hit_w;
     assign hit_word_w = rdata_w[hit_way_w * WAY_W + q_off_w * 32 +: 32];
 
-    assign hit_valid = hit_raw_w && !rsp_busy;           // ★ 抢不到交付端口就不交 (下一拍重放, 见第 6 节)
-    assign hit_word  = hit_word_w;
-    assign hit_addr  = rd_addr_q;
-    assign hit_width = lk_width_r;
+    // 交付源 = {命中判定} ∪ {M2 填充数据旁路}; 两者互斥 (byp_* 要 lk_wait_r, hit_raw_w 要 !lk_wait_r),
+    // 且各自都被 !rsp_busy 挡一道 ⇒ 与 AXI 回包也互斥 ⇒ "每拍恰好一个 ld_done_valid" 仍然成立。
+    assign hit_valid = (hit_raw_w && !rsp_busy) || byp_valid_w;
+    assign hit_word  = byp_valid_w ? fill_rsp_data : hit_word_w;   // 旁路: 本拍回包的那个字就是它要的
+    assign hit_addr  = byp_valid_w ? lk_addr_r     : rd_addr_q;
+    assign hit_width = lk_width_r;                       // 两条路的 width/idx 同源 (都取自 lk_*_r)
     assign hit_idx   = lk_idx_r;
 
     // ==================== 4. 缺失推送 / 合并 / skid ====================
@@ -411,6 +414,25 @@ module dcache #(
     // 写绝对优先 (回包不可反压); 被污染的填充连写都不写 (回包照收, 见 fill_abort_w)
     assign fill_wr_w = fill_rsp_valid && !fill_poison_r && !fill_poison_now_w;
     assign fill_wi_w = fill_cnt_r;
+
+    // ==================== 5b. 填充数据旁路 (M2) ====================
+    // 并入在填行的那条 load 今天要**等整行安装完**才重放命中 (实测等 15.6~21.0 拍, 而一次填充
+    // 只要 22 拍)。但回包是**按行内字序逐拍**来的, `fill_cnt_r` 就是本拍这个字的行内下标 ⇒
+    // 第 W 拍回来的正是第 W 个字 ⇒ 等待者要的若正是这一个, 当拍就能交付, 不必等最后那个字。
+    // ★ 交付判据 = `fill_wr_w` 的判据: 只交付"这一刻真会被写进行"的那个字。被污染的填充既不写
+    //   SRAM 也不安装 (该行有未可见 store ⇒ 这些字节可能是旧值, 而合并链兜不住"store 已退役"
+    //   的情形), 所以污染的字**一个都不许交付** —— 这一条与 fill_wr_w 同源, 不另立判据就不会漂。
+    // ★ 只旁路**当拍回包的那一个字**: 早于等待者并入的字早已错过 (那时它还没进来), 只能走原路
+    //   (等填充结束 → 重放 → 命中)。所以旁路是**纯加速**, 不改变任何一条 load 的交付义务。
+    // ★★ **必须显式要求 lk_same_fill_w (= fill_busy_r && 整行 [31:SPLIT] 相同)** —— 只比行内字偏移
+    //   是**错的**: lk_wait_r 有两个来源 (`lk_wait_src_w` = 等同行填充 | **等写回**), 等写回那条
+    //   根本没有"在填的行就是我这一行"这回事, 别的行的填充只要字偏移撞上就会把**别人行的数据**
+    //   交付出去。实测代价: perf_rsort 退出值 0→1 (rsort 写回密集, 撞上太正常)。
+    //   教训: "等待者必然与填充同行"是没对着 RTL 核过的假设, 判据里必须自己带行身份。
+    assign byp_word_w  = lk_same_fill_w && (fill_cnt_r == lk_addr_r[SPLIT - 1 : 2]);
+    assign byp_raw_w   = lk_v_r && lk_wait_r && fill_rsp_valid && !fill_poison_r && !fill_poison_now_w
+                      && byp_word_w;
+    assign byp_valid_w = byp_raw_w && !rsp_busy;         // 抢不到交付口就退回原路 (填充照常收尾)
     // 掩码单位 = 1 lane (32 位; 每路 LWM 位): "tag 槽那一 lane" 或 "回包那个字那一 lane"
     //   (写法与 icache 同款 —— 那边一直是 32 位粒度)
     wire [WMASK_W - 1 : 0] b1_w = {{(WMASK_W - 1){1'b0}}, 1'b1};
@@ -604,7 +626,14 @@ module dcache #(
                 //   此后每拍 [WAITSTUCK] 直到 300000 拍上限。
                 //   fill_last_w 这一项保留只为省 1 拍 (它那一拍 fill_busy_r 还是 1, 快路径抓得到;
                 //   填充结束到重放读最早只能是下一拍 —— 那一拍安装写已过, 读口不再被偷)。
-                if (!lk_wait_src_w || (lk_same_fill_w && fill_last_w)) begin
+                // M2: 本拍回包的那个字正是这条 load 要的 ⇒ 当拍交付, 不等整行装完 (第 5b 节)。
+                //   抢不到交付口 (rsp_busy) 时不在这里退出, 落到下面的电平退出条件上走原路 ——
+                //   `hit_valid` 那一路已经把 lk_v_r 清掉了, 这里只补 wait/miss 两位。
+                if (byp_valid_w) begin
+                    lk_v_r    <= 1'b0;
+                    lk_wait_r <= 1'b0;
+                    lk_miss_r <= 1'b0;
+                end else if (!lk_wait_src_w || (lk_same_fill_w && fill_last_w)) begin
                     lk_wait_r <= 1'b0; lk_replay_r <= 1'b1;
                 end
             end else if (!lk_miss_r && !rd_ok_r) begin
