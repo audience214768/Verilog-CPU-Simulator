@@ -175,7 +175,8 @@ module tb_fetch;
                 is_jal  = (opc == 7'b1101111);
                 is_jalr = (opc == 7'b1100111);
                 is_br   = (opc == 7'b1100011);
-                is_call = is_jal && (raw[11 : 7] == 5'd1);
+                is_call = (is_jal || is_jalr)
+                       && ((raw[11 : 7] == 5'd1) || (raw[11 : 7] == 5'd5));
                 is_ret  = is_jalr && (raw[11 : 7] == 5'd0) && (raw[19 : 15] == 5'd1);
                 imm_b = {{20{raw[31]}}, raw[7], raw[30 : 25], raw[11 : 8], 1'b0};
                 imm_j = {{12{raw[31]}}, raw[19 : 12], raw[20], raw[30 : 21], 1'b0};
@@ -186,7 +187,6 @@ module tb_fetch;
                                          : is_br ? (pc_i + imm_b)
                                          : is_ret ? topv
                                          : (pc_i + 32'd4);
-                m_snap[li * RA +: RA] = hprev[RA - 1 : 0];
                 m_top[li * 32 +: 32]  = topv;
                 if (m_ptaken[li] && !m_ptc) begin       // 首个预测跳转决定 PC/exp
                     m_ptc  = 1'b1;
@@ -201,6 +201,8 @@ module tb_fetch;
                     m_h[(li + 1) * (RA + 1) +: (RA + 1)] = hprev - 1'b1;
                 else
                     m_h[(li + 1) * (RA + 1) +: (RA + 1)] = hprev;
+                // head_snap = 本槽 ops **之后** 的 head (误预测恢复载荷, 见 ras.v 注释)
+                m_snap[li * RA +: RA] = m_h[(li + 1) * (RA + 1) +: RA];
                 pt_seen = pt_seen || m_ptaken[li];
             end
         end
@@ -584,6 +586,46 @@ module tb_fetch;
         imem[8'h45] = NOP; imem[8'h47] = NOP;
         clr_all();
 
+        // F7c jalr 调用 (rd=x1): 编译器生成的调用是 auipc+jalr x1, 旧 RTL 的 is_call 只认 jal
+        //   ⇒ 调用从不 push。jalr 目标取指时算不出 ⇒ 不强预测取 (pred_taken=0), 目标留给执行级。
+        imem[8'h4A] = jalr_enc(5'd1, 5'd6, 32'd0);   // 0x128: jalr x1, 0(x6)
+        redirect_valid = 1'b1; redirect_pc = 32'h128;
+        tick();
+        clr_all();
+        fetch_until(32'h128, 8);
+        if ((dut.u_ras.head_r !== 3'd1) || (dut.u_ras.stack[0] !== 32'h12C)
+         || (f2i_pred_taken[0] !== 1'b0)) begin
+            $display("FAIL: F7c jalr call push (head=%0d stack0=%h)",
+                     dut.u_ras.head_r, dut.u_ras.stack[0]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F7c jalr rd=x1 pushes pc+4");
+        end
+        imem[8'h4A] = NOP;
+        clr_all();
+        ras_restore_valid = 1'b1; ras_restore_head = 3'd0;   // clr_all 不动 DUT 的 RAS, 恢复路径清 head
+        tick();
+        clr_all();
+
+        // F7d jalr 调用 (rd=x5=t0): ABI 的第二个 link 寄存器, 同样算 call
+        imem[8'h4D] = jalr_enc(5'd5, 5'd6, 32'd0);   // 0x134: jalr t0, 0(x6)
+        redirect_valid = 1'b1; redirect_pc = 32'h134;
+        tick();
+        clr_all();
+        fetch_until(32'h134, 8);
+        if ((dut.u_ras.head_r !== 3'd1) || (dut.u_ras.stack[0] !== 32'h138)) begin
+            $display("FAIL: F7d jalr rd=x5 push (head=%0d stack0=%h)",
+                     dut.u_ras.head_r, dut.u_ras.stack[0]);
+            errors = errors + 1;
+        end else begin
+            $display("PASS: F7d jalr rd=x5 pushes pc+4");
+        end
+        imem[8'h4D] = NOP;
+        clr_all();
+        ras_restore_valid = 1'b1; ras_restore_head = 3'd0;   // 同上: 清掉 F7d 的 push
+        tick();
+        clr_all();
+
         // F8 空栈 ret 忽略: head=0 → 目标 0
         imem[8'h4C] = jalr_enc(5'd0, 5'd1, 32'd0);    // 0x130
         redirect_valid = 1'b1; redirect_pc = 32'h130;
@@ -682,7 +724,8 @@ module tb_fetch;
         tick();
         clr_all();
 
-        // F12 批内链: call,ret,call → head_snap 0,1,0,1 (模型对照)
+        // F12 批内链: call,ret,call,NOP → 槽 0 的 call 预测取 ⇒ 槽 1 起被截断 (ras ops 归零),
+        //   head_snap = **本槽 ops 之后**的 head ⇒ 三槽都是 1 (只有槽 0 的 push 生效)
         clr_all();
         imem[8'hC0] = jal_enc(5'd1, 32'd4);          // 0x300
         imem[8'hC1] = jalr_enc(5'd0, 5'd1, 32'd0);
@@ -692,8 +735,9 @@ module tb_fetch;
         tick();
         clr_all();
         fetch_until(32'h300, 8);
-        if ((f2i_ras_snap[0 * RA +: RA] !== 3'd0)
+        if ((f2i_ras_snap[0 * RA +: RA] !== 3'd1)
          || (f2i_ras_snap[1 * RA +: RA] !== 3'd1)
+         || (f2i_ras_snap[2 * RA +: RA] !== 3'd1)
          || (f2i_pred_taken[1] !== 1'b1)) begin
             $display("FAIL: F12 batch chain (%h %h)", f2i_ras_snap[0 * RA +: RA], f2i_ras_snap[1 * RA +: RA]);
             errors = errors + 1;

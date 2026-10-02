@@ -1,5 +1,6 @@
 // 返回地址栈: call push / ret pop, 误预测恢复 head
-// top[i]/head_snap[i] = 处理 ops[0..i-1] 后的栈顶/head (W 路顺序组合链)
+// top[i]      = 处理 ops[0..i-1] 后的栈顶 (ret 的预测目标: 必须在该槽 ops **之前**)
+// head_snap[i]= 处理 ops[0..i]   后的 head  (误预测恢复载荷: 必须**含**该槽自己的 ops, 见下)
 // 空栈 pop 忽略, 满栈 push 丢弃; restore 优先级 > 本拍 ops (posedge 应用)
 // 深度: head 只有 RA=$clog2(RAS_SIZE) 位 (head_snap 要原样喂给恢复通路, 宽度必须能表示),
 //       故满栈判定为 head == RAS_SIZE-1 → 有效深度 RAS_SIZE-1 条
@@ -41,13 +42,18 @@ module ras #(
         end
     endgenerate
     // top[i] = ops[i] 处理前栈顶: h==0 (空) → 0
+    // head_snap[i] = ops[i] 处理 **后** 的 head (h[i+1]): 误预测时重定向去的是该指令的**目标**,
+    //   它自己不重新取指 ⇒ 恢复值必须保留它自己的 push/pop。用 h[i] (ops 之前) 会把它自己的
+    //   操作撤销 —— 而 jalr 调用 (auipc+jalr) 取指时不可预测目标, 必定误预测一次, 于是每次
+    //   调用的 push 都被自己的误预测撤销, RAS 恒空 (2026-10-02 实测: 只改 is_call 时六案周期
+    //   逐位不变)。分支槽无 ops, h[i+1] == h[i], 故原语义对分支不变。
     genvar go;
     generate
         for (go = 0; go < ISSUE_WIDTH; go = go + 1) begin : out
             wire [RA : 0] hcur = h[go * (RA + 1) +: (RA + 1)];
             assign top[go * 32 +: 32] = (hcur == {RA + 1{1'b0}}) ? 32'd0
                                       : stack[hcur[RA - 1 : 0] - 1'b1];
-            assign head_snap[go * RA +: RA] = hcur[RA - 1 : 0];
+            assign head_snap[go * RA +: RA] = h[(go + 1) * (RA + 1) +: RA];
         end
     endgenerate
 

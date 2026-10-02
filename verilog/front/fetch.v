@@ -23,7 +23,7 @@ module fetch #(
     output [ISSUE_WIDTH * 32 - 1 : 0]  f2i_pc,
     output [ISSUE_WIDTH - 1 : 0]     f2i_pred_taken,
     output [ISSUE_WIDTH * 32 - 1 : 0]  f2i_pred_target,
-    output [ISSUE_WIDTH * $clog2(RAS_SIZE) - 1 : 0]  f2i_ras_snap,   // 取指时 ras head (仅 branch/jalr 有意义)
+    output [ISSUE_WIDTH * $clog2(RAS_SIZE) - 1 : 0]  f2i_ras_snap,   // 误预测恢复载荷 = 取指时**本槽 ops 之后**的 ras head
     output [ISSUE_WIDTH * 32 - 1 : 0]  imem_addr,      // 到 memory 的取指地址 (pc+4i)
     // B: 输入 (透传内部 bht/ras)
     input  [ISSUE_WIDTH - 1 : 0]     bht_upd_req,    // 执行槽 i: 条件分支更新 (透传 bht)
@@ -106,7 +106,11 @@ module fetch #(
             wire is_jal  = (opc == 7'b1101111);
             wire is_jalr = (opc == 7'b1100111);
             wire is_br   = (opc == 7'b1100011);
-            wire is_call = is_jal && (raw[11 : 7] == 5'd1);
+            // call = jal/jalr 且 rd ∈ {x1, x5} —— ABI 的两个 link 寄存器。
+            // 编译器生成的调用全是 auipc + jalr x1, 旧写法只认 jal ⇒ 调用从不 push,
+            // 每次 ret 都对着空栈预测 0 (docs/plan.md §二十八)
+            wire is_call = (is_jal || is_jalr)
+                        && ((raw[11 : 7] == 5'd1) || (raw[11 : 7] == 5'd5));
             wire is_ret  = is_jalr && (raw[11 : 7] == 5'd0) && (raw[19 : 15] == 5'd1);
             // B/J imm 符号扩展 (与 decode 保持同步, 见 plan)
             wire [31 : 0] imm_b = {{20{raw[31]}}, raw[7], raw[30 : 25], raw[11 : 8], 1'b0};

@@ -172,7 +172,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 | name | dir | width | 驱动方 | 说明 |
 |---|---|---|---|---|
 | `top[W*32-1:0]` | out | 32×W | fetch | `top[i]` = 处理 ops[0..i-1] 后的栈顶（组合链） |
-| `head_snap[W*RA-1:0]` | out | RA×W | cpu_top（误预测恢复） | `head_snap[i]` = 处理 ops[0..i-1] 后 head |
+| `head_snap[W*RA-1:0]` | out | RA×W | cpu_top（误预测恢复） | `head_snap[i]` = 处理 ops[0..**i**] 后 head（**含**本槽自己的 push/pop：误预测重定向去的是该指令的目标，它自己不重取 ⇒ 恢复值必须保留它的操作，见 `plan.md` §二十八） |
 | `ops[W*2-1:0]` | in | 2×W | fetch | 每条：0=无 1=push 2=pop（call=push pc+4，ret=pop） |
 | `push_val[W*32-1:0]` | in | 32×W | fetch | push 值（pc+4） |
 | `restore_valid, restore_head` | in | 1/RA | cpu_top | 误预测 head 恢复（优先级 > fetch ops） |
@@ -189,7 +189,7 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 | `f2i_pc[W-1:0]` | out | 32×W | 同上 | 每指令 PC |
 | `f2i_pred_taken[W-1:0]` | out | W | 同上 | BHT 预测（随指令流动） |
 | `f2i_pred_target[W-1:0]` | out | 32×W | 同上 | jal=pc+imm；ret=ras.top；其他 jalr=pc+4 |
-| `f2i_ras_snap[W*RA-1:0]` | out | RA×W | 同上 | 取指时 ras head（仅 branch/jalr 有意义） |
+| `f2i_ras_snap[W*RA-1:0]` | out | RA×W | 同上 | 误预测恢复载荷 = 取指时**本槽 ops 之后**的 ras head（仅 branch/jalr 有意义） |
 | `imem_addr[W*32-1:0]` | out | 32×W | 存储 | **本拍要请求的批地址**（= 需求地址，不是"上次请求的地址"） |
 | `inst_data[W*32-1:0]` | in | 32×W | 存储 | 上一拍 `imem_addr` 处的指令（可带任意延迟） |
 | `imem_valid` | in | 1 | 存储 | `inst_data` 确实是取自 `imem_addr_d` 的新数据（延迟未到时为 0，此时 `inst_data` 是旧值） |
