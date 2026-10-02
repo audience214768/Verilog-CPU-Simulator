@@ -188,6 +188,34 @@ ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任�
 命令（报 `bad flag in substitute command: 't'`），而 `set -e` 让整次运行**静默退出**
 （现象：日志只有一行"变体树: ..."，`runs/<id>/build/` 根本没生成）。
 
+### `sweep.sh` —— 参数消融（**只量 IPC**）
+
+```sh
+tools/sweep.sh <id> <标签> "K=V[,K=V...]" [<标签2> "K=V,..." ...]
+tools/sweep.sh sw rs8 "RS_SIZE=8" rs4 "RS_SIZE=4"     # 一个实例里逐点串行
+SWEEP_TEST=1 tools/sweep.sh sw base ""                # 同一棵树里再跑官方 correctness 全集
+```
+
+面积/频率**必须**走 `run.sh`（容器官方流程）；本脚本只在宿主重建 + `make perf`，跑出来的
+只有 IPC。三个执行契约：
+
+- **并行**：临时日志带 `$ID` 前缀（`/tmp/sweep_${ID}_*.log`）⇒ **不同 id 的多个实例可同时跑**
+  （各写各的树、各读各的日志）。同一个 id 只能有一个实例。固定日志名时代曾让 TIMEOUT/UNOPTFLAT
+  判定读到**别人**的输出 —— 一个点的结论会张冠李戴。
+- **spec 要写全**：同一实例内参数**跨标签累积**（`patch` 只改列出的项，其余保留上一标签的值）
+  ⇒ 每次比较都要把该机器用到的**全部非默认参数**列出来，否则测出来的是"上一标签 + 本标签"的混合体。
+- **有效性看 GEOMEAN 行**：`perf` 的 `execute()` 内置 `compare_output` ⇒ **6/6 退出值全对**
+  才会打印 `GEOMEAN`；任一用例算错会 `SystemExit`，表就残缺。所以"有 6 行 + GEOMEAN"= 该点
+  既有效又正确，`sweep.sh` 打印的那串 IPC 才有意义。卡死点打 `TIMEOUT`、组合环点打 `UNOPTFLAT`，
+  两者都**留在输出里**不静默丢弃。
+
+`perf/test` 都带 `SIM="$TREE/build/sim"` ⇒ 跳过 `Makefile` 的 `perf: build` 依赖，省掉一次
+**冗余的 verilator 重跑**（实测每点半分钟量级）。代价：改完 RTL 必须先让本脚本自己 `build`
+（它每次都 `rm -rf` 重取 `verilog/`，所以天然满足）。
+
+⚠ 见 §2.4：TB 侧参数是各自复制的，本脚本**不**同步它们 ⇒ 扫出来的变体不覆盖
+`make -f Makefile.tb` 门控，别拿单元 TB 当变体的正确性证据。
+
 ## 2. 踩过的坑（每条都真栽过）
 
 1. **`design.json` 是 73 MB 的命名空间陷阱。** 它用 `$abc$…$` 命名，与 `mapped.v` 的
@@ -237,6 +265,14 @@ ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任�
    机制：这两处都是**变址切片写**（`regs[preg] <= …` / `ld_addr_r[p*32 +: 32] <= …`），
    Yosys 推不出整字 `$dff`，只能建"逐位 `$dff` + 译码器"，这些新单元不带 `src`。
    ⇒ 它们不是漏查，是**数组寄存器**；要按模块归因只能 `MODE=diagnose`。
+
+14. **复用旧 `runs/<id>` 会踩两种陈旧（2026-10-02 实栽）。** `sweep.sh` 原来只在树**不存在**时
+   拷贝 `testcases/`＋框架文件 ⇒ ①拿到 `run.sh` 造的树（**不拷 testcases**）时，`make perf` 直接
+   `no perf_* testcases` 死掉、打印一行没有数字的 `SWEEP <label>`；②拿到几天前的扫描树时，
+   `scripts/build.py`/`testcase.py` 是**旧版**（实测 `runs/w2` 是 09-28 的），而它们的行为直接进 IPC。
+   两者都是**静默**的（RTL 每次 `rm -rf` 重取，所以"看起来是新的"）。现已改为：框架文件每次覆盖、
+   `testcases/`＋`config.local.mk` 各自按存在性补齐。**判读口径**：`SWEEP <label>` 后面没有 6 个数字
+   就是无效点，必须查 `/tmp/sweep_${ID}_perf.log` 的末尾，不能当成"跑过了"。
 
 ## 3. 已被这套工具确诊的机制（当作"该怎么用"的例子）
 
