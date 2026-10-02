@@ -257,18 +257,20 @@ SWEEP_TEST=1 tools/sweep.sh sw base ""                # 同一棵树里再跑官
 4. **TB 参数是各自复制的**（`tb_cpu_prog.v` 的 `*_SIZE_TB`、`tb_cpu_top.v` 硬编码 `TPW=6`）。
    只改 `student_top.v` 的参数会让 `make -f Makefile.tb` 门控变成**空测**（测的还是默认参数）
    ⇒ 参数扫描行要么同步 render TB 侧参数，要么**明确声明该门控不覆盖该变体**。
+   **同理：§二十七 把基准参数改成 `c2` 也只动了 `student_top.v`** ⇒ 本地 TB 与 §二十五 的
+   探针数字仍是**全参口径**，拿它们与基准比较前先确认口径（要么同步 TB 侧参数，要么只用同一口径内的对照）。
 5. **`census.py` 是字级的**（见 §1），拿它算比特扇出会系统性放大 `W` 倍。
 6. **一次容器综合 ≈ 20 min**，6 点扫描 ≈ 75 min ⇒ 先跑信息量最大的那一版。
 7. **残留容器会 100% 烧 CPU 数小时**：容器里的 `make` 被终止后 `docker` 进程不一定退出
    （实测有一个跑了 5 小时、`SYNTH_OUT=build/synth_f3ctl`）。每轮结束 `docker ps` 核一遍。
 8. **`timeout` 在 macOS 上没有**（`command not found`）。
-9. **`run.sh <id>` 不带参数 = 提交默认值 `ROB=32/RS=16/BHT=32/SQ=8/WR=8`，不是 `ic1k` 那台机器。**
-   `ic1k`/`t1d`/`hd16` 等归档行都是 ROB=16，由 `run.sh` 的**参数补丁**生成；`student_top.v` 的
-   提交默认值自 `8998ca2` 起一直是 ROB=32。跑"与归档基线对比"的实验时**必须把参数补上**，
+9. **`run.sh <id>` 不带参数 = `student_top.v` 的当前默认值**（2026-10-02 起 = 基准 `c2`：
+   `ROB=16/RS=4/LSQ=8/BHT=8/RAS=4/IC=512/DC=1024/LD=4/SQ=4/WR=4`；此前自 `8998ca2` 起是
+   `ROB=32/RS=16/BHT=32/SQ=8/WR=8`）。跑"与归档行对比"的实验时**必须把参数补上**，
    否则综合出来的是另一台机器（面积差 41%、周期差 30%，看起来像改动引起的，其实不是）。
    同理，`make perf`（在仓库根跑）用的也是提交默认值 —— 要测归档行的配置，就用
    `run.sh <id> --no-synth` 造树（它会把参数补丁写进 `student_top.v`），再
-   `make -C runs/<id> CONFIG=<绝对路径>/config.local.mk TESTCASES=<绝对路径>/testcases FILELIST=verilog/filelist_ic.f perf`。
+   `make -C runs/<id> CONFIG=<绝对路径>/config.local.mk TESTCASES=<绝对路径>/testcases FILELIST=verilog/filelist.f perf`。
 10. ~~**`results.csv` 的 `ipc6` 列与 `params` 列可能不对应。**~~ **（2026-09-30 结案）**
     `ic1k` 行记的是 ROB=16 的面积/频率，但它那串 `ipc6` 经逐位复现是 **ROB=32** 配置的数字；
     `constr1` 行（RTL 与 `ic1k` 逐字相同）继承了这个错值。两行已改正为 ROB=16 的实测
@@ -276,11 +278,12 @@ SWEEP_TEST=1 tools/sweep.sh sw base ""                # 同一棵树里再跑官
     `base16syn`/`abc6`/`abc34` 三行既有值逐位一致）。全表 27 行逐列复核过，**这是唯一一处**
     参数/`ipc6` 不同源的行。教训（仍适用）：`snap.py` 的 `--ipc` 是**手抄**进去的，不校验机器；
     凡拿归档行的 `ipc6` 做对照，先确认它那棵树是哪套参数。`c1s1` 行补测时按此规矩单独造树复量。
-11. **`docs/timing/filelist_t4tmp.f`** 是冻结口径的 22 文件列表 = 官方 `verilog/filelist.f`
-   去掉 `core/memory.v`（已核对是**唯一**差异）。没有任何模块例化 `memory`，
-   `hierarchy -top student_top` 会剪掉它 ⇒ 两个列表出同一份网表。冻结成文件是为了与已归档
-   基线**逐位可比**；用它的行必须在 `results.csv` 里标注。**`filelist_t4tmp.f` 自加入
-   `core/icache.v` 起已过期**，含 I-cache 的机器一律用 `docs/timing/filelist_ic.f`（23 文件）。
+11. **源文件列表一律用官方 `verilog/filelist.f`**（`run.sh` 的默认已改成它）。
+    `core/memory.v` 在列表里但没被 `student_top` 例化，`hierarchy -top student_top` 会剪掉
+    ⇒ 与去掉它的列表出同一份网表（`stat.json` 模块数=1 已证）。
+    **`docs/timing/filelist_t4tmp.f` / `filelist_ic.f` 都是过期冻结列表**：前者不含
+    `icache/dcache/mem_subsystem`，拿它综合会在 elaborate 阶段直接报
+    `unsupported external module dcache`（2026-10-02 踩过一次）。
 12. **官方 `timing.rpt` 只有 5 条路径，这不是巧合是写死的。** `scripts/timing.tcl` 里
    `report_checks ... -group_path_count 5` 是**官方框架文件，勿改**，所以判分产物
    **永远**只有 5 条。任何"设计里有几条长路径"的问题都必须外挂 `tools/census.tcl` 回答；

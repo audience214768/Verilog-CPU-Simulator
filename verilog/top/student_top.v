@@ -6,26 +6,29 @@
 //   退出值由官方从机在 B 握手时从 WDATA 取 (sim.cpp:119-121), 故本模块不引出 ret_val。
 //   手写程序用的 TERM marker 判定保留 (OR 并存), 两条路径互不干扰。
 // 复位: 外部 reset 高有效 ⇒ 内部 rst_n = ~reset (异步低有效, 与 ASAP7 触发器一致)
+// 基准参数 = §二十二/§二十三 的效率拐点 c2 (η = geo IPC / 面积 最高):
+//   本 RTL (写粒度 8→32) 实测 9860.9 µm² / geo IPC 0.5922 / 275.9 MHz (2026-10-02, 19/19 门禁通过)
+//   选它当基准的理由是"性价比 + 优化空间", 不是档位线 (见 plan.md §二十七)
 module student_top #(
     parameter ISSUE_WIDTH = 1,
-    parameter ROB_SIZE    = 32,
-    parameter RS_SIZE     = 16,
+    parameter ROB_SIZE    = 16,
+    parameter RS_SIZE     = 4,
     parameter PRF_SIZE    = 64,
-    parameter LSQ_SIZE    = 16,
-    parameter BHT_SIZE    = 32,
-    parameter RAS_SIZE    = 8,
+    parameter LSQ_SIZE    = 8,
+    parameter BHT_SIZE    = 8,
+    parameter RAS_SIZE    = 4,
     parameter ROLLBACK_WIDTH = 4,    // 回滚 walker 每拍撤销的条目数 (与 ISSUE_WIDTH 解耦)
-    parameter IC_SIZE       = 1024,  // I-cache 总容量 (字节)
+    parameter IC_SIZE       = 512,   // I-cache 总容量 (字节)
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
-    parameter DC_SIZE       = 2048,  // D-cache 总容量 (字节; 0 = 旁路)
+    parameter DC_SIZE       = 1024,  // D-cache 总容量 (字节; 0 = 旁路)
     parameter DC_LINE_WORDS = 8,     // D-cache 行字数 (2 的幂)
     parameter DC_WAYS       = 2,     // D-cache 相联度 (2 路: SRAM 面积不变, geo IPC +2.2%, 见 plan.md §十六)
-    parameter LD_INFLIGHT = 8,       // 在飞 load 上限
-    parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
+    parameter LD_INFLIGHT = 4,       // 在飞 load 上限
+    parameter SQ_DEPTH    = 4,       // 已提交 store 队列深度
     parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
-    parameter WR_DEPTH    = 8        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度)
+    parameter WR_DEPTH    = 4        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度)
 ) (
     input  wire        clock,
     input  wire        reset,        // 高电平复位, 初始化时保持 5 周期高电平

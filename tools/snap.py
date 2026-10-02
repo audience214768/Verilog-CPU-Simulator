@@ -107,8 +107,9 @@ def main():
     else:
         rows = [COLS]
     rows.append([str(row[c]) for c in COLS])
+    # lineterminator="\n": csv 默认 "\r\n", 会让整表在 git diff 里变成"全行改写"
     with csv_path.open("w", newline="") as fh:
-        csv.writer(fh).writerows(rows)
+        csv.writer(fh, lineterminator="\n").writerows(rows)
     print(f"归档 {dest}  (alumacc 归因 {sites} 条)")
     print("  " + "  ".join(f"{k}={row[k]}" for k in
                            ("min_period_ns", "fmax_mhz", "area_um2", "levels",

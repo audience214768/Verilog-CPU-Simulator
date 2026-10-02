@@ -57,34 +57,35 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | 参数 | 默认 | 含义 | 使用模块 |
 |---|---|---|---|
 | `ISSUE_WIDTH` (W) | 1 | 前端/发射/执行/提交宽度 ∈{1,2,4} | 全部 |
-| `ROB_SIZE` | 32 | ROB 条目数（2 的幂） | rob, cpu_top |
-| `RS_SIZE` | 16 | RS 条目数（2 的幂） | rs, cpu_top |
+| `ROB_SIZE` | 16 | ROB 条目数（2 的幂） | rob, cpu_top |
+| `RS_SIZE` | 4 | RS 条目数（2 的幂） | rs, cpu_top |
 | `PRF_SIZE` | 64 | 物理寄存器数（2 的幂） | prf, ready_table, free_list, rat, cpu_top |
-| `LSQ_SIZE` | 16 | LSQ 条目数（2 的幂） | lsq, cpu_top |
-| `BHT_SIZE` | 32 | 2-bit 饱和计数器数 | bht, fetch |
-| `RAS_SIZE` | 8 | 返回地址栈深度 | ras, fetch |
+| `LSQ_SIZE` | 8 | LSQ 条目数（2 的幂） | lsq, cpu_top |
+| `BHT_SIZE` | 8 | 2-bit 饱和计数器数 | bht, fetch |
+| `RAS_SIZE` | 4 | 返回地址栈深度 | ras, fetch |
 | `MEM_SIZE` | 65536 | **已退役**（仅 TB 的 `memory.v` 还在用）：字节寻址 RAM 容量。官方口径下内存是外部 256 MiB AXI4-Lite 从机 | memory |
 | `MEM_LATENCY` | 3 | **已退役**（仅 TB）：片上 memory 的 load 倒计时。**官方口径只有 10 拍一个值**（框架 `LATENCY` 默认），由总线从机产生 | memory |
 | `MEM_INFLIGHT` | 4 | **已退役**（仅 TB）：片上 memory 的飞行 load 槽数。等价物是 AXI 侧的未完成读数（`mem_subsystem` 的 `LD_INFLIGHT`），是 MLP 的结构上限 | memory |
 | `INIT_FILE` | "" | **现状**：非空时仿真初始化 $readmemh（每行 8 位 hex，支持 @地址） | memory |
-| 派生 | | `PW=$clog2(PRF_SIZE)=6, RW=$clog2(ROB_SIZE)=5, LW=$clog2(LSQ_SIZE)=4, BW=$clog2(BHT_SIZE), RA=$clog2(RAS_SIZE), SRW=$clog2(RS_SIZE), CSW=$clog2(RS_SIZE+1), RCW=$clog2(ROB_SIZE+1), LCW=$clog2(LSQ_SIZE+1), PCW=$clog2(PRF_SIZE+1)` | |
+| 派生 | | `PW=$clog2(PRF_SIZE)=6, RW=$clog2(ROB_SIZE)=4, LW=$clog2(LSQ_SIZE)=3, BW=$clog2(BHT_SIZE)=3, RA=$clog2(RAS_SIZE)=2, SRW=$clog2(RS_SIZE)=2, CSW=$clog2(RS_SIZE+1)=3, RCW=$clog2(ROB_SIZE+1)=5, LCW=$clog2(LSQ_SIZE+1)=4, PCW=$clog2(PRF_SIZE+1)=7` | |
 
-**`student_top` / `cpu_top` 的其余参数**（照 RTL 声明如实列出，默认值即当前基线）：
+**`student_top` / `cpu_top` 的其余参数**（默认值 = `verilog/top/student_top.v` 的声明 = 当前基准 `c2`，
+见 `docs/plan.md` §二十七；各子模块的同名 `parameter` 默认值只是占位，`cpu_top` 对每个子模块都显式绑定）：
 
 | 参数 | 默认 | 含义 | 使用模块 |
 |---|---|---|---|
 | `ROLLBACK_WIDTH` | 4 | 误预测回滚并行宽度（walker 每拍回滚条数） | cpu_top, rat, free_list, ready_table |
-| `IC_SIZE` | 1024 | I-cache 容量（字节），`0` = 旁路直连 | icache, mem_subsystem |
+| `IC_SIZE` | 512 | I-cache 容量（字节），`0` = 旁路直连 | icache, mem_subsystem |
 | `IC_LINE_WORDS` | 8 | I-cache 行宽（字） | icache, mem_subsystem |
 | `IC_BYPASS` | 0 | 取指读口直通（调试用） | icache |
 | `IC_PREFETCH` | 1 | 取指预取使能（落地于 icache 的行预取，**不是**旧文档的 `PF_WIN`） | icache, mem_subsystem |
-| `DC_SIZE` | 2048 | D-cache 容量（字节），`0` = 旁路 | dcache, mem_subsystem |
+| `DC_SIZE` | 1024 | D-cache 容量（字节），`0` = 旁路 | dcache, mem_subsystem |
 | `DC_LINE_WORDS` | 8 | D-cache 行宽（字） | dcache, mem_subsystem |
 | `DC_WAYS` | 2 | D-cache 相联度（≥2 走 LRU，1 路零额外触发器） | dcache, mem_subsystem |
-| `LD_INFLIGHT` | 8 | 在飞 load 上限（AXI 未完成读数） | mem_subsystem |
-| `SQ_DEPTH` | 8 | 已提交未可见 store 队列深度 | mem_subsystem |
+| `LD_INFLIGHT` | 4 | 在飞 load 上限（AXI 未完成读数） | mem_subsystem |
+| `SQ_DEPTH` | 4 | 已提交未可见 store 队列深度 | mem_subsystem |
 | `RD_DEPTH` | 16 | AXI 读事务 FIFO 深度（**约束：≥2×`IC_LINE_WORDS` 且为 2 的幂**） | mem_subsystem, axi_lite_master |
-| `WR_DEPTH` | 8 | AXI 写事务 FIFO 深度（须 < 从机 AW/W FIFO 深度） | mem_subsystem, axi_lite_master |
+| `WR_DEPTH` | 4 | AXI 写事务 FIFO 深度（须 < 从机 AW/W FIFO 深度） | mem_subsystem, axi_lite_master |
 
 > 合法性硬约束（参数扫描时先看这里）：`RAS_SIZE` 最小 4（0 无法展开）；`PRF_SIZE > 32`（`free_list.v` BASE=32，
 > `PRF_SIZE=40` 是永久死锁点）；`RD_DEPTH ≥ 2×IC_LINE_WORDS` 且为 2 的幂；`WR_DEPTH < 从机 AW/W FIFO 深度`。

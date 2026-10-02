@@ -13,8 +13,10 @@
 #   tools/run.sh <id> [参数=值 ...]       # 例: tools/run.sh lsq8 LSQ_SIZE=8
 #   tools/run.sh <id> --no-synth          # 只造树不打综合
 #   tools/run.sh <id> --filelist docs/timing/filelist_ic.f
-#       # 换冻结口径的源文件列表。默认仍是 filelist_t4tmp.f —— 冻结口径是归档可比性的前提
-#       # (tools/README.md), 只有**新增源文件**时才该另立一个列表并显式指定。
+#       # 换源文件列表。**默认 = 官方 verilog/filelist.f** (与判分口径一致; core/memory.v 在列表里
+#       # 但没被 student_top 例化, hierarchy -top 会剪掉, 已核对不影响网表)。
+#       # ★ 2026-10-02 起不要再用 docs/timing/filelist_t4tmp.f: 它是 9 月的冻结列表, 不含
+#       # icache/dcache/mem_subsystem ⇒ 综合会在 elaborate 阶段报 "unsupported external module dcache"。
 #   tools/run.sh <id> --mode=diagnose
 #       # 出 -hieropt 的保层次网表 (u_xxx/ 限定名), 给 tools/path.py 做组合级归因用。
 #       # **判分口径永远是 opt** —— diagnose 只用来归因, 它的面积/频率数字不可比。
@@ -32,7 +34,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
 [ -n "$ID" ] || { echo "用法: tools/run.sh <id> [参数=值 ...]"; exit 2; }
 TREE="$ROOT/runs/$ID"
-FLIST=docs/timing/filelist_t4tmp.f
+FLIST=verilog/filelist.f
 MODE=opt
 PERIOD=2.0
 CONSTR=

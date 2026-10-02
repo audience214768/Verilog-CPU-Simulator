@@ -74,13 +74,15 @@ clean:
 VERILATOR ?= verilator
 VB   := $(SIM)/bench
 VMAX ?= 200000000
+# PVAL: 追加 -pvalue+ 覆盖 TB 的 parameter (如 PVAL="-pvalue+MEM_LATENCY_TB=10"), 归因时对齐官方口径用
+PVAL ?=
 
 .PHONY: bench
 bench:
 	@mkdir -p $(VB)
 	$(VERILATOR) --binary --timing -O3 -Wno-fatal --top-module tb_cpu_prog \
 	             -Mdir $(VB)/obj -o ../bench \
-	             -pvalue+MAX_CYCLE=$(VMAX) \
+	             -pvalue+MAX_CYCLE=$(VMAX) $(PVAL) \
 	             $(SRCS) tb/top/tb_cpu_prog.v
 	$(VB)/bench $(ARGS)
 
