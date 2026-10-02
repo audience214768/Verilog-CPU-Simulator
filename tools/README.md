@@ -129,13 +129,28 @@ tools/cone.py runs/<id>/build/synth_<id>/opt --path 0          # 第 0 条路径
 ### `snap.py` —— 把一次综合的产物归档进仓库
 
 ```sh
-tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "..." --ipc "..."
+tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "..." --ipc "..." \
+              [--flow official|constr]
 ```
 
 只归档小文件（每版约 600 KB），丢弃 `design.json`(73 MB)、`elaborated.json`(30 MB)、
 `mapped.v`(13 MB)；`synth.log`(2.3 MB) 里只蒸馏出 `$alu/$macc` 的 RTL 行号归因存成
 `alu_sites.txt`。同时往 `docs/timing/results.csv` 追加一行自解释记录 —— 历史最优 f3 的
 证据只活在 `/tmp` 里差点丢掉，这个脚本就是为此写的。
+
+**`--flow` 必填项（2026-10-02 加）**：`official` = `scripts/synth.py` 原样的 `abc -D 2000`；
+`constr` = 再加 `abc.constr`（`set_driving_cell INVx1` + `set_load 5.0` + `buffer/upsize/dnsize/stime`）。
+两者 fmax 相差 **4 倍**（同 RTL 实测 41.25 vs 165.03 MHz），**混在一张表里必读错**
+—— 所以 `results.csv` 有独立的 `flow` 列，不要靠 `note` 里的文字判断。
+`path.json` 是 `path.py` 每次归档**重新生成**的，`critical_paths.json`/`report.json` 是官方原产物，
+两者都可由 `timing.rpt` 复算；`alu_sites.txt` 例外（源 `synth.log` 不归档，**不可再生**）。
+
+**`params` 列的读法（2026-10-02 统一键名）**：键名已统一为 RTL 的参数名
+（`ROB_SIZE`/`RS_SIZE`/`PRF_SIZE`/`LSQ_SIZE`/`BHT_SIZE`/`RAS_SIZE`/`SQ_DEPTH`/`RD_DEPTH`/`WR_DEPTH`；
+早期行写的 `ROB`/`RS`/… 已就地改名，**值未动**）。两个例外：
+- **`PF_DEPTH` / `PF_WIN`**（5 行，2026-09-29 及更早）是**已退役参数** —— 那是 I-cache 落地之前的
+  "取指预取窗口"，`icache.v` 上线后已从 RTL 删除（见 `docs/plan.md` §15.14）。**不要在新实验里用**。
+- 未列出的参数一律取 RTL 默认值（`docs/architecture.md`「参数表」）。
 
 ### `run.sh` —— 造变体树 + 跑官方容器综合
 

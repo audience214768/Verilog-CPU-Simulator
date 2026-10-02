@@ -27,7 +27,7 @@ from pathlib import Path
 KEEP = ("report.json", "timing_values.json", "area.json", "area_report.json",
         "report.txt", "critical_paths.json", "timing.rpt", "stat.json")
 ALU_RE = re.compile(r"^.*creating \$(?:alu|macc|mul|add|sub) cell for (\S+).*$", re.M)
-COLS = ["tag", "date", "git_rev", "git_dirty", "params", "filelist", "area_um2",
+COLS = ["tag", "date", "git_rev", "git_dirty", "params", "filelist", "flow", "area_um2",
         "seq_area_um2", "sram_area_um2", "min_period_ns", "fmax_mhz", "slack_ns",
         "levels", "healthy_levels", "healthy_ns", "hot_ns", "ps_per_level",
         "ceiling_mhz", "top_hotnets", "ipc6", "note"]
@@ -48,6 +48,8 @@ def main():
     ap.add_argument("--rev", default="", help="git rev (默认查仓库当前)")
     ap.add_argument("--params", default="", help="参数串, 原样记录")
     ap.add_argument("--filelist", default="verilog/filelist.f")
+    ap.add_argument("--flow", default="official",
+                    help="ABC 流程: official (scripts/synth.py 原样) / constr (加 abc.constr)")
     ap.add_argument("--ipc", default="", help="6 条 perf 的 IPC, 逗号分隔")
     ap.add_argument("--note", default="")
     ap.add_argument("--dirty", default=None,
@@ -85,7 +87,7 @@ def main():
         "git_rev": args.rev or sh("git", "rev-parse", "--short", "HEAD"),
         "git_dirty": args.dirty if args.dirty is not None
         else ("yes" if sh("git", "status", "--porcelain") else "no"),
-        "params": args.params, "filelist": args.filelist,
+        "params": args.params, "filelist": args.filelist, "flow": args.flow,
         "area_um2": f"{ar['area_um2']:.3f}", "seq_area_um2": f"{ar['sequential_area_um2']:.3f}",
         "sram_area_um2": f"{ar['sram_area_um2']:.3f}",
         "min_period_ns": f"{tv['minimum_period_ns']:.4f}",

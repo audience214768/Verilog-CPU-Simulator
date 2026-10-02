@@ -1,19 +1,16 @@
 # RV32IM 乱序多发射 CPU — 架构设计文档
 
-> 本文件是**设计规格**：设计决策、参数表、时序约定、模块接口、握手协议、正确性陷阱清单，
-> 以及**面向官方框架的目标架构**（`student_top` / AXI4-Lite / Cache / MMIO 终止 —— 其中
-> `student_top` + AXI4-Lite + MMIO 终止**已实现**（`docs/plan.md` §14），
-> DIV/DIVU/REM/REMU 亦已实现（多周期，`docs/plan.md` §15.10），**只剩 Cache 待实现**）。
-> 改 RTL 前先对照本文；RTL 与本文不一致时以本文为基准并同步更新。
+> 本文件是**设计规格**：设计决策、参数表、时序约定、模块接口、握手协议、正确性陷阱清单。
+> **官方框架侧（`student_top` / AXI4-Lite / MMIO 终止 / I+D Cache / DIV）全部已实现并实测。**
+> 改 RTL 前先对照本文；RTL 与本文不一致时**以 RTL 为准并回头改本文**（本文曾是"目标规格"，
+> 落地后多处已与实现分叉 —— 凡标「待验证」的段落视为历史推断）。
 > 过程记录 / 阶段计划 / debug 台账 / 消融矩阵在 `docs/plan.md`；
 > 评测口径一律以 `docs/description.md` 为准（该文件只由用户手动修改）。
 
 ## 背景 (Context)
 
-verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**`verilog/filelist.f` 里 23 个模块已全部实现**，且**官方链路已打通**（`student_top` + AXI4-Lite，`make build` 通过、
-`correctness_add_to_100` 官方镜像 PASS；单元 TB 15 个全绿，`make test` **W=1 / W=2 / W=4 三档各 19/19 PASS**）。**RV32IM 指令集已补齐**
-（DIV/DIVU/REM/REMU 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）；仍未实现的是 **Cache**。
-本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议，以及**面向官方框架的目标架构规格**（见「目标架构」一节）。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
+verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发射 RV32IM CPU**（Verilog-2005，可仿真可综合）。**`verilog/filelist.f` 里 25 个模块已全部实现**（I-cache / D-cache 均已落地），且**官方链路全通**（`student_top` + AXI4-Lite：`make build` 通过、`make test` 19/19 PASS、`make perf` 6/6 通过并给出 IPC）。**RV32IM 指令集已补齐**（DIV/DIVU/REM/REMU 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）。
+本文定义**全部模块的 input/output 接口**、cpu_top 布线、握手协议与已验证的正确性不变量。参考工程 `/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ 版 Tomasulo，单发射）的接线已全部分析，本设计**借用其验证过的机制、修正其不合理处**。
 
 需求（**以 `docs/description.md` 为准**，该文件只由用户手动修改；本节及全文的指标口径随其更新）。
 以下按 description.md 的**章节名**索引（旧文档用的行号指针已随该文件改版全部失效）：
@@ -72,17 +69,26 @@ verilog-cpu-simulator 是 PPCA 大作业：一个**可参数化的乱序多发�
 | `INIT_FILE` | "" | **现状**：非空时仿真初始化 $readmemh（每行 8 位 hex，支持 @地址） | memory |
 | 派生 | | `PW=$clog2(PRF_SIZE)=6, RW=$clog2(ROB_SIZE)=5, LW=$clog2(LSQ_SIZE)=4, BW=$clog2(BHT_SIZE), RA=$clog2(RAS_SIZE), SRW=$clog2(RS_SIZE), CSW=$clog2(RS_SIZE+1), RCW=$clog2(ROB_SIZE+1), LCW=$clog2(LSQ_SIZE+1), PCW=$clog2(PRF_SIZE+1)` | |
 
-**Phase C 已落地的新参数**（存储子系统，见「目标架构」C.2）：`mem_subsystem` 的
-`PF_DEPTH`（预取窗口字数，默认 16）/ `PF_WIN`（预取流超前 demand 的字数上限，默认 8 ——
-**这是取指/load 的带宽分配旋钮**）/ `LD_INFLIGHT`（在飞 load 上限，默认 8）/
-`SQ_DEPTH`（已提交未可见 store 队列深度，默认 8）/ `RD_DEPTH`、`WR_DEPTH`（AXI 事务 FIFO 深度，默认 8）。
-`PF_DEPTH` 与从机 AR FIFO 同深（16）为宜，更大可能压垮从机队列。
+**`student_top` / `cpu_top` 的其余参数**（照 RTL 声明如实列出，默认值即当前基线）：
 
-**Phase C 待实现的新参数**（详见下文「目标架构」的 C.6）：`IC_SIZE` / `IC_WAYS` / `IC_BLOCK` / `IC_MSHR` /
-`IC_PREFETCH` / `DC_SIZE` / `DC_WAYS` / `DC_BLOCK` / `DC_MSHR` / `SB_DEPTH` / `RD_SLOTS` / `USE_FAKERAM`。
-其中 `IC_SIZE` / `DC_SIZE` / `IC_WAYS` / `DC_WAYS` 是**官方明列的参数化项**（§架构要求与设计规范 · 2），
-消融矩阵必须覆盖；`IC_SIZE = DC_SIZE = 0`（旁路直连总线）是合法的退化档，也是把"IPC 不达标"与
-"功能不过"解耦的保险。
+| 参数 | 默认 | 含义 | 使用模块 |
+|---|---|---|---|
+| `ROLLBACK_WIDTH` | 4 | 误预测回滚并行宽度（walker 每拍回滚条数） | cpu_top, rat, free_list, ready_table |
+| `IC_SIZE` | 1024 | I-cache 容量（字节），`0` = 旁路直连 | icache, mem_subsystem |
+| `IC_LINE_WORDS` | 8 | I-cache 行宽（字） | icache, mem_subsystem |
+| `IC_BYPASS` | 0 | 取指读口直通（调试用） | icache |
+| `IC_PREFETCH` | 1 | 取指预取使能（落地于 icache 的行预取，**不是**旧文档的 `PF_WIN`） | icache, mem_subsystem |
+| `DC_SIZE` | 2048 | D-cache 容量（字节），`0` = 旁路 | dcache, mem_subsystem |
+| `DC_LINE_WORDS` | 8 | D-cache 行宽（字） | dcache, mem_subsystem |
+| `DC_WAYS` | 2 | D-cache 相联度（≥2 走 LRU，1 路零额外触发器） | dcache, mem_subsystem |
+| `LD_INFLIGHT` | 8 | 在飞 load 上限（AXI 未完成读数） | mem_subsystem |
+| `SQ_DEPTH` | 8 | 已提交未可见 store 队列深度 | mem_subsystem |
+| `RD_DEPTH` | 16 | AXI 读事务 FIFO 深度（**约束：≥2×`IC_LINE_WORDS` 且为 2 的幂**） | mem_subsystem, axi_lite_master |
+| `WR_DEPTH` | 8 | AXI 写事务 FIFO 深度（须 < 从机 AW/W FIFO 深度） | mem_subsystem, axi_lite_master |
+
+> 合法性硬约束（参数扫描时先看这里）：`RAS_SIZE` 最小 4（0 无法展开）；`PRF_SIZE > 32`（`free_list.v` BASE=32，
+> `PRF_SIZE=40` 是永久死锁点）；`RD_DEPTH ≥ 2×IC_LINE_WORDS` 且为 2 的幂；`WR_DEPTH < 从机 AW/W FIFO 深度`。
+> 参数消融的实测数据见 `docs/plan.md` §二十二/§二十三；`docs/timing/results.csv` 是全部综合点的台账。
 
 ## 时序约定（全部模块）
 
@@ -252,115 +258,24 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 
 复位：sp=PRF_SIZE-32，池内装入 preg 32..PRF_SIZE-1（栈顶=32）。**每个 preg 每生命周期恰好写一次**（free list 只在 producer 提交后释放）。
 
-实现演进（**仿真调试记录，见 git 提交的根因分析**）：
-- 原方案 `alloc_val[i] = head + i`（环形组合计算、不存值）+ `count += push 数`。**该方案不成立**，两个独立缺陷：
-  1. 回收请求里包含恒等映射区 preg（<32，如首次被覆盖的 x5/x6/x7）；环形池无法表示它们，但被计入了 count → 计数虚高；
-  2. 隐含"回收顺序 = 分配顺序"假设。实际上 commit 释放的是各 rd 的 `old_pnum`，同批内不同 rd 的到达次序任意（实测先放 34 后放 32），空闲集不再是环形连续区间，`head + i` 会算出仍在使用的 preg。症状：`add t2,t2,t0` 拿到的 preg 同时仍被 `t1` 引用 → 分支读到被覆盖的值 → 循环不退出。
-- 改为 **LIFO 栈 + 真实存储**（FREE_NUM × PW 位）：回收顺序任意都正确；`push_preg < 32` 的回收直接丢弃（恒等映射区永久退休，池只含 >= 32 的项），同时顺带过滤 walker 对 `new_pnum==0` 条目压入的 preg 0。
-- 同拍 push/pop：pop 读 `pool[sp-1-pc_pre]`，push 写 `pool[sp-pop_cnt+ps_pre]`（落在本拍 pop 腾出的槽位；组合读先于边沿写）。**易错点**：写成 `pool[sp+ps_pre]`（栈顶之上）会导致同拍 pop 腾出的槽位残留旧值，下拍 pop 读到已分配的 preg（本次调试中实际踩到）。
-- `count_out = sp`（不含本拍 push）：无同拍旁路，本拍回收的项本拍不可分配 → 池空时多 1 拍气泡；换来 pop 读索引恒在 `[0, sp)` 内。
-- 代价：FREE_NUM×PW 触发器（32×6 ≈ 56 µm²）+ 读 mux/写译码。面积阶段可再评估（如位图 + 优先编码器）。
-- 约束：需 PRF_SIZE >= 64（32 个恒等映射 + 池），PRF_SIZE 消融应向上扫描（64/96/128）而非向下。
-  **2026-09-27 收紧并给出证明**（`docs/plan.md` §15.10.15 §六）：精确下限是 `FREE_NUM >= 31`
-  （即 PRF_SIZE >= 63，非 64 的整幂次），且该死锁态**可达的必要条件**已被实测钉死 ——
-  一条指令分配的 preg 只有等它写的那个寄存器**被再次写**才随下一个写者的 `old_pnum` 回池，
-  所以"被架构映射占住的 preg 数"单调不减；静默时刻恒有 `sp = FREE_NUM - #{x : map_arch[x] >= 32}`，
-  **永久死锁 ⇔ 该计数 == FREE_NUM**（实测冻结态 `rob_empty=1, sp=0` 逐项吻合）。x0 只读不写 ⇒
-  计数上界 31 ⇒ `FREE_NUM >= 32` 时该死锁态不可达。实测：PRF=40 在 `gcd`(写 8 个目的寄存器)/
-  `expr`(8 个) 挂死、`naive`(6 个) 通过且 `sp=2=8-6`；`PRF=40` 与 `ROB_SIZE` **无关**（ROB=64 照挂），
-  `ROB_SIZE=8 + PRF=64` 通过。⇒ 旧记录"min-all 因 `ROB_SIZE=8 & PRF_SIZE=40` 挂死"应读作
-  "因 `PRF_SIZE=40`"：那是**参数不可行点，不是缺陷**。
-- **已定位并修复（W>=2，2026-09-27 发现 → 2026-09-28 结案，`3b71fd7`）**：现象是 W=2 下回收路径把
-  **同一个 preg 推入两次**（`array_test1` 实测 `push dup preg=37 ... flushing=1`，池里随即出现重复项；
-  接着 `pool/held` 收支差 1），重复项被重新分配 ⇒ 仍在飞的 preg 被复用 ⇒ 挂死（`expr`）。
-  **根因不在回收路径，而在 `rob.v` 的占用计数**：`free_r` 未按本批 push 数预留 ⇒ `1-2` 下溢回绕 63
-  ⇒ `rob_occ` 越界 ⇒ ① 提交窗口判据 `c < rob_occ` 对窗口外槽也成立（越窗提交）；② `last_r` 越过真实
-  占用 ⇒ walker 回滚到从未 push 的残留槽。两条路径**共同**推出重复 preg。已改为按住本批有效指令数
-  预留；W=1 逐值等价。`array_test1` 在 W=2 转 PASS（819 拍）。现场与证据见 `docs/plan.md` §15.10.16 §五
-  + §15.10.17 §一。
-  **取指流控口径打架已修（W≥2，2026-09-28，本轮）**：`imem_hit` 原来只比批首（槽 0），与接收侧
-  `imem_valid = &slot_hit` 的整批口径打架 ⇒ W≥2 下 `pc_r` 每拍在 `N / N+4W` 翻转、预取流锚点被撕扯 ⇒
-  期望批永远凑不齐。改成逐槽全中（`assign imem_hit = &hit_cur`）后 W=2 三用例转绿（`array_test2`
-  由永久停摆变 PASS 846）。根因/证据见 `docs/plan.md` §15.10.18。
-  **缺陷 7 已定位并修复（W≥2，2026-09-28，本轮）** —— 它其实是**两条**互不相干的缺陷：
-  ① 预取流"死带"：流的指针靠 `pf_dup_w` 跳过已有项时**不受前瞻上界约束**地推进 ⇒ 停在
-  `pf_ahead_w ∈ [PF_WIN*4, PF_DEPTH*4)` 是可达状态，而旧 `pf_restart` 只看槽 0 (`dem_hit`) ⇒
-  "批内第二槽缺失"时既不发起也不拉回 ⇒ 取指永久停摆。改成"期望批**整批**未在窗口 (`!imem_valid`)
-  且指针已走过整批 (`pf_ahead_w > (ISSUE_WIDTH-1)*4`，防活锁)"，W=1 逐位等价。
-  ② 误预测当拍**全局**清 Q 级：`flush_hit = misp_valid` 广播给所有槽，而 W≥2 下被 `q_freeze`
-  扣住的槽仍持有更早选中的那条（另一槽已前进若干条 ⇒ **两槽 Q 不再有年龄序**）⇒ 比冲刷点更老的
-  **正确路**指令被销毁（RS 条目在入选那拍已清，Q 是唯一副本）⇒ 它的 ROB 条目永不就绪 ⇒ 提交停摆
-  ⇒ free_list 漏干 ⇒ 死锁。改成 cpu_top **逐槽按年龄**给 `flush_hit`（口径与 rs/lsq 掩码、`div_kill`
-  一致）。`correctness_basicopt1` 由挂死转 PASS 546121（W=1 为 495800）。根因/证据链见
-  `docs/plan.md` §15.10.19。
-  **缺陷 8（free_list 少回收恒等映射区）已修（2026-09-28，本轮）**：`push_ok` 原写作
-  `push_valid && (push_preg >= BASE)`，把整个恒等映射区 0..31 排除在回收之外（理由写的是
-  "池是 head+i 组合计算的环形，表示不了 0..31"——但本实现是**真实栈** `pool[]`，任何 preg 都能表示）。
-  后果：架构 RAT 每把一个寄存器改写到池 preg 上就永久占住池里一项 ⇒ **空机可用池 = 32 - #映射在池区**
-  ⇒ 一条"整批全是写指令"的批在池不足 W 项时永久发不出（W=4 `correctness_hanoi` 实测：`sp=3` 而批是
-  4 条全写 ⇒ `fl_count(3) < n_wr(4)` 恒成立，ROB 已空、pc 冻结 ⇒ 死锁；W<=3 时 `n_wr<=3` 恰好不超过 3，
-  是**幸存者偏差**不是正确性）。改成只挡 preg 0（x0 恒等映射，永不复用），空机池恒为 `PRF_SIZE-32 >= W`。
-  详见 `docs/plan.md` §15.10.20 §二。**注意这一条对 W=1 同样生效**（与缺陷 5/6/7 那批"只在 W≥2 可见"
-  的不同），故 W=1 的逐条周期数相对 §15.10.19 §三 **不再逐位相同**（19 条中 7 条小幅变动）。
-  **缺陷 9（ROB 满窗截断的回绕歧义）已修（2026-09-28，本轮）**：`set_last` 截断算保留条数时用
-  `d_new_rw = set_last_val - head_r`（RW 位回绕）。当被冲刷的分支**正好是窗口内最年轻的条目**
-  （`set_last_val == head_r`，即 `d_new_rw == 0`）时，该值在"保留 0 条"与"保留整窗 ROB_SIZE 条"之间
-  **歧义**——满窗与空窗的 (head,last) 指针完全相同。旧式恒取 0 ⇒ 满窗被截成"空窗"，31 条更老的
-  正确路条目连同它们的 RS/LSQ 有效性一起丢失，而失效掩码按年龄差算此时**恒不命中** ⇒ LSQ 头永久卡死。
-  改用**截断前的占用量** `d_old` 消解（只有窗口本来就满时该分支才还活着）。W=4 `perf_vvadd` 实测现场
-  `robh=robl=15 free=0 fs=14`（满窗 + 分支在 head-1）。详见 `docs/plan.md` §15.10.20 §三。
-  ⇒ **W=1 / W=2 / W=4 三档正确性门禁全部通过**：三套官方 19 条全量均 `19 passed, 0 failed`
-  （2026-09-28，逐条周期数见 §15.10.20 §一）。
-  **W 轴 IPC 口径（`make perf` 实测，§15.10.20 §四）**：W=1 **0.3395** / W=2 **0.3291** / W=4 **0.3350**
-  （两轮修复前为 0.3219 / 0.3257）。`correctness_*` 上那批长跑程序里 W≥2 比 W=1 慢（§15.10.19 记录
-  15/19 条、几何平均 1.099×）**没有整体迁移到评分口径**，但 `perf_towers` 的 W 轴回归（W=1 0.2748 ⇒
-  W=2 0.1877 / W=4 0.1722，−32%）是真的、本轮仍**未解释**。
-  **当前主要矛盾是绝对水平**：IPC ≈ 0.32，距档 1 的 `0.6000` 差 ~46%；W 轴的 ±1% 是噪声。
-  **面积/频率基线（容器 ASAP7 r28，§15.10.21，缺陷 8/9 修复后）**：W=1 = **11,482.960 µm² / 40.70 MHz**
-  （修复前 `wb1` = 11,385.595 µm² / 39.97 MHz ⇒ 缺陷 8/9 的面积代价 **+0.86%**、周期 **−1.79%**）。
-  **最新：11,402.843 µm² / 85.23 MHz（§15.10.22）** —— 删掉 `rs.v` push 写使能里一个
-  **可证恒真**的冗余合取项 `&& pvalid_w[k2]`（连同随之成为死逻辑的 `pvc` OR 链），
-  把 ABC 跨 16 槽 × 68 位 CSE 出的**共享写使能字面量**（扇出 **1149**）彻底拆掉：
-  最小周期 24.5703 → **11.7334 ns（−52.2%）**，F_max 40.70 → **85.23 MHz（×2.09）**，
-  面积 −0.70%（时序面积一位不差，纯组合重构），最大热点网 1149 → **192**。
-  **行为保持已用最强口径证实**：官方门禁 W=1/2/4 三档 **19/19 PASS**，且
-  **57 个周期数与改动前逐位相同**、官方 perf 的 **6 个 IPC 与 geomean 逐位相同（0.3395）**
-  ⇒ 这次频率收益的 **IPC 代价为 0**。
-  **最新设计点（§15.10.23 参数前沿探索）：`ROB=16` 角点 = **8,113.945 µm² / 95.27 MHz /
-  IPC 0.3368 / 门禁 19/19**。相对满参数只把 `ROB 32→16, RS 16→4, BHT 32→8, RAS 8→4,
-  SQ 8→4, WR 8→4`（`PF`/`LSQ`/`LD`/`RD` 保持满值）⇒ **面积 71.2%、频率 111.8%、IPC 99.2%**，
-  **严格支配 `w1rs`**。被砍的五项合计 2,592.018 µm²、实测 IPC 增益 **−0.0001**（即 0）。
-  `ROB_SIZE` 的 IPC **强饱和**：8→16 买 96%，16→32 只再买 3%，而 `ROB=32` 那一档
-  被 ABC 抽出 272 负载单网（`AO21x1.A2 × 252`，单级 2.0959 ns）⇒ 70.75 MHz，
-  比 `ROB=16` 还慢 —— 是因子分解 artifact，非 ROB 物理代价。
-  面积已进档 2（< 18,000），但 **F_max 95.27 MHz 离硬性前提 300 MHz 仍差 3.15 倍**，
-  而三档要求"面积与 IPC **同时**满足" ⇒ **当前分数为 0，瓶颈是频率与 IPC，不是面积**。
-  **主要矛盾已从"高扇出税"转移到"健康逻辑本身"（⚠ 此判断仅对满参数成立）**：
-  `w1rs` 93 级里健康 78 级占 **4.1149 ns**，离 300 MHz 的 3.333 ns 预算还差 **23%**；
-  即便热点时间全部归零，上限也只有 **243 MHz**（`ceiling_mhz`），所以两个方向都得动。
-  `wb1` 已证健康逻辑进得了 300 MHz 预算（3.2339 < 3.333 ns），`pipe1` 已证级数多不是问题
-  （99 级仍只 11.67 ns）。**但 9,000 µm² 档的三个配置（`t1a`/`t1c`/`t1d`）扇出税回到
-  65–70%、健康 3.65–4.25 ns ⇒ 该判断不迁移到档 1 的配置上**（§15.10.23 §五）。
-  ⚠ 手法 4（`execute_slot` 分 D/Q 两级）宣称的收益在 `w1rs` 上**未复现**（4.1149 > 3.333），
-  即 `w1rs` 与无 W 级的 `pipe1` 打平（85.23 vs 85.27 MHz）——**未解释**，见 §15.10.22 未决。
-  **最新设计点（§15.10.24，I-cache 落地后）：`ic1k` = 8,184.207 µm² / 82.36 MHz / IPC 0.4138 / 门禁 19/19**。
-  把取指预取窗口（`PF_DEPTH=16`/`PF_WIN=8`，16 字 = **64 字节**，1088 flop + 4 个 one-hot/AND-OR 读口）
-  换成直接映射行缓存（`IC_SIZE=1024 B` / `IC_LINE_WORDS=8`；`icache` 硬要求 `RD_DEPTH ≥ 2*IC_LINE_WORDS`，
-  故 8→16）。**单变量对照 `hd16`**（= `t1d` 的 RTL + `RD_DEPTH=16`，除 I 侧实现外参数逐位相同）：
-  **面积 −216.658 µm²**（SRAM +386.984、时序 −316.124、组合 −287.518 ⇒ **净减**）、**频率 −1.3%**、
-  **IPC ×1.196**（0.3459→0.4138，六条 `perf_*` 无一下降）。相对 `t1d` 的净面积是 **+70.262**，
-  差额即 `RD_DEPTH` 8→16 的代价 —— 两个基准**不可混用**。
-  收益**来自容量而非延迟**：I 侧命中仍是 1 拍（与被替换的旧窗口在顺序流上同拍数），
-  只有循环体超过 64 字节的程序才吃到（median +40.6% / towers +35.1% vs vvadd +3.8% / rsort +7.8%）。
-  ~~**D-cache 决策为「不做」**~~ **【已被取代，见 §15.15】**：原文依据是上界实验而非代理推理 —— 把 `LATENCY`
-  降到 2 拍（比任何真实缓存都快，且 I 侧填充一并从 18 降到 10 拍）也只到 **0.5650 < 0.6000** ⇒
-  **整条存储方向的屋顶低于档 1 的地板**（§15.10.24 §二；`LD_INFLIGHT` 2→4→8 在 4 就饱和，该轴已用尽）。
-  **该判据是「够不够档 1」，而现行判据已改为「不固定面积上限、只求 IPC/面积 之比最大（≤ 档 3 的 36000 µm²）」**
-  —— 前提不成立，D-cache 已落地（`core/dcache.v`，默认 2 KB / 32 B 行 / **2 路**，实测 IPC 见 §15.15）。
-  **当前唯一的主要矛盾是频率**：`ic1k` 关键路径 12.071 ns / **100 级**，其中 6 条扇出网吃掉
-  **4.931 ns**（最狠 `_116750_` XNOR2xp5 扇出 **279**、负载电容 120793 fF、单级 0.9504 ns），
-  其余 85 级"健康"逻辑 **3.973 ns ⇒ 天花板 252 MHz**。**即便扇出税全部归零仍够不到 300**
-  ⇒ 必须**切流水级**（46.7 ps/级 × 71 级 = 3.333 ns，现 85 级）。归因见 §15.10.25。
+实现演进与**已证伪方案**（时间线见 `docs/plan.md` §1/§15.10.16/§15.10.20）：
+- ~~环形池 `alloc_val[i] = head + i`（组合计算、不存值）+ `count += push 数`~~（**不成立**，两个独立缺陷）：
+  ① 回收请求含恒等映射区 preg（<32），环形池表示不了却被计入 count ⇒ 计数虚高；
+  ② 隐含"回收顺序 = 分配顺序"假设，而 commit 释放的 `old_pnum` 到达次序任意 ⇒ `head + i` 算出仍在用的 preg。
+- 现行 = **LIFO 栈 + 真实存储**（FREE_NUM × PW 位）：回收顺序任意都正确。
+  同拍 push/pop：pop 读 `pool[sp-1-pc_pre]`、push 写 `pool[sp-pop_cnt+ps_pre]`（落在本拍 pop 腾出的槽位）。
+  **易错点**：写成 `pool[sp+ps_pre]`（栈顶之上）会让腾出的槽位残留旧值，下拍 pop 读到已分配的 preg（实际踩到）。
+  `count_out = sp`（不含本拍 push，无同拍旁路）⇒ 池空时多 1 拍气泡，换 pop 读索引恒在 `[0, sp)` 内。
+- `push_ok[c] = push_valid[c] && (push_preg[c] != 0)`：**只挡 preg 0**（x0 恒等映射，永不复用）。
+  早期写作 `push_preg >= 32` 是错的：恒等映射区被永久排除在回收之外 ⇒ 可用池 = 32 − #映射在池区
+  ⇒ 一条全写指令的批在池不足 W 项时永久发不出（W=4 `correctness_hanoi` 实测死锁；W≤3 恰好不越界，
+  是幸存者偏差）。**此条对 W=1 同样生效**。
+- **PRF_SIZE 下限 = 63（精确值），工程取 64**：一条指令分配的 preg 要等它写的架构寄存器**被再次写**
+  才随下一个写者的 `old_pnum` 回池 ⇒ "被架构映射占住的 preg 数"单调不减，静默时恒有
+  `sp = FREE_NUM − #{x : map_arch[x] >= 32}`，故**永久死锁 ⇔ 该计数 == FREE_NUM**；x0 只读不写
+  ⇒ 计数上界 31。实测 `PRF_SIZE=40` 在写 ≥6 个目的寄存器的程序上挂死，**与 `ROB_SIZE` 无关**。
+  ⇒ PRF_SIZE 消融只能向上（64/96/128），`PRF=40` 是**参数不可行点，不是缺陷**。
+- 代价：FREE_NUM×PW 触发器（32×6 ≈ 56 µm²）+ 读 mux/写译码；面积阶段可再评估（位图 + 优先编码器）。
 
 ### core/rob.v
 | name | dir | width | 驱动方 | 说明 |
@@ -488,13 +403,15 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 - 异步低有效复位（ASAP7 库只有异步复位触发器）。
 
 ### core/mem_subsystem.v（新增，CPU 侧端口与 `memory.v:10-38` 逐一对位）
-内部三块：**取指预取窗口**（`PF_DEPTH` 字 = 直接映射、每格 `{tag, data, valid}`，就是 I-cache 的数据通路；
-`PF_WIN` = 预取流超前 demand 的字数上限，是取指/load 的**带宽分配旋钮**）、**load 适配**（子字抽取 + 记账）、
-**已提交 store 队列**（`SQ_DEPTH`，补 `commit → B 握手` 之间的可见性空洞）。关键契约：
+内部：**I-cache**（`core/icache.v`：IC_SIZE 字节直接映射行缓存 + 行预取；取指口对外仍是"本拍批地址"语义）、
+**D-cache**（`core/dcache.v`：DC_SIZE 字节 / DC_LINE_WORDS 字行 / DC_WAYS 路组相联，写回 + 脏位）、
+**load 适配**（子字抽取 + miss 队列，推送时写、回包时读 + 按序记账）、
+**已提交 store 队列**（`SQ_DEPTH`，补 `commit → B 握手` 之间的可见性空洞）、
+**三路 AR 仲裁**（需求 load > 取指填充 > D 填充，AXI 读只有 1 AR/拍）。关键契约：
 
 | 契约 | 内容 |
 |---|---|
-| 取指 | 发起时写 tag 并**清 valid**、回包时写 data 并置 valid ⇒ "valid ⟺ 本格数据属于本格 tag"（不清 valid 则旧数据被新 tag 冒充 ⇒ 假命中）。demand 未命中且不在飞 ⇒ 把流拉回 demand；已在本格或无回包在飞 ⇒ 不重发 |
+| 取指 | `imem_hit` / `imem_valid` 的口径是**整批 W 个字**（见 fetch 一节）；I-cache 命中 1 拍，未命中走填充 |
 | `imem_valid` | 仅当"本拍 `inst_data` 对应的地址"与回包地址相等时才拉高 |
 | `ld_busy==0` | **必须当场兑现**：`lsq.v` 的 `ld_start_valid` 组合自 `!ld_busy` 且收到即置 `issued_r`；反悔 ⇒ 该条目永久在飞 ⇒ head 卡死 ⇒ 全机死锁 |
 | 完成脉冲 | 每个被接受的 load **恰好**一个 `ld_done_valid`（`rresp` **不参与门控** —— LSQ 没有错误口） |
@@ -553,33 +470,33 @@ radix-2 **恢复余数**迭代（32 次 + 1 拍输出）。取 `|a|/|b|` 迭代�
 
 ## 目标架构：官方框架对接（Phase C 规格）
 
-> 本节是**目标规格 + 实现记录**。**C2/C3/C4 已实现**（`student_top` + AXI4-Lite + MMIO 停机，
-> 过程与验收见 `docs/plan.md` §14）；**C1 的 DIV/DIVU/REM/REMU 亦已实现**（多周期，
-> 见 `docs/plan.md` §15.10；LB/LBU/LH/LHU 更早已实现）；**仍未实现**：
-> C6（Cache）、C7（清掉 `core/memory.v`）、C8b（真核面积基线）。
+> 本节原是 Phase C 的目标规格，**现已全部落地**：C2/C3/C4（`student_top` + AXI4-Lite + MMIO 停机，
+> `docs/plan.md` §14）、C1（DIV/DIVU/REM/REMU，§15.10）、C6（I-cache §15.14 / D-cache §15.15）。
+> `core/memory.v` 仍留在 `filelist.f` 里**供 TB 复用**（综合被 `hierarchy -top` 剪掉）——这是有意为之，不再计划摘除。
+> 面积/频率实测基线见 `docs/plan.md` §二十一/§二十三 与 `docs/timing/results.csv`。
 > 凡标「**已验证**」的条目都出自对官方框架源码/文档的实读（`scripts/sim.cpp`、`fakeram.py`、
-> `synth.py`、`docs/{axi4-lite,sram}.md`，快照 `/tmp/cpu2026-fw`，上游 main `54fc150`）；
-> 标「**待验证**」的仍是推断。
+> `synth.py`、`docs/{axi4-lite,sram}.md`，快照 `/tmp/cpu2026-fw`，上游 main `54fc150`）。
+> **本节保留的价值是"为什么这么接"的推理链**；实现细节以 RTL 与 `plan.md` 为准。
 
-### C.1 现状 → 目标：差距总表
+### C.1 官方要求 → 落地情况
 
-| 维度 | 现状（已实现并测过） | 目标（官方） |
+| 维度 | 官方要求 | 落地 |
 |---|---|---|
-| 顶层 | `cpu_top`（`clk/rst_n/halt/ret_val[7:0]/commit_count/...`） | **`student_top`**，端口模板固定，**与 `cpu_top` 无一重合** ⇒ 纯新增包层 |
-| 复位 | 同步低有效 `rst_n` | 高有效 `reset`，初始化保持 5 拍 |
-| 内存 | 片上 `core/memory.v`，`MEM_SIZE=65536`、`$readmemh` 装载 | 外部 256 MiB AXI4-Lite 从机，**`memory.v` 退役**（不进 `verilog/filelist.f`）—— **现状**：`student_top` 已不例化它，但仍在 `filelist.f` 里供 TB 复用，待 C7 摘除 |
-| 延迟 | `MEM_LATENCY=3`（参数化倒计时） | 从机固定语义：最快"握手后下一拍被服务"，服务到响应 **10 拍**（`LATENCY` 默认值） |
-| 终止 | `ori x0,x0,255` + `ret_val = a0[7:0]` | 向 MMIO `0x80000000` 做 32 位 store，退出值 = `WDATA[31:0]`（由总线侧读取） |
-| ISA | ~~缺 DIV/DIVU/REM/REMU（静默 NOP）；无 LB/LBU/LH/LHU~~ → **已补齐**（C1，`docs/plan.md` §15.10） | **全 RV32IM**；LB/LBU/LH/LHU 必须实现 |
-| 参数化 | W / ROB / RS / PRF / LSQ / BHT / RAS | 追加 **Cache 容量与相联度**（官方明列） |
-| 面积 | `synth/cpu.ys` 直跑 Yosys，内存当黑盒 | `make synth`（Yosys+ABC+OpenSTA，`CLOCK_PERIOD_NS=2.0`），**SRAM 估算面积计入** |
+| 顶层 | **`student_top`**，AXI4-Lite 端口模板固定 | `verilog/top/student_top.v`；`cpu_top` 在其内部，端口与官方模板**无一重合** ⇒ 纯包层 |
+| 复位 | 高有效 `reset`，初始化保持 5 拍 | 包层取反为内部 `rst_n`（`wire rst_n = ~reset;`），不给各模块加极性参数 |
+| 内存 | 外部 256 MiB AXI4-Lite 从机（`0x00000000`–`0x0fffffff`） | `mem_subsystem` + `axi_lite_master`；`core/memory.v` 仅供 TB（综合时被剪） |
+| 延迟 | 从机：最快"握手后下一拍被服务"，服务到响应 **10 拍**（`LATENCY` 默认值） | 未做假设，按变长延迟设计（`imem_hit`/`imem_valid` 真实实现） |
+| 终止 | 向 MMIO `0x80000000` 做 32 位 store，退出值 = `WDATA[31:0]` | `cpu_top` 提交级判地址+宽度锁存 `halt`；写照常发到总线（从机自己认地址） |
+| ISA | **全 RV32IM**（免除只有 CSR*/ECALL/EBREAK/FENCE/FENCE.I） | 已补齐（DIV/DIVU/REM/REMU 见 `plan.md` §15.10；LB/LBU/LH/LHU 更早） |
+| 参数化 | 发射宽度 / ROB / PRF / RS / LSQ / **Cache 容量与相联度** | 全部参数化，见「参数表」；Cache 已落地（`icache.v`/`dcache.v`） |
+| 面积/频率 | Yosys+ABC+OpenSTA 到 ASAP7，**SRAM 估算面积计入** | 容器链路 `cpu2026:local`（ASAP7 r28），台账 `docs/timing/results.csv` |
 
 ### C.2 层次结构
 
 ```
 student_top                      ← 官方要求的顶层；复位取反 + 例化 + 端口对接   【已实现】
 ├── cpu_top                      ← 乱序核（存储侧端口已外露，其余不动）
-│   └── 现有 19 个模块            ← decode/execute_slot/alu/cdb/prf/cpu_top 已按 C1 改动（div.v 为新增）
+│   └── 核内各模块                ← front/exec/core（div.v 为 C1 新增，execute_slot 含 D/Q/W 三级）
 └── mem_subsystem                ← 存储子系统                              【已实现】
     ├── icache                   ← I 侧直接映射行缓存（IC_SIZE/IC_LINE_WORDS/IC_BYPASS/IC_PREFETCH）【已实现】
     ├── dcache                   ← D 侧组相联行缓存（DC_SIZE/DC_LINE_WORDS/DC_WAYS）           【已实现】
@@ -673,28 +590,26 @@ student_top                      ← 官方要求的顶层；复位取反 + 例�
 > D 侧 `verilog/core/dcache.v`，都接在 `mem_subsystem.v` 里。下表 D 相关两行的**目标规格与最终实现不同**
 > （写策略该做 idxinv 而非"不写分配"、缺失处理该做单 MSHR + 1 条排队），差异与实测见 `plan.md` §15.15。
 >
-> **D 侧实测的三条反直觉结论（都写进 `plan.md` §15.15 §九~§十二）**：
-> 1. **D-cache 不是全面加速，是再分配**：同配置 HEAD 对照 geo 0.4428 → 0.4732（**+6.87%**），
->    但 vvadd +42.0% / median +35.8% 与 qsort −7.0% / towers −15.4% 并存 —— 倒退全在 store 密集用例，
->    机制是 `idxinv` 每次 store 提交清掉**整组**（1 路下 = 扔整行）。~~这正是离线表里 `update` 高 +7.9% 的来源。~~
->    **（本行后半已被注 4 更新：真正贵的不是"清整组"而是"清得太早"，把时点挪到退休就赚回 2.05%。）**
+> **D 侧实测：五条写进规格的结论**（过程与逐点数据见 `plan.md` §十五~§二十；下面是结论，不是推导）
+> 1. **D-cache 不是全面加速，是再分配**：同配置对照 geo 0.4428 → 0.4732（+6.87%），但
+>    vvadd +42.0% / median +35.8% 与 qsort −7.0% / towers −15.4% 并存 —— 倒退全在 store 密集用例。
 > 2. **AR 带宽收支判据 `h/m > L`**（一次 L 字填充 = L 笔 AR，1 AR/拍、每 AR 4 B）：L=8 要求命中率 **88.9%**，
->    实测 `hit/ms` 只有 **0.46~0.68** ⇒ 当前 D-cache 是**读带宽的净消耗者**（qsort 要 5.4× 的 AR），
->    **净赢靠的是延迟掩盖而非带宽**。这条判据是后续一切 D 侧取舍的基准。
+>    实测只有 **0.46~0.68** ⇒ 当前 D-cache 是**读带宽的净消耗者**，**净赢靠延迟掩盖而非带宽**。
+>    这是后续一切 D 侧取舍的基准判据（优化方针第 3 步）。
 > 3. **污染填充必须中止**（污染后回包必被丢弃，再发就是白占读通道）：`fill_req_valid` 加 `!fill_abort_w`，
 >    但**已发出的要收完**且"无在飞时当拍收尾"，实测 **+3.48%**，增益精确落在高污染用例上。
-> 4. **一致性的失效点在 store "退休"而不是"提交"**（**+2.05%**，geo 0.4732 → 0.4829）：
->    提交只拦安装、不下架行；行留在缓存里继续供命中，提交→退休之间的字节由 `sq_merge_byte_f` 合并链兜。
->    **两条窗口必须在同一个 posedge 结束**（`sq_ret_p++` 与 `valid_r<=0` 同拍）——valid 早清只是白清，
->    valid 晚清就是"合并链没了而行还在 ⇒ 读到旧值静默算错"。增益精确落在 store 打中驻留行的用例上
->    （qsort +8.5% / towers +3.2% / rsort +0.8%），零驻留的 median/multiply/vvadd **逐比特不变**。
->    ⇒ **`idxinv` 的"提交即整组失效"是当时的最优解被高估**：真正贵的是"行活不过一条 store"。
-> 5. **容量轴没牙、相联度轴几乎免费 ⇒ 默认改 2 路**（**+2.18%**，geo 0.4829 → 0.4934，`plan.md` §十五 §十六）：
->    预注册的两条方向性预测里，容量那条方向对但幅度没用（SRAM ×4 只值 **+0.35%**），相联度那条**被双向证伪**
->    （预测 towers 涨 / qsort·rsort 不动，实测 towers **逐比特不动**、qsort **+8.1%** / rsort **+5.3%**）。
->    ⇒ **qsort/rsort 的缺失是冲突缺失不是容量缺失；towers 的缺失对缓存几何整体不敏感**
->    （六个计数器在五个配置下逐比特相同），只能从 store 侧解。**2 路用 0 额外 SRAM bit**
->    （`64×288` 与 `32×576` 同为 18432 bit）拿到 16K/1 路收益的 80.4%，面积代价约 1/433。
+> 4. **store 的失效点在"退休"而不是"提交"**（+2.05%，geo 0.4732 → 0.4829）：提交只拦安装、不下架行，
+>    提交→退休之间的字节由 `sq_merge_byte_f` 合并链兜。**两条窗口必须在同一个 posedge 结束**
+>    （`sq_ret_p++` 与 `valid_r<=0` 同拍）——valid 早清只是白清，晚清就是"合并链没了而行还在 ⇒ 读旧值静默算错"。
+>    增益精确落在 store 打中驻留行的用例上（qsort +8.5% / towers +3.2% / rsort +0.8%），
+>    零驻留的 median/multiply/vvadd **逐比特不变**。
+>    ⇒ 教训：早期"`idxinv` 提交即整组失效"之所以看着够用，是因为没试过更好的时点。
+> 5. **容量轴没牙、相联度轴几乎免费 ⇒ 默认 2 路**（+2.18%，geo 0.4829 → 0.4934）：
+>    容量：SRAM ×4 只值 **+0.35%**；相联度：预测（towers 涨 / qsort·rsort 不动）**被双向证伪** ——
+>    实测 towers **逐比特不动**、qsort **+8.1%** / rsort **+5.3%**。
+>    ⇒ **qsort/rsort 的缺失是冲突缺失不是容量缺失；towers 的缺失对缓存几何整体不敏感**（六个计数器在五个配置下逐比特相同），
+>    只能从 store 侧解。**2 路用 0 额外 SRAM bit**（`64×288` 与 `32×576` 同为 18432 bit）拿到 1 路 16K 收益的 80.4%，面积代价约 1/433。
+>    （替换策略 RR→LRU 的首轮结论"是死代码"**已被证伪并划线**，重测见 `plan.md` §十七/§二十：rsort 0.7229 → 0.7647。）
 
 | 决策 | 选择 | 理由 | 现状 |
 |---|---|---|---|
@@ -733,11 +648,10 @@ student_top                      ← 官方要求的顶层；复位取反 + 例�
 （8 数据 + 1 tag，`WRITE_GRANULARITY=32` 逐字写）⇒ `sram_area_um2 = 386.984`，
 与 `9216 × 0.0419904 = 386.98` **逐位吻合** ⇒ 该成本模型可直接用于预算推算。
 
-**面积/容量的换算率（档 1 预算的尺子）**：`1 µm² ≈ 23.8 bit`，即档 1 余量 815.8 µm²
-（9000 − 8184.2）≈ **19.4 Kbit ≈ 2.4 KiB** 的**全部** SRAM（数据 + tag + 状态），
-且这还没扣掉新逻辑。**cache 容量是档 1 里最贵的旋钮**，必须逐点实测而非估算。
+**面积/容量的换算率**：`1 µm² ≈ 23.8 bit`（= 1/0.0419904）—— 加 SRAM 前先用它把 bit 数折成 µm²。
+**cache 容量是最贵的旋钮**，必须逐点实测而非估算（实测：容量 ×4 只值 +0.35% IPC，见上文 D 侧结论 5）。
 
-**D 侧 load 可见性合约**（本节最深的坑，**待验证**的设计推断）：
+**D 侧 load 可见性合约**（本节最深的坑；**已实现并验证**，是 `store_queue` 退役判据的来源）：
 `0x80000000` 之外，从机对 AR/AW 是**两条独立队列**，跨通道顺序**无保证**（C.4 已实证 LFSR 随机）。
 旧 `memory.v` 靠"load 在读**完成当拍**才读存储阵列"规避了这个问题；换成 AXI 后，
 读数据是 **AR 被服务那一刻的快照**，而捕获在 **R 到达那一刻**，中间出现空洞：
@@ -783,30 +697,18 @@ tr: R 到达并捕获（= t1 的快照，不含 S）
 > SRAM 面积是否计入、顶层端口模板、仿真结束条件（B 握手）、`filelist.f` 相对路径、终止序列、
 > `arready` 时机与 AW/W 配对、判分与 IPC 口径 —— 结论分别写在 C.3–C.7。
 
-## 关键文件
+## 代码布局与官方边界
 
-> 目录已迁移到官方布局：`rtl/` → **`verilog/`**；根 `Makefile`/`scripts/` 属官方（勿改），
-> 自建 TB 流程在 **`Makefile.tb`**（`make -f Makefile.tb run/wave/bench`）。
-
-- 修改：verilog/front/{fetch,decode,bht,ras}.v、verilog/core/{rat,free_list,rob,rs,ready_table,prf,lsq,cdb,memory}.v、verilog/exec/{alu,branch}.v、verilog/top/cpu_top.v（Phase A 先写接口骨架 + cpu_top 全部布线，Phase B 逐模块填充内部；**Phase A 新增 TB 9 个**：tb_rat/tb_rs/tb_lsq/tb_memory/tb_fetch/tb_alu/tb_branch/tb_rob/tb_cpu_top）
-- 修改（实现期新增）：verilog/exec/execute_slot.v（B1/B3/B4 的操作数获取、执行分发、误预测检测汇出）
-- 新增（§5）：tb/top/tb_cpu_prog.v（编译程序整机验证）；当前 `tb/` 共 **12** 个 = Phase A 的 9 个 + 既有 tb_mul/tb_adder32 + tb_cpu_prog
-- 修改（§6 性能修复）：verilog/exec/mul.v（tree_level 改词级运算 + 校正位行整行单驱动）、verilog/exec/alu.v（非乘法 op 门控乘法器输入）
-- 不动：verilog/exec/adder32.v、`Makefile.tb`（自动发现新文件）
-- **新增（Phase C，见上文「目标架构」）**：verilog/top/student_top.v、verilog/core/{icache,dcache,store_queue,axi_lite_master,mem_subsystem}.v；
-  修改：cpu_top.v（内存侧端口 + MMIO 终止）、decode.v（div/rem + LB/LBU/LH/LHU 解码）、lsq.v（只改接口对接，合并语义不动）；
-  退役：core/memory.v（移出 `verilog/filelist.f`，留作本地回归后端）
-- **新增（C1，见 `docs/plan.md` §15.10）**：verilog/exec/div.v（多周期除法器）、tb/exec/tb_div.v、tb/top/div_corner.{s,data} + 两个脚本；
-  修改：decode.v（div/rem 译码）、execute_slot.v（is_div / 发起请求 / exec_valid 门控）、alu.v（sel_prod 收窄 + default 显式 0）、
-  cdb.v + prf.v（写回口 +1 → 槽 W+1）、cpu_top.v（div 例化 + 发起仲裁 + kill 判据）、verilog/filelist.f
-- **修改（频率，见 `docs/plan.md` §15.10.13）**：execute_slot.v 内部分成 **D 级**（B3 字段取 one-hot+AND-OR）
-  / **Q 级**（B1 操作数获取 + B3 执行 + B4 误预测检测），中间一个 144+1 位寄存器；新增端口
-  `flush_win`/`flush_hit`/`div_accept`/`sel_valid_q`/`pipe_stall`；cpu_top.v 的 `rs_clear_valid`
-  改为 `sel_valid & ~pipe_stall_w`、ret_sample 读口判据改用 `sel_valid_q[0]`（原 `div_hold_w` 机制随之退役）
-- **修改（正确性，见 `docs/plan.md` §15.10.19，2026-09-28）**：`flush_hit` 不再收全局 `misp_valid`，
-  改由 cpu_top **逐槽按年龄**给出（`!q_freeze || (q_rob_tag - rob_head) >= (fs_eff - rob_head)`）；
-  为此 execute_slot.v 新增两个输出 `q_freeze`/`q_rob_tag`。理由：W≥2 下被 `q_freeze` 扣住的槽
-  仍持有更早选中的一条，两槽 Q **不再有年龄序**，全局清空会销毁比冲刷点更老的**正确路**指令
-- 官方框架（根目录，**勿改**）：Makefile、config.mk、scripts/、docs/{axi4-lite,sram}.md、testcases/（submodule）；
-  本机工具链路径写 `config.local.mk`（已 gitignore），用 `make CONFIG=config.local.mk <target>`
-- 参考语义源：RISC-V-Tomasulo-CPU-Simulator/src/core/cpu_top.cpp、include/ports/*.hpp
+- **目录约定**：`verilog/<域>/<模块>.v`（域 = top/front/core/exec），`tb/<域>/tb_<模块>.v`，脚本在 `tools/`。
+  本机单元/整机 TB 流程 = **`Makefile.tb`**（`make -f Makefile.tb run/wave/bench tb=...`）。
+- **RTL 清单（25 个，以 `verilog/filelist.f` 为准）**：
+  - `exec/`：adder32, mul, div, alu, branch, execute_slot
+  - `front/`：fetch, decode, bht, ras
+  - `core/`：rat, free_list, rob, rs, ready_table, prf, lsq, cdb, memory, axi_lite_master, icache, dcache, mem_subsystem
+  - `top/`：cpu_top, student_top
+  - `core/memory.v` **仅供 TB**（固定 1 拍存储，综合时被 `hierarchy -top` 剪掉），不再计划摘除。
+- **官方、勿改**：根 `Makefile`、`config.mk`、`scripts/`、`docs/{axi4-lite,sram}.md`、`testcases/`（submodule）。
+  本机工具链路径写进 gitignore 的 `config.local.mk`，用 `make CONFIG=config.local.mk <target>` 生效。
+- **参考语义源**：`/Users/audience/program/PPCA/RISC-V-Tomasulo-CPU-Simulator`（C++ Tomasulo）的
+  `src/core/cpu_top.cpp`、`include/ports/*.hpp`。
+- 文件的增删改历史看 `git log` —— 本节不再维护变更清单。
