@@ -245,6 +245,25 @@ SWEEP_TEST=1 tools/sweep.sh sw base ""                # 同一棵树里再跑官
 ⚠ 见 §2.4：TB 侧参数是各自复制的，本脚本**不**同步它们 ⇒ 扫出来的变体不覆盖
 `make -f Makefile.tb` 门控，别拿单元 TB 当变体的正确性证据。
 
+### `vcd_bubble.py` —— 官方口径逐拍气泡归因（**单点深挖，不做消融**）
+
+```sh
+make CONFIG=config.local.mk build          # 二进制必须比 verilog/ 新, 否则数的是旧 RTL
+D=testcases/perf_qsort
+./build/sim $D/program.data $(cat $D/expected.txt) 100000000 10 /tmp/w.vcd
+tools/vcd_bubble.py /tmp/w.vcd && rm -f /tmp/w.vcd
+```
+
+- **为什么用官方二进制的波形**：波形模式（`argc==6`，非 OJ）跑的是 **`scripts/sim.cpp` 本体**
+  —— 与 `make perf` 同一个存储模型、同一套周期语义 ⇒ 归因**不需要**第二套行为级从机,
+  周期数与 `make perf` 逐位相同（自校验见 `plan.md` §30.1：探针 `cyc` 恒 = 官方 − 16）。
+- **分区按提交侧**（`set_head_valid` + ROB head 的 ready/opcode），不是派发侧 `issue_en`：
+  单发射下 RS 满挡住派发的那一拍 RS 仍在出货 ⇒ 派发侧口径会把 RS 满整片记成气泡（§30.4）。
+- 波形 **≈8 KB/拍**（qsort 1.9 GB / rsort 2.5 GB）。脚本按行**流式**读、只留当前值 ⇒
+  内存恒定；不要改成"把每次变化存进列表"（那版在 247k 拍上被 OOM 杀过）。
+- 同一份波形可反复扫（改脚本重扫即可），所以**先存波形、再调归因**比反复跑仿真便宜。
+- 输出示例与六程序数据表见 `docs/plan.md` §30.2。
+
 ## 2. 踩过的坑（每条都真栽过）
 
 1. **`design.json` 是 73 MB 的命名空间陷阱。** 它用 `$abc$…$` 命名，与 `mapped.v` 的

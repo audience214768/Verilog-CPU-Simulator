@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""官方 student_top 波形 (build/sim 非 OJ 波形模式) 的**提交侧**气泡归因 (互斥穷尽)。
+
+首个参数化扫描工具, 与 sweep.sh 的区别: 这是"单点深挖", 跑的是官方二进制。
+单发射每拍至多提交 1 条 ⇒ IPC 口径 = set_head_valid; 派发侧 issue_en 不直接对应 IPC
+(RS 满而 RS 仍在出货的拍不丢 IPC —— 实测 rsort 派发侧"RS 满"36.5% 是假警报)。
+分区: cyc = commit + flush + empty(+IC fill) + head-not-ready(load/store/cf/alu) + ready-nocommit(store 缺 SQ 位)
+用法:
+  D=testcases/perf_qsort
+  ./build/sim $D/program.data $(cat $D/expected.txt) 100000000 10 /tmp/w.qcd
+  tools/vcd_bubble.py /tmp/w.vcd
+波形约 8 KB/拍 (qsort 1.9 GB / rsort 2.5 GB), 扫描完即可删; 本脚本按行流式读, 不占内存。
+口径与自校验见 docs/plan.md §30; 数据表在 §30.2。
+"""
+import sys
+
+path = sys.argv[1]
+U = 'student_top.u_cpu.'
+M = 'student_top.u_mem.'
+WANT = {
+    'student_top.rst_n': 'rst_n',
+    U + 'halt_q_r': 'halt',
+    U + 'issue_en': 'issue_en',
+    U + 'misp_valid': 'misp',
+    U + 'flushing_r': 'flushing',
+    U + 'set_head_valid': 'commit',
+    U + 'sw_ready': 'sw_ready',
+    U + 'sw_valid': 'sw_valid',
+    U + 'u_rob.ready': 'rob_ready',
+    U + 'u_rob.head': 'rob_head',
+    U + 'u_rob.opcode': 'rob_op',
+    U + 'misp_fs_w': 'misp_fs',
+    U + 'u_rob.free_count': 'rob_free',
+    U + 'u_lsq.valid': 'lq_v',
+    U + 'u_lsq.is_load': 'lq_ld',
+    U + 'u_lsq.addr_ready': 'lq_ar',
+    U + 'u_lsq.data_ready': 'lq_dr',
+    U + 'u_lsq.head': 'lq_h',
+    M + 'ld_busy': 'ld_busy',
+    M + 'u_ic.fill_busy': 'ic_fill',
+    M + 'u_ic.miss_w': 'ic_miss',
+    M + 'u_dc.miss_pending_w': 'dc_misspend',
+    M + 'u_dc.fill_busy': 'dc_fill',
+    M + 'u_dc.busy': 'dc_busy',
+    M + 'u_dc.fill_wr_w': 'dc_fwr',
+    M + 'u_dc.lk_v_r': 'dc_lkv',
+    M + 'u_dc.hit_raw_w': 'dc_hraw',
+    M + 'u_dc.rsp_busy': 'dc_rspb',
+    M + 'u_dc.ms_fire_w': 'dc_msf',
+    M + 'u_axi.rd_full_w': 'axi_rdfull',
+    M + 'u_axi.wr_full_w': 'axi_wrfull',
+}
+
+scope, id2n = [], {}
+with open(path, 'r', errors='replace') as f:
+    for line in f:
+        s = line.strip()
+        if s.startswith('$scope'):
+            scope.append(s.split()[2])
+            continue
+        if s.startswith('$upscope'):
+            scope.pop()
+            continue
+        if s.startswith('$enddefinitions'):
+            break
+        if s.startswith('$var'):
+            p = s.split()
+            full = '.'.join(scope[1:] + [p[4]])
+            if full in WANT:
+                id2n[p[3]] = WANT[full]
+missing = set(WANT.values()) - set(id2n.values())
+if missing:
+    print('# MISSING SIGNALS:', sorted(missing), file=sys.stderr)
+
+v = {n: 0 for n in WANT.values()}
+C = dict(cyc=0, commit=0, iss=0, flush=0, empty=0, emp_ic=0, ready=0, rc_sw=0,
+         ld=0, st=0, cf=0, alu=0, ld_ni=0, ld_mem=0, ld_oth=0,
+         misp=0, ld_busy=0, dc_miss=0, dc_fill=0, dc_busy=0,
+         axi_rd=0, axi_wr=0, sw=0, ic_fill=0,
+         dcb_inst=0, dcb_lk=0, dcb_both=0)
+MISPB = [0] * 4      # 0=jal 1=jalr(含 ret) 2=条件分支 3=其他 (ROB 只存 7 位 opcode, 分不出 ret/f3)
+OP_LOAD, OP_STORE = 0b0000011, 0b0100011
+OP_CF = (0b1100011, 0b1101111, 0b1100111)
+t, started = 0, False
+with open(path, 'r', errors='replace') as f:
+    for line in f:
+        if not started:
+            if line.startswith('$enddefinitions'):
+                started = True
+            continue
+        c = line[0]
+        if c == '#':
+            t = int(line[1:])
+            if t & 1:
+                continue
+            if v['rst_n'] and not v['halt']:
+                C['cyc'] += 1
+                C['iss'] += 1 if v['issue_en'] else 0
+                if v['misp']:
+                    C['misp'] += 1
+                    mf = v['misp_fs']
+                    mo = (v['rob_op'] >> (mf * 7)) & 0x7f
+                    MISPB[0 if mo == 0b1101111 else
+                          (1 if mo == 0b1100111 else
+                           (2 if mo == 0b1100011 else 3))] += 1
+                C['sw'] += 1 if v['sw_valid'] else 0
+                C['ld_busy'] += 1 if v['ld_busy'] else 0
+                C['dc_miss'] += 1 if v['dc_misspend'] else 0
+                C['dc_fill'] += 1 if v['dc_fill'] else 0
+                C['dc_busy'] += 1 if v['dc_busy'] else 0
+                C['ic_fill'] += 1 if (v['ic_fill'] or v['ic_miss']) else 0
+                C['axi_rd'] += 1 if v['axi_rdfull'] else 0
+                C['axi_wr'] += 1 if v['axi_wrfull'] else 0
+                if v['dc_busy']:
+                    ins = v['dc_fwr']
+                    lkb = v['dc_lkv'] and (not (v['dc_hraw'] and not v['dc_rspb'])) and (not v['dc_msf'])
+                    if ins and lkb:
+                        C['dcb_both'] += 1
+                    elif ins:
+                        C['dcb_inst'] += 1
+                    else:
+                        C['dcb_lk'] += 1
+                occ = v['rob_free'] < 16
+                if v['commit']:
+                    C['commit'] += 1
+                elif v['misp'] or v['flushing']:
+                    C['flush'] += 1
+                elif not occ:
+                    C['empty'] += 1
+                    C['emp_ic'] += 1 if (v['ic_fill'] or v['ic_miss']) else 0
+                else:
+                    hd = v['rob_head']
+                    if (v['rob_ready'] >> hd) & 1:
+                        C['ready'] += 1
+                        C['rc_sw'] += 1 if not v['sw_ready'] else 0
+                    else:
+                        hop = (v['rob_op'] >> (hd * 7)) & 0x7f
+                        if hop == OP_LOAD:
+                            C['ld'] += 1
+                            lh = v['lq_h']
+                            if ((v['lq_v'] >> lh) & 1) and ((v['lq_ld'] >> lh) & 1):
+                                if not ((v['lq_ar'] >> lh) & 1):
+                                    C['ld_ni'] += 1
+                                elif not ((v['lq_dr'] >> lh) & 1):
+                                    C['ld_mem'] += 1
+                                else:
+                                    C['ld_oth'] += 1
+                            else:
+                                C['ld_oth'] += 1
+                        elif hop == OP_STORE:
+                            C['st'] += 1
+                        elif hop in OP_CF:
+                            C['cf'] += 1
+                        else:
+                            C['alu'] += 1
+            elif v['halt']:
+                break
+            continue
+        if c in '01xzXZ':
+            n = id2n.get(line[1:].strip())
+            if n is not None:
+                v[n] = 1 if c == '1' else 0
+        elif c in 'bB':
+            sp = line[1:].split()
+            if len(sp) == 2:
+                n = id2n.get(sp[1])
+                if n is not None:
+                    v[n] = int(sp[0].replace('x', '0').replace('z', '0'), 2)
+
+cyc, cm = C['cyc'], C['commit']
+hdr = C['ld'] + C['st'] + C['cf'] + C['alu']
+pc = lambda x: f"{x}({x*100//cyc}%)"
+print(f"cyc={cyc} commit={cm} ipc={cm/cyc:.4f} | issue={C['iss']} squashed={C['iss']-cm} "
+      f"| stores-committed={C['sw']}")
+print(f"  no-commit={cyc-cm} {pc(cyc-cm)}: flush={pc(C['flush'])} empty={pc(C['empty'])}"
+      f"(IC-fill {C['emp_ic']}) store-blocked-SQ={pc(C['rc_sw'])} "
+      f"head-notready={pc(hdr)}")
+print(f"  head-notready: load={pc(C['ld'])} [未发射 {C['ld_ni']} / 等存储 {C['ld_mem']}]"
+      f" store={pc(C['st'])} cf={pc(C['cf'])} alu/其他={pc(C['alu'])}")
+print(f"  MEM: ld_busy={pc(C['ld_busy'])} dc_misspend={pc(C['dc_miss'])} dc_fill={pc(C['dc_fill'])}"
+      f" dc_busy={pc(C['dc_busy'])} axi_rd_full={pc(C['axi_rd'])} axi_wr_full={pc(C['axi_wr'])}"
+      f" ic_fill={pc(C['ic_fill'])} misp={C['misp']}")
+print(f"  misp 类型 [jal, jalr/ret, 条件分支, 其他] = {MISPB}")
+print(f"  dc_busy 拆: 安装写={pc(C['dcb_inst'])} 查表寄存器={pc(C['dcb_lk'])} 两者={C['dcb_both']}")
