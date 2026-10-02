@@ -3,18 +3,24 @@
 
 首个参数化扫描工具, 与 sweep.sh 的区别: 这是"单点深挖", 跑的是官方二进制。
 单发射每拍至多提交 1 条 ⇒ IPC 口径 = set_head_valid; 派发侧 issue_en 不直接对应 IPC
-(RS 满而 RS 仍在出货的拍不丢 IPC —— 实测 rsort 派发侧"RS 满"36.5% 是假警报)。
+(RS 满而 RS 仍在出货的拍不丢 IPC —— 实测 rsort 派发侧"RS 满"36.5% 不是直接气泡;
+但 RS 容量本身对 IPC 有收益, 只是路径藏在"等存储"里, 本分区看不见 —— 见 plan.md §30.4 订正)。
 分区: cyc = commit + flush + empty(+IC fill) + head-not-ready(load/store/cf/alu) + ready-nocommit(store 缺 SQ 位)
 用法:
   D=testcases/perf_qsort
   ./build/sim $D/program.data $(cat $D/expected.txt) 100000000 10 /tmp/w.qcd
-  tools/vcd_bubble.py /tmp/w.vcd
+  tools/vcd_bubble.py /tmp/w.vcd [ROB_SIZE]
 波形约 8 KB/拍 (qsort 1.9 GB / rsort 2.5 GB), 扫描完即可删; 本脚本按行流式读, 不占内存。
-口径与自校验见 docs/plan.md §30; 数据表在 §30.2。
+第二个参数是生成该波形的 **ROB_SIZE** (默认 16 = c2): "ROB 空" 的判据是 rob_free == ROB_SIZE,
+写死会在放大 ROB 的变体上把"在飞若干条"误判成空。跑非 c2 波形时**必须**显式给。
+口径与自校验见 docs/plan.md §30; 数据表在 §30.2, 变体侧在 §31.5。
 """
 import sys
 
 path = sys.argv[1]
+# ROB_SIZE 必须与生成该波形的参数一致: "ROB 空" 的判据是 rob_free == ROB_SIZE,
+# 写死 16 会在放大 ROB 的变体上把"在飞若干条"误判成空 (empty 桶虚高)。
+ROB = int(sys.argv[2]) if len(sys.argv) > 2 else 16
 U = 'student_top.u_cpu.'
 M = 'student_top.u_mem.'
 WANT = {
@@ -120,7 +126,7 @@ with open(path, 'r', errors='replace') as f:
                         C['dcb_inst'] += 1
                     else:
                         C['dcb_lk'] += 1
-                occ = v['rob_free'] < 16
+                occ = v['rob_free'] < ROB
                 if v['commit']:
                     C['commit'] += 1
                 elif v['misp'] or v['flushing']:

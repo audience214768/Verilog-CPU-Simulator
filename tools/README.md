@@ -251,14 +251,20 @@ SWEEP_TEST=1 tools/sweep.sh sw base ""                # 同一棵树里再跑官
 make CONFIG=config.local.mk build          # 二进制必须比 verilog/ 新, 否则数的是旧 RTL
 D=testcases/perf_qsort
 ./build/sim $D/program.data $(cat $D/expected.txt) 100000000 10 /tmp/w.vcd
-tools/vcd_bubble.py /tmp/w.vcd && rm -f /tmp/w.vcd
+tools/vcd_bubble.py /tmp/w.vcd [ROB_SIZE] && rm -f /tmp/w.vcd
 ```
+
+- **第二个参数是生成该波形的 `ROB_SIZE`（默认 16 = `c2`）**：「ROB 空」的判据是
+  `rob_free == ROB_SIZE`，写死会在放大 ROB 的变体上把"在飞若干条"误判成空 ⇒ **跑非 `c2` 波形必须显式给**
+  （`stack`/`dc2k_c3` 用 32）。变体侧数据表见 `plan.md` §31.5。
 
 - **为什么用官方二进制的波形**：波形模式（`argc==6`，非 OJ）跑的是 **`scripts/sim.cpp` 本体**
   —— 与 `make perf` 同一个存储模型、同一套周期语义 ⇒ 归因**不需要**第二套行为级从机,
   周期数与 `make perf` 逐位相同（自校验见 `plan.md` §30.1：探针 `cyc` 恒 = 官方 − 16）。
 - **分区按提交侧**（`set_head_valid` + ROB head 的 ready/opcode），不是派发侧 `issue_en`：
   单发射下 RS 满挡住派发的那一拍 RS 仍在出货 ⇒ 派发侧口径会把 RS 满整片记成气泡（§30.4）。
+  ⚠ 但"RS 满不是直接气泡"**推不出**"RS 容量无收益"—— 大 RS 提前发射 load 缩短内存墙的收益
+  落在 `head=load 等存储` 里，本分区看不见（§30.4 订正；`rs8` 实测 rsort +6.4%）。
 - 波形 **≈8 KB/拍**（qsort 1.9 GB / rsort 2.5 GB）。脚本按行**流式**读、只留当前值 ⇒
   内存恒定；不要改成"把每次变化存进列表"（那版在 247k 拍上被 OOM 杀过）。
 - 同一份波形可反复扫（改脚本重扫即可），所以**先存波形、再调归因**比反复跑仿真便宜。
