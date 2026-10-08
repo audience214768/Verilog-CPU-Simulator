@@ -270,6 +270,28 @@ tools/vcd_bubble.py /tmp/w.vcd [ROB_SIZE] && rm -f /tmp/w.vcd
 - 同一份波形可反复扫（改脚本重扫即可），所以**先存波形、再调归因**比反复跑仿真便宜。
 - 输出示例与六程序数据表见 `docs/plan.md` §30.2。
 
+### `vcd_mem.py` —— 访存并发度 + D-cache 组占用（**看结构，不看气泡**）
+
+```sh
+D=testcases/perf_rsort
+./build/sim $D/program.data $(cat $D/expected.txt) 100000000 10 /tmp/w.vcd
+tools/vcd_mem.py /tmp/w.vcd        # 同 vcd_bubble 的波形，可比 vcd_bubble 省一次仿真
+```
+
+- 回答两件事：**① 全机同时有几笔 D 需求缺失在飞**（`ld_occ_w` 均值/直方图，及"需求缺失撞上填充引擎忙"
+  的比例）；**② D-cache 的组满不满、install 时受害路有效（真冲突驱逐）的比例**。
+- 采样本应与 `vcd_bubble.py` 一致（偶数 `#t`、`rst_n && !halt`），便于逐位对账。两条**自校验**：
+  - **逐拍断言** `ld_occ_w == ld_wr_p - ld_rd_p + dc_ms_fire_w`（`mem_subsystem.v:231`）。不符即口径错，
+    脚本照常打印但**结论作废**（实测六程序 0 拍不符）。
+  - `cyc` 必须 = 官方 `make perf` 周期 − 16；推送数 == 回包数 == `ld_wr_p` 终值。
+- **`lm_flight` 的复算恒 ≥ `vcd_bubble.py` 的数（多 0~15 拍）**，不是逐位相等：后者把 `commit` / `flush`
+  拍先行分类、不计入该桶（六程序实测差 +0/+2/+4/+15）⇒ 两个工具对账看趋势，不看相等。
+- **起填来源必须在"起填那拍"锁存**（`fill_start_w` 上升沿 + 三个互斥理由取优先级），不能在 install
+  那拍采 —— 踩过：在 install 拍采 `dpf_start_w` ⇒ vvadd 报"预取 0%"，而它全机只有 2 笔需求缺失
+  （正确值 152/155）。位序：`valid_r` 的第 `way*DC_SETS + set` 位；install = `vset_w`。
+- 波形同样 ≈8~10 KB/拍（qsort 2.0 GB / rsort 2.6 GB）；流式读，内存恒定。
+- 输出示例与六程序数据表见 `docs/plan.md` §6.2。
+
 ## 2. 踩过的坑（每条都真栽过）
 
 1. **`design.json` 是 73 MB 的命名空间陷阱。** 它用 `$abc$…$` 命名，与 `mapped.v` 的
