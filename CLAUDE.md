@@ -1,15 +1,9 @@
-## 尽可能的避免if 和 case而是使用“？”表达式，避免漏情况。但如果较为复杂用if和case保证清晰度是可以接受的。
-## 使用verilog-2005版本，确保可以同时仿真、综合
-## 乱序执行多发射CPU
-## 可以参数化，比如多发射指令数、ROB、RS等数据结构的大小，具体到后端实现不需要参数化（比如加法器、乘法器的位数）
-## 报告：架构设计探索，性能消融（不同参数下性能优化情况）
-## 评测要求一律以 docs/description.md 为准 (该文件只能由用户手动修改; 计划/架构/分析文档随其更新)
+## 要求一律以 docs/description.md 为准 (该文件只能由用户手动修改; 计划/架构/分析文档随其更新)
 ##   IPC 测试点 = testcases/perf_* (submodule ACMClassCourse-2025/RISC-V-CPU-2026-Testcases);
 ##   内存: 外部 AXI4-Lite 从机 (0x00000000-0x0fffffff), 响应延迟 LATENCY 默认 **10 拍** (仅此一个口径);
 ##   ISA = RV32IM, 仅免除 CSR*/ECALL/EBREAK/FENCE/FENCE.I (**LB/LBU/LH/LHU 必须实现**);
 ##   顶层模块必须命名 student_top, reset **高有效** (初始化保持 5 拍);
 ##   终止 = 向 MMIO 0x80000000 做 32 位 store (WSTRB=4'hf), 退出值 = WDATA[31:0]
-## 注意，需要实现乘法，采用2位booth编码+华莱士树
 ## 模块化目录: 
 verilog/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块在域内平铺, 模块名=文件名
 ## 官方框架布局 (根目录 Makefile/scripts/ 属官方, 勿改):
@@ -40,17 +34,6 @@ exec=adder32,mul,alu,branch,div
 ## testbench 契约: 波形输出 sim/<域>/tb_<模块>.vcd; 失败打印 N TESTS FAILED 后调 $stop;
 ## 单元测试先进行小规模+极端情况测试，通过后再考虑大规模测试确保正确性。
 ## 成功打印 ALL TESTS PASSED 后调 $finish; 一律经 make -f Makefile.tb run/wave 运行 (内部 vvp -N, 失败退出码 1)
-## 代码风格 (Verilog-2005, 仿真+综合一致)
-- 缩进 4 空格; 运算符两边加空格 (仿 C++ 风格), 如 (ISSUE_WIDTH + 1) * PW - 1 : 0
-- 命名: 端口/信号小写下划线 (f2i_valid, rob_head); parameter/localparam 大写下划线 (ISSUE_WIDTH, TERM_RAW);
-  genvar 用 i/j/k; generate 块必须命名 (begin : slt); 模块名 = 文件名
-- 宽度: 所有端口/信号显式声明向量宽度, 不用裸 1-bit 混用; 多槽打包信号按 [N*32-1:0] 定宽,
-  槽内用位段 [s*PW +: PW] 存取; 拼接复制用 {N{1'b0}} 语法
-- 表达式: 优先 ?: 嵌套避免漏情况; 较复杂处允许 if/case 保清晰; 位宽对齐后再比较, 避免隐式截断
-- 时序: 状态仅写在 always @(posedge clk) 内, 低有效复位 rst_n; 组合逻辑一律 assign/?: (不写 always @*)
-  复位风格以代码现状为准 —— 多数模块是**异步** `always @(posedge clk or negedge rst_n)`
-  (rob ×2、rs、rat、ready_table), 少数是**同步** `always @(posedge clk)` + `if (!rst_n)`
-  (prf、lsq、free_list、ras、bht); 新增代码**优先异步** ——
   ASAP7 r28 库里**没有**同步复位触发器, 同步复位会被拆成软逻辑, 更贵 (见 docs/area_budget.md §2 注)
 - 常数: 魔法数用 localparam 命名 (如 TERM_RAW = 32'h0FF06093)
 - 注释: 模块头注释说明功能/握手/写优先级; 中文注释; 不写逐行流水账
@@ -58,4 +41,6 @@ exec=adder32,mul,alu,branch,div
 - 需要记录架构探索过程和debug记录，并实时提交git
 
 - 要求以docs/description.md为准，该文件只能由我手动修改，其他计划、架构、分析文档可以修改
-arch文档用于整理项目架构，plan文档用于记录下一步计划，整体计划以及过往记录，但注意过往记录应该简单不应该干扰之后的计划，不计划做的东西或者已经实现、完成的东西不应该还大量占据计划文档。
+arch文档用于整理项目架构，plan文档用于记录下一步计划，整体计划以及过往记录，但注意过往记录应该简单不应该干扰之后的计划，不计划做的东西或者已经实现、完成的东西不应该还大量占据计划文档。不在该文档用途的内容不应该进入文档
+文档应该实时修正
+只在必要时进行综合，或者放在后台，避免浪费太多时间用于等待

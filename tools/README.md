@@ -7,11 +7,19 @@
 
 | 用途 | 唯一可信来源 |
 |---|---|
-| 频率 / 面积（**判分数**） | 容器 `cpu2026:local`（yosys 0.63 + ASAP7 **r28**）跑官方 `make synth` |
-| RTL 名字归因（哪个信号、哪段 RTL） | 宿主 yosys 0.68 + ASAP7 **r27** 的 pre-ABC 网表 |
+| 频率 / 面积（**判分数**） | 容器 `cpu2026:local`（yosys 0.63 + ASAP7 **r28**）跑官方 `make synth`（**不带 `-constr`**） |
+| 全设计扇出 / 路径普查（**可当判据**） | 判分产物的 `mapped.v` + `design.json`（`tools/bombs.py`）；容器 OpenSTA（`tools/census.tcl`） |
+| RTL 名字归因（哪个信号、哪段 RTL） | **同版本**容器的 pre-ABC 网表（`pre_abc2.ys` 重放，见 §1 `bombs.py`） |
 
-两套环境**不同源，数字绝不可混用**。宿主产物只能回答"这个网叫什么"，
-不能回答"它多快"。跨环境比较是 §15.10.11 里花掉一整天才证伪的坑之一。
+**`-constr` 不是判分口径**（2026-10-09 订正）：`docs/description.md` §5 的评测走官方 `make synth`，
+ABC **没有** `set_driving_cell` / `set_load` ⇒ 不 buffer、不 upsize，**一个网的负载数就是它的延时**。
+`tools/run.sh --constr` 是本机私有对照（给 ABC 多传一个 `-constr`），它给出的是**有 buffer 树的世界**：
+同一份 RTL 官方 31.77 MHz vs `-constr` 275.86 MHz。**两套数绝不可混用**。
+
+**宿主 yosys 0.68 的 pre-ABC 网表已判不可信**（2026-10-09）：0.68 在 `prepared.json` 上会报
+**32 条 `multiple conflicting drivers`**（容器 0.63 报 0 条），且 FF 单元只剩 1990 个（正确值 10242）
+⇒ 结构已经变了。**归因必须用容器 0.63 重放**，`tools/preabc.py` 只保留作历史参考。
+跨环境比较是 §15.10.11 里花掉一整天才证伪的坑之一。
 
 **已证伪、不许再当成功判据的量**：`ltp`、关键路径**级数**、面积、高扇出网**个数**、
 单个网的扇出下降、跨环境比较。这五个里任意一个出现在"成功"栏里，就是把已经证伪的
@@ -140,6 +148,37 @@ tools/cone.py runs/<id>/build/synth_<id>/opt --path 0          # 第 0 条路径
 **限制**：标签取的是**最近**的边界，一个门只要有任一输入来自某模块的触发器就被标成那个模块 ——
 它回答"这段逻辑贴着谁的寄存器"，**不**回答"这条路径穿过了谁"。要模块级**确定**归因只能 `MODE=diagnose`。
 
+### `bombs.py` —— 官方流程的"热网 → RTL"归因（**判分产物上直接跑**）
+
+```sh
+tools/bombs.py runs/offH/build/synth_offH/opt                # 全设计普查 + top-12 热网归因
+tools/bombs.py <dir> --top 20 --depth 3                      # 看更多 / 驱动树更深
+tools/bombs.py <dir> --net _038063_                          # 定点一个网 (完整消费者 + 锥)
+tools/bombs.py <dir> --skip-cone                             # 只看 ①②, 跳过昂贵的正向锥
+```
+
+**为什么需要它**：官方 ABC 脚本（`strash; &get -n; &fraig -x; &put`）**没有** `set_driving_cell` /
+`set_load` ⇒ ABC 手里没有负载信息，既不 buffer 也不 upsize，**一个网上挂多少负载就是多少延时**
+（单元恒为最小尺寸，延时 ≈ 0.7 × 输入摆率且沿路径单调恶化）。实测 `offH`：31.4746 ns 里
+**26.7162 ns（85%）是扇出税**，健康段只有 4.6919 ns / 88 级 @ 53.3 ps。所以"谁在付扇出税"就是全部问题。
+
+`tools/path.py` 只回答"最差那 5 条路径"（官方 `timing.rpt` 写死 `-group_path_count 5`），
+看不见"还有几条独立长路径、几个起点"。本工具用**全设计**口径回答 Step 0 的三件事：
+
+1. **全设计扇出直方图 + top-N 热网**（剔除 `clock`/`reset` —— 它们本来就该巨大扇出，混进来会盖住真热点）；
+2. **每个热网的消费者族**：消费者除热网外还吃哪些引脚、那些引脚由谁驱动 —— 判定"这是什么结构"
+   （写使能 N×W？读口 one-hot？真实触发器广播？）的硬证据；
+3. **每个热网的正向锥**：穿过组合门到达的触发器 D 脚，按 `src`（RTL 文件:行）汇总 ——
+   回答"这个网一抖，全机多少寄存器跟着抖"。
+
+**归因纪律**（`docs/plan.md` §15.10.31）：**引脚名 / 扇出数 / 比值不可用于归因**；只看
+**驱动源 + 低扇出兄弟网 + 位置**三样。真正的数据位往往是热网（被 CSE 合并出的共享中间字面量）的
+**低扇出兄弟** —— 所以 `src` 那一列才是证据，引脚直方图只是线索。
+
+**口径**：只读 `mapped.v`（post-ABC，官方判分产物）+ `design.json`（`src` 来自位置对齐 join，
+见 `pathsrc.py`）⇒ **这里的数字可以当判据用**，不像宿主 yosys 的 preabc 产物（那个只借名字，
+见 §0 里"宿主 0.68 已判不可信"）。本工具不改任何 RTL、不产生任何频率数字。
+
 ### `snap.py` —— 把一次综合的产物归档进仓库
 
 ```sh
@@ -152,10 +191,11 @@ tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "
 `alu_sites.txt`。同时往 `docs/timing/results.csv` 追加一行自解释记录 —— 历史最优 f3 的
 证据只活在 `/tmp` 里差点丢掉，这个脚本就是为此写的。
 
-**`--flow` 必填项（2026-10-02 加）**：`official` = `scripts/synth.py` 原样的 `abc -D 2000`；
-`constr` = 再加 `abc.constr`（`set_driving_cell INVx1` + `set_load 5.0` + `buffer/upsize/dnsize/stime`）。
-两者 fmax 相差 **4 倍**（同 RTL 实测 41.25 vs 165.03 MHz），**混在一张表里必读错**
+**`--flow` 必填项（2026-10-02 加）**：`official` = `scripts/synth.py` 原样的 `abc -D 2000`（**判分口径**）；
+`constr` = 再加 `abc.constr`（`set_driving_cell INVx1` + `set_load 5.0` + `buffer/upsize/dnsize/stime`，**本机私有对照**）。
+两者 fmax 相差 **8.7 倍**（同 RTL 实测 31.77 vs 275.86 MHz），**混在一张表里必读错**
 —— 所以 `results.csv` 有独立的 `flow` 列，不要靠 `note` 里的文字判断。
+**报数只用 `official` 行**（§0）。
 `path.json` 是 `path.py` 每次归档**重新生成**的，`critical_paths.json`/`report.json` 是官方原产物，
 两者都可由 `timing.rpt` 复算；`alu_sites.txt` 例外（源 `synth.log` 不归档，**不可再生**）。
 
