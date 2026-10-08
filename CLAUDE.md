@@ -3,14 +3,7 @@
 ## 乱序执行多发射CPU
 ## 可以参数化，比如多发射指令数、ROB、RS等数据结构的大小，具体到后端实现不需要参数化（比如加法器、乘法器的位数）
 ## 报告：架构设计探索，性能消融（不同参数下性能优化情况）
-## 评测要求一律以 docs/description.md 为准 (该文件只能由用户手动修改; 计划/架构/分析文档随其更新):
-##   面积 = Yosys+ABC+OpenSTA 综合到 ASAP7 7.5-track RVT TT 标准单元库 + FakeRAM 的 SRAM 估算面积
-##     (sram_fakeram 的估算面积**计入**总面积; 禁止用寄存器组当内存);
-##   IPC = Verilator 统计 = 动态指令数 / 运行周期数, 所有 testcases/perf_* 取**几何平均**;
-##   频率 ≥300MHz 是**硬性前提** (400MHz +2 分, 500MHz +4 分); 外部 256MiB 统一内存 (冯·诺依曼);
-##   三档要求"面积上限与最低 IPC 同时满足" (90/95/100 分):
-##     (面积上限 µm², 最低 IPC) = (9000, 0.6000) / (18000, 0.8450) / (36000, 1.0985);
-##     档位设计 "IPC ×1.3 ↔ 面积上限 ×2" 仅 2→3 档严格成立 (1→2 档 IPC 倍数是 1.4083);
+## 评测要求一律以 docs/description.md 为准 (该文件只能由用户手动修改; 计划/架构/分析文档随其更新)
 ##   IPC 测试点 = testcases/perf_* (submodule ACMClassCourse-2025/RISC-V-CPU-2026-Testcases);
 ##   内存: 外部 AXI4-Lite 从机 (0x00000000-0x0fffffff), 响应延迟 LATENCY 默认 **10 拍** (仅此一个口径);
 ##   ISA = RV32IM, 仅免除 CSR*/ECALL/EBREAK/FENCE/FENCE.I (**LB/LBU/LH/LHU 必须实现**);
@@ -65,3 +58,4 @@ exec=adder32,mul,alu,branch,div
 - 需要记录架构探索过程和debug记录，并实时提交git
 
 - 要求以docs/description.md为准，该文件只能由我手动修改，其他计划、架构、分析文档可以修改
+arch文档用于整理项目架构，plan文档用于记录下一步计划，整体计划以及过往记录，但注意过往记录应该简单不应该干扰之后的计划，不计划做的东西或者已经实现、完成的东西不应该还大量占据计划文档。
