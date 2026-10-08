@@ -60,6 +60,7 @@ WANT = {
     M + 'u_dc.fill_wr_w': 'dc_fwr',
     M + 'u_dc.lk_v_r': 'dc_lkv',
     M + 'u_dc.hit_raw_w': 'dc_hraw',
+    M + 'u_dc.hit_valid': 'dc_hitv',        # = (hit_raw_w && !rsp_busy) || byp_valid_w (dcache.v:362)
     M + 'u_dc.rsp_busy': 'dc_rspb',
     M + 'u_dc.ms_fire_w': 'dc_msf',
     # ---- S0: dc_busy 三层分解 (查表寄存器 51% 里混了三种原因, 干预完全不同) ----
@@ -126,11 +127,14 @@ C = dict(cyc=0, commit=0, iss=0, flush=0, empty=0, emp_ic=0, ready=0, rc_sw=0,
          # §35: 等存储六分类 + 需求缺失往返 (lm_ret = 退休窗口, §38.3a 订正后新增)
          lm_flight=0, lm_dc=0, lm_occ=0, lm_go=0, lm_stblk=0, lm_ret=0,
          ms_n=0, resp_n=0, ld_n=0, st_rsp=0, st_hit=0, st_oth=0,
-         msd0=0, msd1=0, msd2=0, msd3=0)
+         msd0=0, msd1=0, msd2=0, msd3=0,
+         # §40 (V3): 命中交付路径
+         rep_n=0, hv_n=0, hv_hi=0, hraw_rsp=0)
 # §35 直方图: 在飞段长 / 推送→回包延迟 / 推送那拍的 AR 队列占用 (末格是溢出格)
 NH = 80
 HF = [0] * NH          # head load 单次"在飞"连续段长 (合计)
 HFB = {'rsp': [0] * NH, 'hit': [0] * NH, 'oth': [0] * NH}   # 按段的结束方式分开
+HFB_REP = [0] * NH     # §40: 命中结束的段里**发生过查表重放**的那些 (验证 "3 拍 = 重放" 的因果)
 HR = [0] * NH          # dc_ms_fire_w → ld_resp_hs 的拍数
 HA = [0] * 17          # 推送那拍"已压入未发出"的 AR 数
 
@@ -267,6 +271,7 @@ with open(path, 'r', errors='replace') as f:
                                         fl_hit = True
                                         if fl_since < 0:
                                             fl_since = C['cyc']
+                                            fl_rep = False
                                     else:
                                         # cand 是**距离索引** (lsq.v:129,141): 位 gd ↔ 条目 (head+gd)&7,
                                         # 而 lh 是条目号 ⇒ 头条目自己的位是 cand[0]。
@@ -295,6 +300,21 @@ with open(path, 'r', errors='replace') as f:
                             C['alu'] += 1
                 # 等存储的拍里, D-cache 同时是忙的占多少 (M1 的直接上界: 忙=在替别人排队)
                 C['ldmem_dcbusy'] += 1 if (ldmem_now and v['dc_busy']) else 0
+                # ---- §40 (V3): 命中交付路径 ----
+                # lk_replay_r 是**寄存器** (dcache.v:273), 每置一次 = 一笔 load 的查表作废重来;
+                # 上升沿计数 = 重放事件数。原因两类: 读口被写口偷 (rd_ok_r=0) / 命中撞上 AXI 回包
+                # 占住交付口 (hit_raw_w && rsp_busy, dcache.v:719-723)。后者可直接从波形数。
+                if v['dc_lkrep'] and not _prev.get('lkrep'):
+                    C['rep_n'] += 1
+                    if fl_since >= 0:
+                        fl_rep = True                      # 本段内发生过重放
+                C['hraw_rsp'] += 1 if (v['dc_hraw'] and v['dc_rspb']) else 0
+                # hit_valid = 真正交付给 LSQ 的命中 (含填充旁路); 每笔 load 应恰好 1 拍
+                if v['dc_hitv']:
+                    if _prev.get('hitv'):
+                        C['hv_hi'] += 1            # 连续 2 拍以上 ⇒ 不是脉冲, 口径要另算
+                    else:
+                        C['hv_n'] += 1
                 # §35: 关掉上一段"在飞" (只统计**连续**在飞段 ⇒ 段长 = 这一笔缺失挡住 head 的拍数)
                 # 归因: 段**上一拍**是哪种交付脉冲 —— 决定这一段是"等自己的 AR"(⇒ 预取能救)
                 #       还是"等同行的填充"(⇒ 只能靠提前发 AR / 更早旁路)
@@ -303,9 +323,11 @@ with open(path, 'r', errors='replace') as f:
                     HF[_L] += 1
                     EPD = 'st_rsp' if _prev.get('rsp2') else ('st_hit' if _prev.get('hit2') else 'st_oth')
                     HFB[EPD[3:]][_L] += 1
+                    HFB_REP[_L] += 1 if (EPD == 'st_hit' and fl_rep) else 0
                     C[EPD] += 1
                     fl_since = -1
                 _prev['rsp2'], _prev['hit2'] = v['dc_rspb'], (v['dc_hraw'] and not v['dc_rspb'])
+                _prev['lkrep'], _prev['hitv'] = v['dc_lkrep'], v['dc_hitv']
             elif v['halt']:
                 break
             continue
@@ -378,6 +400,12 @@ print(f"  [S3] 等存储 {C['ld_mem']} 拍 = 在飞等回包 {q5(C['lm_flight'])
       f" + 更老 store 未执行 {q5(C['lm_stblk'])}")
 _n, _m, _p50, _p90, _mx = hstat(HF)
 print(f"  [S3] head 在飞段长: {_n} 段, 均 {_m:.1f} 拍, 中位 {_p50}, p90 {_p90}, 最长 {_mx}")
+_h = hstat(HFB['hit'])
+print(f"  [S3=§40.V3] **命中/旁路结束**的段长分布 (P12 判据: 中位<=2, p90<=3, 最长<=8):"
+      f" {_h[0]} 段, 均 {_h[1]:.1f}, 中位 {_h[2]}, p90 {_h[3]}, 最长 {_h[4]}"
+      f" | 直方图 0..7 = {[HFB['hit'][i] for i in range(8)]}")
+print(f"              其中**段内发生过查表重放**的: {sum(HFB_REP)} 段"
+      f" | 这些段的长度分布 0..7 = {[HFB_REP[i] for i in range(8)]}")
 _sn = max(C['st_rsp'] + C['st_hit'] + C['st_oth'], 1)
 print(f"  [S3] 段的结束方式: 自己的 AR 回包 {C['st_rsp']}({C['st_rsp']*100//_sn}%)"
       f" + 命中/旁路 {C['st_hit']}({C['st_hit']*100//_sn}%) + 其它(冲刷/换头) {C['st_oth']}")
@@ -395,8 +423,15 @@ print(f"  [S3] 需求缺失 {C['ms_n']} 次 (回包 {C['resp_n']}), 推送→回
 _mn = max(C['msd0'] + C['msd1'] + C['msd2'] + C['msd3'], 1)
 print(f"  [S3b] 相邻两次需求缺失的行: 同一行 {C['msd0']*100//_mn}% | **正好下一行** {C['msd1']*100//_mn}%"
       f" | 跳跃/回绕 {C['msd2']*100//_mn}% | 回退 {C['msd3']*100//_mn}%")
-print(f"  [S3] load 总交付 {C['ld_n']} 笔, 其中需求缺失 {C['ms_n']} 笔"
-      f" ⇒ D-cache 缺失率 {C['ms_n']*100//max(C['ld_n'],1)}% (同行合并算命中)")
+print(f"  [S3] hit_raw_w 为高的 **拍数** {C['ld_n']} (含回包拍)"
+      f" | 需求缺失 {C['ms_n']} 笔 ⇒ D-cache 缺失率 {C['ms_n']*100//max(C['ld_n'],1)}% (同行合并算命中)"
+      f"  ⚠ 单位订正 (§40): 此处原写「笔」, 实为**拍数** —— hit_raw_w 每笔命中会连续为高 2 拍"
+      f" (见下一行 hv_hi) ⇒ 笔数应看 hit_valid 上升沿")
+_hn = max(C['hv_n'], 1)
+print(f"  [S3=§40.V3] 命中交付 {C['hv_n']} 笔 (hit_valid 上升沿; 连续>1 拍的 {C['hv_hi']} 拍)"
+      f" | 查表重放 {C['rep_n']} 次 = 命中的 {C['rep_n']*100//_hn}% (P13 判据 <5%)"
+      f" | 命中撞回包占用 (hit_raw_w && rsp_busy) {C['hraw_rsp']} 拍"
+      f" = 运行的 {C['hraw_rsp']*100.0/max(C['cyc'],1):.2f}% (P13 判据 <1.5%)")
 _ha = sum(HA)
 if _ha:
     _cum = [sum(HA[:k + 1]) * 100 // _ha for k in range(17)]
