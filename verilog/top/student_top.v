@@ -6,10 +6,10 @@
 //   退出值由官方从机在 B 握手时从 WDATA 取 (sim.cpp:119-121), 故本模块不引出 ret_val。
 //   手写程序用的 TERM marker 判定保留 (OR 并存), 两条路径互不干扰。
 // 复位: 外部 reset 高有效 ⇒ 内部 rst_n = ~reset (异步低有效, 与 ASAP7 触发器一致)
-// 基准参数 = §二十二/§二十三 的效率拐点 c2 (η = geo IPC / 面积 最高):
-//   geo IPC **0.6997** (官方 make perf, 19/19 门禁通过, M5 之后; 见 plan.md §三十七)
-//   面积 9860.9 µm² / 275.86 MHz 是 `c2b` 综合点 (**M2/M5 之前**; M5 按用户裁定未综合 ⇒ 这两个数不含 M5)
-//   选它当基准的理由是"性价比 + 优化空间", 不是档位线 (见 plan.md §二十七)
+// 基准参数 = 参数收口点 `dc2k_sq8` (S1 六点在 M5 基线上复跑, 可行集内 geo 最高; 见 plan.md §5):
+//   geo IPC **0.7241** (官方 make perf, 19/19 门禁通过, 2026-10-08)
+//   面积/频率 **本轮未综合**: 上一实测点 `c2b` = 9860.9 µm² / 275.86 MHz (**M2/M5 之前**);
+//   本参数按面积模型 + M5 结构估上界 200 ⇒ 11752.9 µm² (门 ≤12000), 须下次综合复核
 module student_top #(
     parameter ISSUE_WIDTH = 1,
     parameter ROB_SIZE    = 16,
@@ -23,14 +23,14 @@ module student_top #(
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
-    parameter DC_SIZE       = 1024,  // D-cache 总容量 (字节; 0 = 旁路)
+    parameter DC_SIZE       = 2048,  // D-cache 总容量 (字节; 0 = 旁路)
     parameter DC_LINE_WORDS = 8,     // D-cache 行字数 (2 的幂)
     parameter DC_WAYS       = 2,     // D-cache 相联度 (2 路: SRAM 面积不变, geo IPC +2.2%, 见 plan.md §十六)
     parameter DC_PREFETCH   = 2,     // D-cache 下一行预取: 0=关 1=需求缺失起填那拍预取下一行 2=每次命中交付那拍预取 (现行基线)
     parameter LD_INFLIGHT = 4,       // 在飞 load 上限
-    parameter SQ_DEPTH    = 4,       // 已提交 store 队列深度
+    parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
     parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
-    parameter WR_DEPTH    = 4        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度)
+    parameter WR_DEPTH    = 8        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度 = 16)
 ) (
     input  wire        clock,
     input  wire        reset,        // 高电平复位, 初始化时保持 5 周期高电平

@@ -13,7 +13,10 @@
 波形约 8 KB/拍 (qsort 1.9 GB / rsort 2.5 GB), 扫描完即可删; 本脚本按行流式读, 不占内存。
 第二个参数是生成该波形的 **ROB_SIZE** (默认 16 = c2): "ROB 空" 的判据是 rob_free == ROB_SIZE,
 写死会在放大 ROB 的变体上把"在飞若干条"误判成空。跑非 c2 波形时**必须**显式给。
-口径与自校验见 docs/plan.md §30; 数据表在 §30.2, 变体侧在 §31.5。
+口径与自校验见 docs/plan.md 的 [§30] 里程碑; 数据表在 [§30]/[§31], 变体侧在 [§31]。
+[S3] 的"等存储"再分六类 (head=load 且未在飞): 在飞等回包 / D-cache 闸门 / miss 队列满 /
+本拍发射 / **退休窗口** (条目正被提交失效, 提交侧晚一拍) / 更老 store 未执行 (结构上不可达, 哨兵)。
+取位口径: cand 是距离索引 (位 gd ↔ 条目 head+gd), 头条目自己的位是 cand[0] —— 见 §38.3a。
 """
 import sys
 from collections import deque
@@ -46,6 +49,8 @@ WANT = {
     # ★ M1 的**直接**上界: 有一条 load 已就绪 (cand) 但 D-cache 拒收 (ld_busy)。
     #   这才是"M1 放开闸门能救回多少拍"; 单看 dc_busy 占比会高估 (忙 ≠ 挡住别人)。
     U + 'u_lsq.cand': 'lq_cand',
+    # §38.3a: cand[0]==0 的例外拍是"条目正在退休"(提交失效延迟一拍) 还是"被更老 store 挡"?
+    U + 'u_lsq.invalidate': 'lq_inv',
     M + 'ld_busy': 'ld_busy',
     M + 'u_ic.fill_busy': 'ic_fill',
     M + 'u_ic.miss_w': 'ic_miss',
@@ -118,8 +123,8 @@ C = dict(cyc=0, commit=0, iss=0, flush=0, empty=0, emp_ic=0, ready=0, rc_sw=0,
          dw_run=0, dw_ep=0, dw_max=0,
          dc_msrdy0=0, pf_v=0, f_rsp=0, ldmem_dcbusy=0,
          blk_dc=0, go_ld=0,
-         # §35: 等存储五分类 + 需求缺失往返
-         lm_flight=0, lm_dc=0, lm_occ=0, lm_go=0, lm_stblk=0,
+         # §35: 等存储六分类 + 需求缺失往返 (lm_ret = 退休窗口, §38.3a 订正后新增)
+         lm_flight=0, lm_dc=0, lm_occ=0, lm_go=0, lm_stblk=0, lm_ret=0,
          ms_n=0, resp_n=0, ld_n=0, st_rsp=0, st_hit=0, st_oth=0,
          msd0=0, msd1=0, msd2=0, msd3=0)
 # §35 直方图: 在飞段长 / 推送→回包延迟 / 推送那拍的 AR 队列占用 (末格是溢出格)
@@ -263,15 +268,21 @@ with open(path, 'r', errors='replace') as f:
                                         if fl_since < 0:
                                             fl_since = C['cyc']
                                     else:
-                                        if (v['lq_cand'] >> lh) & 1:
-                                            if v['dc_busy']:
-                                                C['lm_dc'] += 1
-                                            elif v['ld_busy']:
-                                                C['lm_occ'] += 1
-                                            else:
-                                                C['lm_go'] += 1
+                                        # cand 是**距离索引** (lsq.v:129,141): 位 gd ↔ 条目 (head+gd)&7,
+                                        # 而 lh 是条目号 ⇒ 头条目自己的位是 cand[0]。
+                                        # (史: 2026-10-08 §38.3a 之前此处误取 cand[lh], 实测 vvadd/rsort 上
+                                        #  100% 的 lm_stblk 判定都是读到了别的条目; 订正见 plan.md §38.3a)
+                                        if not ((v['lq_cand'] >> 0) & 1):
+                                            # 头条目不可发: 提交失效晚到一拍 ⇒ 条目正在退休 (实测占 100%);
+                                            # 真正"被更老 store 挡" (cand[0]=0 且未失效) 结构上不可达, 留作哨兵
+                                            C['lm_ret'] += 1 if (v['lq_inv'] >> lh) & 1 else 0
+                                            C['lm_stblk'] += 1 if not ((v['lq_inv'] >> lh) & 1) else 0
+                                        elif v['dc_busy']:
+                                            C['lm_dc'] += 1
+                                        elif v['ld_busy']:
+                                            C['lm_occ'] += 1
                                         else:
-                                            C['lm_stblk'] += 1
+                                            C['lm_go'] += 1
                                 else:
                                     C['ld_oth'] += 1
                             else:
@@ -363,7 +374,8 @@ lm = max(C['ld_mem'], 1)
 q5 = lambda x: f"{x}({x*100//lm}%)"
 print(f"  [S3] 等存储 {C['ld_mem']} 拍 = 在飞等回包 {q5(C['lm_flight'])}"
       f" + D-cache 闸门 {q5(C['lm_dc'])} + miss 队列满 {q5(C['lm_occ'])}"
-      f" + 本拍发射 {q5(C['lm_go'])} + 更老 store 未执行 {q5(C['lm_stblk'])}")
+      f" + 本拍发射 {q5(C['lm_go'])} + 退休窗口 {q5(C['lm_ret'])}"
+      f" + 更老 store 未执行 {q5(C['lm_stblk'])}")
 _n, _m, _p50, _p90, _mx = hstat(HF)
 print(f"  [S3] head 在飞段长: {_n} 段, 均 {_m:.1f} 拍, 中位 {_p50}, p90 {_p90}, 最长 {_mx}")
 _sn = max(C['st_rsp'] + C['st_hit'] + C['st_oth'], 1)
