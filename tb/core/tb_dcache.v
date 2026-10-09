@@ -251,11 +251,15 @@ module tb_dcache;
     wire [IW - 1 : 0]   fl_set_w = dut.fill_base_new_w[TAGHI - 1 : SPLIT];
     wire [TAG_W - 1 : 0] fl_tag_w = dut.fill_base_new_w[TAGHI +: TAG_W];
     integer dk;
+    // ★ tag 一律**从真存储里读** (dut.u_arr 的条目位图), 不再是 DUT 的 DFF 镜像 —— 探针版已把那份
+    //   1408 flop 的 `tag_r` 删掉。读真存储反而更硬: 镜像可能自己写错, 存储不会。
+    localparam WAY_W_TB = 32 * (DC_LINE_WORDS + 1);      // 每条目位宽 = 每路 (DC_LINE_WORDS 字 + 1 tag 槽)
+    localparam TAGOFF_TB = 32 * DC_LINE_WORDS + TAGHI;
     always @(posedge clk) begin
         if (rst_n && dut.fill_start_w) begin
             for (dk = 0; dk < DC_WAYS; dk = dk + 1) begin
                 if (dut.valid_r[dk * SETS + fl_set_w]
-                    && (dut.tag_r[dk * (SETS * TAG_W) + fl_set_w * TAG_W +: TAG_W] === fl_tag_w)) begin
+                    && (dut.u_arr.storage.words[fl_set_w][dk * WAY_W_TB + TAGOFF_TB +: TAG_W] === fl_tag_w)) begin
                     $display("FAIL: 起填的行已在缓存里 (way %0d set %0d base=%h t=%0t) —— 存在性检查失效",
                              dk, fl_set_w, dut.fill_base_new_w, $time);
                     errors = errors + 1;
@@ -427,7 +431,7 @@ module tb_dcache;
         end
     endtask
 
-    // ---- M5 用: 某一行此刻是否驻留 (直查 DUT 的 valid/tag 镜像; 只读, 不驱动) ----
+    // ---- M5 用: 某一行此刻是否驻留 (直查 DUT 的 valid 位图 + 真存储里的 tag; 只读, 不驱动) ----
     function line_valid;
         input [31:0] base;
         integer lw;
@@ -439,7 +443,7 @@ module tb_dcache;
             line_valid = 1'b0;
             for (lw = 0; lw < DC_WAYS; lw = lw + 1)
                 if (dut.valid_r[lw * SETS + ls]
-                    && (dut.tag_r[lw * (SETS * TAG_W) + ls * TAG_W +: TAG_W] === lt))
+                    && (dut.u_arr.storage.words[ls][lw * WAY_W_TB + TAGOFF_TB +: TAG_W] === lt))
                     line_valid = 1'b1;
         end
     endfunction

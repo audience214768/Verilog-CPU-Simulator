@@ -102,14 +102,43 @@
 //   该行吸收过的 store 永远到不了内存, 之后的重填读回旧值 —— 与第三段头注释里那次事故同形。
 //   今天"对已驻留行再起填"不会发生, 靠的是"pf_* 只由**缺失**的路写入"这条被动性质; 预取是
 //   **主动**去找行, 而相邻行属**不同组**、各自独立被驱逐 ⇒ 撞上已驻留行是常态, 必须显式查。
-//   查法复用 store 口的 DFF tag 镜像 (第 9 节 st_hit_g 同款): 组合查, **不占 SRAM 读口、不占拍**,
-//   代价只有 DC_WAYS 个比较器。检查与起填判定**同一拍**, 故不存在"查完到起填之间被别人装进来"
-//   的窗口 (那一拍引擎被 `!fill_busy_r && !pf_v_r && !dc_demand_w` 锁住)。
+//   查法与 store 口同一套 **tag 探针** (见下面【★ tag 探针】那一段): 不占拍, 但要等一个读口空槽; 等不到时
+//   本次起填原地推迟 (`dpf_sel_w` 带 `pfc_same_w`) —— 只慢不错。检查与起填判定仍**同一拍**,
+//   故不存在"查完到起填之间被别人装进来"的窗口 (那一拍引擎被 `!fill_busy_r && !pf_v_r && !dc_demand_w`
+//   锁住; 探针锁定期间若真有人装了该行, `vset_w` 会把锁存的回答作废 ⇒ 重新查)。
 // ★ 预取**不走** fill_pend_w 那条排队路 (那是需求的): 被挡住的预取直接丢弃 —— 预取晚一拍就没用,
 //   不值得为它挤掉一次需求的排队机会。故 `dpf_v_r` 只影响"空闲时起哪一行", 不占任何正确性资源。
 // ★ 起填口完全复用现成的填充器 (fill_base_new_w 多一个源) ⇒ 受害路/LRU/写回捕获/污染中止/
 //   RMW 窗口/写回同行冲突**全部自动继承**。尤其污染中止是**必须**继承的: SQ 里有未可见 store 的
 //   行, 预取读回的是旧值 —— 装进去就是静默算错 (§第 5 节)。
+//
+// 【★ tag 探针 —— 取代原来那份 DFF tag 镜像 (1408 flop)】
+//   原设计为让 store 退休**当拍**答复而维护了一份 DC_WAYS*DC_SETS*TAG_W 的 tag 镜像, 它的动态写
+//   (`tag_r[... +: TAG_W]`) 在官方 ABC 流程 (无 -constr ⇒ 只按字面量数优化) 下是最贵的宽扇出簇
+//   之一。SRAM 里本来就存着同一份 tag, 只是同步读 ⇒ 缺的只是"提前一拍问"。探针就是这件事。
+//   规则 (四条):
+//     · **优先只在读口真空闲那拍发出** (`probe_slot_w`): 没有 load 会被接受 (`!lk_valid`) + 没有待判
+//       的 load (`!(lk_v_r && !lk_wait_r)`, 含重放) + 没有别的读用户占口 (`!wb_cap_w && !rmw_rd_w`)
+//       + 本拍无写 (写周期 sram_fakeram 把 rdata 置 x)。满足这些时这笔读**不偷任何人的口**,
+//       于是 `rd_ok_r` 不必为它置 0 —— 少一次重放。(注意"组合环"不是这里的约束: `rd_ok_r` 是
+//       寄存器, `lk_valid → probe 门 → rd_ok_r.D` 是一条合法的 Q→D 路径。真正不许碰的只有
+//       `wb_cap_w`/`rmw_rd_w`/`sram_we_w`/`lk_replay_r` 那四种**不可重放**的读。)
+//     · **等不到空槽就硬抢** (饿死计时, `probe_wait_r`): 被抢的那笔查表读由 `probe_steal_w` 置
+//       `rd_ok_r=0` 走重放 (+2 拍) —— 只慢不错。阈值按用户能等多久给: 填充清理只等 2 拍 (它每次
+//       填充只有一次机会), store 退休与预取等 8 拍 (SQ 队首在等, 但重放比再等便宜)。
+//       不会自锁: 堵住探针的正是"load 流不断", 而 SQ 一旦积压就没人再发 load ⇒ 空槽必然出现。
+//     · **结果锁存**: 探针数据下一拍才到 `rdata_w`, 故发起那拍锁下"比的是哪个 tag / 哪一组",
+//       回包那拍把 DC_WAYS 个比较结果整条锁下 (`st_tm_r` / `fc_tm_r` / `pfc_present_r`)。中间若换了
+//       地址, 锁存的那份因 `st_tag_r == st_tag_w` 等条件不成立而**不被采用** (不是错值, 是重查)。
+//     · **锁存有效期**: `vset_w` (安装新行) 与 `fill_start_w` (清受害路 valid) 都可能改变"本行还在
+//       不在", 故都在那些拍作废锁存; 预取存在性只在 `vset_w` 作废 (方向安全: 作废只会重查一次,
+//       不会用陈旧回答 —— 陈旧回答只会让预取少发一次, 而存在性检查是**硬要求**)。
+//   谁在用: ① store 退休 (第 9 节 `st_hit_g`); ② 填充安装的同组重复 tag 清理 (第 8 节);
+//   ③ 预取存在性 (`pf_present_w`)。②能"每次填充只查一次"是因为填充在飞时同组的 valid/tag 冻结。
+//   WB 捕获那条 (受害行 tag) **不发探针**: 它本来就要把受害行整行读进缓冲, tag 就在同一份回包
+//   数据里 (`rdata_w` 的 tag 槽), 顺路取, 零额外读口。代价是 `wb_base_r` 的 tag 有**两拍未知窗口**
+//   (`wb_tag_v_r`), 这期间同组一律当作"同一行" —— 方向保守 (多挡一次填充 / 多让一条 load 并入),
+//   见 `fill_blk_w` / `lk_wb_wait_w` / `st_wb_same_w` 三处。
 //
 // 复位异步低有效 (与 axi_lite_master / icache / mem_subsystem 一致; ASAP7 库只有异步复位触发器)
 module dcache #(
@@ -233,11 +262,10 @@ module dcache #(
     wire                     ms_fire_w, fill_go_w, fill_pend_w, fill_start_w, fill_blk_w;
     wire                     dc_demand_w;                          // ---- 第 5 节: 下一行预取 (M5) ----
     wire [31 : 0]            dc_fill_line_w;                       // (★ 必须单独一行: `wire a,b;` 两位都只 1 bit)
-    wire                     pf_trig_w, pf_start_w, dpf_sel_w, dpf_start_w, pf_present_w;
+    wire                     pf_trig_w, pf_start_w, dpf_sel_w, dpf_start_w;
     wire [31 : 0]            pf_base_w;
     wire [DC_IW - 1 : 0]     pf_set_w;
     wire [TAG_W - 1 : 0]     pf_tag_w;
-    wire [DC_WAYS - 1 : 0]   pf_hit_g;
     wire                     fill_wr_w, fill_hs_w, fill_last_w, fill_poison_now_w, vset_w;
     wire                     fill_abort_w;
     wire                     byp_word_w, byp_raw_w, byp_valid_w;   // ---- 第 5b 节: M2 填充数据旁路 ----
@@ -255,12 +283,18 @@ module dcache #(
     wire                     wb_buf_busy_w;              // WB 数据缓冲被占 (新捕获无处放)
     wire                     wb_line_busy_w;             // 本行在飞 (捕获/排水/等 B): 内存可能还是旧值
     wire                     vic_v_w, vic_dirty_w;       // 受害路此刻有效? 脏?
-    wire [TAG_W - 1 : 0]     vic_tag_w;                  // 受害路的 tag 镜像 (= 受害行基址的高位)
     wire                     wb_last_push_w, wb_done_w;
     wire                     st_full_w;                  // ---- 第 9 节: 部分字 store 的读-改-写 ----
     wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w;
     wire [WMASK_W - 1 : 0]   rmw_wmask_w;
     wire [31 : 0]            rmw_merge_w;
+
+    // ---- tag 探针 (定义在第 3 节): 这几根被更早的 `rd_addr_w` / 探针请求引用 ⇒ 前向声明放这里 ----
+    wire                     probe_go_w;                 // 本拍有探针读要发出
+    wire [31 : 0]            probe_addr_w;               // 探针读口地址 (只有组号有意义)
+    wire                     st_tm_ok_w;                 // store 探针的答案可用且对的正是本拍这个地址
+    wire                     pfc_same_w;                 // 预取存在性回答正是本拍排队的那条
+    wire [TAG_W - 1 : 0]     fill_tag_w;                 // 本次填充行的 tag
 
     // ==================== 2. 顺序状态 ====================
     // 查表寄存器 (skid 就是它): 接受时写入, 结果被消化 (交付/推出) 才释放
@@ -273,13 +307,26 @@ module dcache #(
     reg                      lk_replay_r;                // 本拍在读口上重放 lk_addr_r (下一拍才判定)
     reg  [31 : 0]            rd_addr_q;                  // 上一拍摆上读口的地址 (tag 比较的另一半)
     reg                      rd_ok_r;                    // 上一拍的读没被写 (安装/store) 偷走
-    reg  [DC_WAYS * DC_SETS - 1 : 0] valid_r;            // 行有效位图 (唯一须与 tag 同拍可读的状态)
-    // tag 镜像 (与 valid_r 配对写: 安装那拍一起写, **无需复位** —— 一切读取都由 valid_r 门控, 而
-    // valid 置 1 那拍 tag 必然同拍写入 ⇒ 不存在"valid=1 而 tag 未定义"的组合)。
-    // 为什么不用 SRAM 里那份 tag: store 退休要在**那一拍**当拍给出答复 (SQ 只等这一拍), 而 SRAM 是
-    // 同步读 —— 拿出来已是下一拍, 要么多走一次握手, 要么让 SQ 多存一份 payload, 两者都更贵。
-    // 代价: DC_WAYS*DC_SETS*TAG_W = 2*32*22 = 1408 flop ≈ 534 µm² (0.379 µm²/flop)。
-    reg  [DC_WAYS * DC_SETS * TAG_W - 1 : 0] tag_r;
+    reg  [DC_WAYS * DC_SETS - 1 : 0] valid_r;            // 行有效位图
+    // ---- tag 探针 (取代 DFF tag 镜像; 规则见头注释【★ tag 探针】) ----
+    reg                      stp_act_r;                  // 本拍 rdata_w 上正是 store 探针读回的一行
+    reg  [DC_WAYS - 1 : 0]   st_tm_r;                    // 锁存: 那些 tag 比较的逐路结果
+    reg  [TAG_W - 1 : 0]     st_tag_r;                   // 锁存: 比的是哪个 tag
+    reg  [DC_IW - 1 : 0]     st_set_r;                   // 锁存: 比的是哪一组
+    reg                      st_tm_v_r;                  // 锁存有效 (被 vset_w/fill_start_w 作废)
+    reg  [TAG_W - 1 : 0]     stp_tag_r;                  // 发起那拍锁下的 tag (回包那拍比较用它)
+    reg  [DC_IW - 1 : 0]     stp_set_r;
+    reg                      fcp_act_r;                  // 本拍 rdata_w 上正是填充清理探针
+    reg  [DC_WAYS - 1 : 0]   fc_tm_r;                    // 锁存: 填充行 tag 的逐路比较结果
+    reg                      fc_tm_v_r;                  // 锁存有效 (每次填充重置)
+    reg  [3 : 0]             probe_wait_r;               // 探针请求已等了几拍 (到阈值就硬抢)
+    reg                      pfp_act_r;                  // 本拍 rdata_w 上正是预取存在性探针
+    reg  [31 : 0]            pfp_base_r;                 // 发起那拍锁下的待查行基址
+    reg  [TAG_W - 1 : 0]     pfp_tag_r;
+    reg  [DC_IW - 1 : 0]     pfp_set_r;
+    reg                      pfc_v_r;                    // 存在性回答已锁存
+    reg  [31 : 0]            pfc_base_r;                 // 锁存回答对应的行基址
+    reg                      pfc_present_r;              // 那行当时在不在
     reg  [DC_IW - 1 : 0]     fill_set_r;
     reg  [31 : 0]            fill_base_r;
     reg  [FIW - 1 : 0]       fill_word_r;                // 下一笔要发 AR 的行内字下标
@@ -306,6 +353,7 @@ module dcache #(
     reg  [DC_IW - 1 : 0]     wbc_set_r;
     reg  [WY_W - 1 : 0]      wbc_way_r;
     reg  [31 : 0]            wb_base_r;                  // 在飞行 (或被捕获) 的行基址
+    reg                      wb_tag_v_r;                 // wb_base_r 的 tag 字段已知 (受害行 tag 要等捕获读回包)
     reg                      wb_v_r;                     // 缓冲有整行数据, 还没推完
     reg  [BIW - 1 : 0]       wb_beat_r;                  // 下一笔要推的行内字下标
     reg  [32 * DC_LINE_WORDS - 1 : 0] wb_data_r;         // 整行快照 (8×32 = 256 flop)
@@ -317,12 +365,155 @@ module dcache #(
     // ★ WB 捕获读**抢占**读口 (它只有这一拍机会): 被它偷走的查表读由 rd_ok_r=0 变成重放, 不判缺失。
     // ★ 部分字 store 的读-改-写读**次之** (只取组号, 地址低位的组内偏移无意义); 被它偷走的查表读
     //   同样靠 rd_ok_r=0 重放。它**必须让** WB 捕获读 —— 那笔读只有一次机会, 错过就是丢一条脏行。
+    // ★ tag 探针排在最底, 但**抢的那次必须真的拿到口**: 走空槽 (`probe_slot_w`) 时本来就没人口用,
+    //   排哪儿都等价; 硬抢 (`probe_steal_w`) 时正是有 load 要被接受的那拍 —— 于是它必须压过 `lk_addr`,
+    //   而被压掉的那笔查表读由 `rd_ok_r=0` 走重放。`lk_replay_r` 那拍与四种不可重放的读都被
+    //   `probe_hold_w` 挡在门外 ⇒ 与它们的先后无关。
     assign rd_addr_w = wb_cap_w ? wb_base_r
-                     : (rmw_rd_w ? st_addr : (lk_replay_r ? lk_addr_r : lk_addr));
+                     : (rmw_rd_w ? st_addr
+                     : (lk_replay_r ? lk_addr_r
+                     : (probe_go_w ? probe_addr_w : lk_addr)));
     assign rd_set_w  = ONE_SET ? {DC_IW{1'b0}} : rd_addr_w[TAGHI - 1 : SPLIT];
     assign q_set_w   = ONE_SET ? {DC_IW{1'b0}} : rd_addr_q[TAGHI - 1 : SPLIT];
     assign q_off_w   = rd_addr_q[SPLIT - 1 : 2];
     assign rd_tag_w  = rd_addr_q[TAGHI +: TAG_W];
+
+    // ---- tag 探针: 三个用户共用一次读口 (机制见头注释【★ tag 探针】) ----
+    // 要查 SRAM 里那份 tag 的只有三件事, 且都是"提前一拍问、下一拍才有答案":
+    //   ① store 退休的命中判定  ② 填充安装时的"同组重复 tag"清理  ③ 预取存在性
+    // ★ ② 能"每次填充只查一次就够"的依据: 一次填充在飞时同组的 valid/tag **冻结** —— 别的填充被
+    //   `fill_busy_r` 挡住, store 吸收只动 dirty ⇒ 填充期间任何一拍查到的答案到安装那拍都还成立。
+    wire                   stp_req_w = st_valid && !st_tm_ok_w && !stp_act_r;
+    wire                   fcp_req_w = fill_busy_r && !fc_tm_v_r && !fcp_act_r;
+    wire                   pfp_req_w = (DC_PREFETCH != 0) && dpf_v_r && !pfc_same_w && !pfp_act_r;
+    wire                   probe_req_w = stp_req_w || fcp_req_w || pfp_req_w;
+    // ★ 首选**真空闲**的槽: 这一拍没人会看读口的结果 ⇒ 探针不偷任何人的读 ⇒ `rd_ok_r` 不必为它置 0
+    //   (省掉一次重放)。四项缺一不可, 少一项就是"偷"。
+    // ★ 硬抢 (等不到空槽): 被抢的那笔查表读靠 `rd_ok_r=0` 走重放 (+2 拍), 只慢不错。抢也必须避开
+    //   四种**不可重放**的读: WB 捕获 (只有一次机会) / 读-改-写取老字 / 写周期 (rdata=x) / 重放那一拍
+    //   (FSM 在重放支不为它看 rd_ok_r ⇒ 被抢就是静默错值)。
+    wire                   probe_hold_w = !lk_replay_r && !wb_cap_w && !rmw_rd_w && !sram_we_w;
+    wire                   probe_slot_w = !lk_valid && !(lk_v_r && !lk_wait_r) && probe_hold_w;
+    // 优先级: store 退休 (SQ 在等) > 填充清理 (不变量) > 预取 (机会性, 丢了不亏)。
+    // 抢的阈值按"这个用户能等多久"给: 填充清理只等 2 拍 (它每次填充只有一次机会), 另两个等 8 拍。
+    wire                   stp_go_w = stp_req_w && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
+    wire                   fcp_go_w = fcp_req_w && !stp_go_w
+                                   && (probe_slot_w || (probe_wait_r[1] && probe_hold_w));
+    wire                   pfp_go_w = pfp_req_w && !stp_go_w && !fcp_go_w
+                                   && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
+    assign                 probe_go_w  = stp_go_w || fcp_go_w || pfp_go_w;
+    // 这一次是"抢"的 ⇒ 下一拍那笔被顶掉的查表读必须重放 (只有走空槽那次才不偷)
+    wire                   probe_steal_w = probe_go_w && !probe_slot_w;
+    // 地址只有组号有意义 (读回来的是整行, tag 槽照读); 给 0 基址即可, 组号必须是真的。
+    assign                 probe_addr_w = {{(32 - TAGHI){1'b0}},
+                                           stp_go_w ? st_set_w : (fcp_go_w ? fill_set_r : pf_set_w),
+                                           {SPLIT{1'b0}}};
+    // ---- ① store 探针的结果 ----
+    // 回包那拍的比较必须用**发起时锁下的** tag —— 这一拍 st_addr 可能已经换成下一条 store 了
+    // (上一条在发起那拍走了旁路, sq_iss_p 当场前进)。
+    wire [TAG_W - 1 : 0]   st_probe_tag_w = stp_act_r ? stp_tag_r : st_tag_w;
+    wire [DC_WAYS - 1 : 0] st_tm_now_w;
+    generate
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : stcmp
+            assign st_tm_now_w[gj] = (rdata_w[gj * WAY_W + TAGOFF +: TAG_W] == st_probe_tag_w);
+        end
+    endgenerate
+    // ★ 回包那拍必须再核一次"问的还是本拍这个地址吗": 发起那拍 `any_st_hit_w` 还是 0, 队首那条
+    //   不可缓存 store 会**当场走旁路** ⇒ `sq_iss_p` 前进 ⇒ 本拍 `st_addr` 已经换了人。换了就
+    //   不采用 (下一拍重发探针), 绝不把上一笔的答案安到下一笔头上。
+    wire                   st_tm_same_w = (stp_set_r == st_set_w) && (stp_tag_r == st_tag_w);
+    // 采用条件: 结果这拍刚到且地址没换, 或者锁存还在且**问的还是同一个地址**。
+    wire                   st_tm_live_w = stp_act_r && st_tm_same_w;
+    assign                 st_tm_ok_w = st_tm_live_w
+                                      || (st_tm_v_r && (st_set_r == st_set_w) && (st_tag_r == st_tag_w));
+    // ★ 探针没答出来 (刚发出/刚换地址) 时**两条出路都不许抬** —— 否则"还没查就判缺失"会把一条
+    //   本该吸收的 store 旁路到内存 (缓存行不置脏, 之后换出时把旧值写回去) = 静默算错。
+    //   不可缓存的 (MMIO) 例外: 它本来就必上总线, 不需要 tag 比较。
+    wire                   st_ready_w = st_tm_ok_w || !st_cacheable_w;
+    wire [DC_WAYS - 1 : 0] st_tm_sel_w = st_tm_live_w ? st_tm_now_w : st_tm_r;
+    // ---- ② 填充清理探针的结果 (比的是本次填充行的 tag, 那一组在填充期间冻结 ⇒ 不必锁地址) ----
+    wire [DC_WAYS - 1 : 0] fc_tm_now_w;
+    generate
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : fccmp
+            assign fc_tm_now_w[gj] = (rdata_w[gj * WAY_W + TAGOFF +: TAG_W] == fill_tag_w);
+        end
+    endgenerate
+    // ---- ③ 预取存在性探针的结果 ----
+    wire [TAG_W - 1 : 0]   pf_probe_tag_w = pfp_act_r ? pfp_tag_r : pf_tag_w;
+    wire [DC_IW - 1 : 0]   pf_probe_set_w = pfp_act_r ? pfp_set_r : pf_set_w;
+    wire [DC_WAYS - 1 : 0] pfp_hit_w, pfp_val_w;
+    generate
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : pfcmp
+            assign pfp_hit_w[gj] = (rdata_w[gj * WAY_W + TAGOFF +: TAG_W] == pf_probe_tag_w);
+            assign pfp_val_w[gj] = valid_r[gj * DC_SETS + pf_probe_set_w];
+        end
+    endgenerate
+    assign                 pfc_same_w   = pfc_v_r && (pfc_base_r == dpf_base_r);
+    wire                   pf_present_w = pfc_same_w && pfc_present_r;
+
+    // 探针时序: 发起那拍锁"问的是什么", 回包那拍锁"答的是什么", 外加饿死计时。
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            stp_act_r <= 1'b0;  fcp_act_r <= 1'b0;  pfp_act_r <= 1'b0;
+            st_tm_v_r <= 1'b0;  fc_tm_v_r <= 1'b0;  pfc_v_r   <= 1'b0;
+            st_tm_r   <= {DC_WAYS{1'b0}};            fc_tm_r  <= {DC_WAYS{1'b0}};
+            st_tag_r  <= {TAG_W{1'b0}};  st_set_r  <= {DC_IW{1'b0}};
+            stp_tag_r <= {TAG_W{1'b0}};  stp_set_r <= {DC_IW{1'b0}};
+            pfp_base_r <= 32'd0;  pfp_tag_r <= {TAG_W{1'b0}};  pfp_set_r <= {DC_IW{1'b0}};
+            pfc_base_r <= 32'd0;  pfc_present_r <= 1'b0;
+            probe_wait_r <= 4'd0;
+        end else begin
+            stp_act_r <= stp_go_w;
+            fcp_act_r <= fcp_go_w;
+            pfp_act_r <= pfp_go_w;
+            if (stp_go_w) begin                 // 发起: 锁下"问的是哪个 tag / 哪一组"
+                stp_tag_r <= st_tag_w;
+                stp_set_r <= st_set_w;
+            end
+            if (pfp_go_w) begin
+                pfp_base_r <= dpf_base_r;
+                pfp_tag_r  <= pf_tag_w;
+                pfp_set_r  <= pf_set_w;
+            end
+            if (st_tm_live_w) begin             // 回包且地址没换: 就是本拍 rdata_w 上那一行
+                st_tm_r   <= st_tm_now_w;
+                st_tag_r  <= stp_tag_r;
+                st_set_r  <= stp_set_r;
+                st_tm_v_r <= 1'b1;
+            end
+            if (fcp_act_r) begin
+                fc_tm_r   <= fc_tm_now_w;
+                fc_tm_v_r <= 1'b1;
+            end
+            if (pfp_act_r) begin
+                pfc_base_r    <= pfp_base_r;
+                pfc_present_r <= |(pfp_hit_w & pfp_val_w);
+                pfc_v_r       <= 1'b1;
+            end
+            // ★ 锁存作废 —— 放在最后, 与上面几支同拍时以"作废"为准 (安装/驱逐都可能让"本行还在不在"
+            //   变了, 陈旧回答一律不许用; 重查一次的代价远小于用错的代价)。
+            //   · 三个用户全在 `vset_w` 作废 (新行装进去了)。
+            //   · `fill_start_w` 清受害路 valid: store / 填充清理两个锁存跟着作废; 预取那个**不**作废 ——
+            //     它只会让"在"变"不在", 而陈旧回答仍偏"在" ⇒ 至多少发一次预取 (安全方向)。
+            //   · `fill_start_w` 还要重置填充清理的那个: 上一次填充可能被污染中止 (没走到 vset_w),
+            //     答案属于上一次填充, 不能给下一次用。
+            //   · 但**只作废被碰到的那一组**: 锁存回答只管"组 S 里有没有 tag T", 而改变 S 的内容
+            //     只可能是落在 S 上的填充 (别的组装行与 S 无关)。
+            //     ~~不加这个条件的话, 预取满速装行时会每隔几拍就作废一次 store 的答案 ⇒ 每条 store
+            //     都要重发探针 (vvadd 实测 −10.9%)。~~ **该因果读法已被实测证伪** ([§44] §11.3):
+            //     全局作废收窄到同组只让 vvadd 0.7920→0.7926、geo −2.11%→−1.92% —— 作废不是那
+            //     −10.9% 的成因, 真因是**预取存在性探针** (它等不到读口 ⇒ 起填 152→95、需求缺失 3→59)。
+            //     同组收窄本身仍保留 (省掉的是真无必要的作废), 但**别再引用它解释 vvadd**。
+            if (vset_w || fill_start_w) begin
+                if (fill_set_r == st_set_r) st_tm_v_r <= 1'b0;
+                fc_tm_v_r <= 1'b0;
+            end
+            if (vset_w && (fill_set_r == pfc_base_r[TAGHI - 1 : SPLIT])) pfc_v_r <= 1'b0;
+            // 饿死计时: 有请求没人伺候就涨, 一发出就清零 (清零那拍若无请求也自然归零)
+            if (probe_go_w || !probe_req_w) probe_wait_r <= 4'd0;
+            else if (!probe_wait_r[3])      probe_wait_r <= probe_wait_r + 1'b1;
+        end
+    end
 
     // 每一路的 tag 与 valid 并行比较 (一拍读出所有路 —— 这就是 1 个读口能支持多路的原因)
     generate
@@ -376,7 +567,11 @@ module dcache #(
     assign miss_pending_w = lk_v_r && !lk_wait_r && !lk_replay_r && rd_ok_r && !hit_raw_w;
     assign same_line_w    = (lk_addr_r[31 : SPLIT] == fill_base_r[31 : SPLIT]);
     assign lk_same_fill_w = fill_busy_r && same_line_w;
-    assign lk_wb_wait_w   = wb_line_busy_w && (lk_addr_r[31 : SPLIT] == wb_base_r[31 : SPLIT]);
+    // ★ 写回在飞行的行 vs 另一条地址: `wb_base_r` 的 tag 有**两拍未知窗口** (受害行 tag 要等捕获读
+    //   回包 —— 它不在镜像里了)。未知时只比组号 = 一律当作"同一行" ⇒ 方向保守 (多让一条 load 并入
+    //   写回, 只慢不错)。反过来比错才是致命的: 漏判同行 ⇒ 该 load 去发 AR, 读回落后于脏行的内存值。
+    assign lk_wb_wait_w   = wb_line_busy_w && (wb_tag_v_r ? (lk_addr_r[31 : SPLIT] == wb_base_r[31 : SPLIT])
+                                                          : (lk_addr_r[TAGHI - 1 : SPLIT] == wb_base_r[TAGHI - 1 : SPLIT]));
     assign lk_cacheable_w = (lk_addr_r[31 : 28] == 4'h0);   // AXI 内存只到 0x0fffffff ⇒ 高位非 0 = MMIO
     // 该行正在填 / 正在写回 ⇒ 不重复发 AR, 等它结束再重放 (否则 32 B 行每行多 8 笔重复 AR, 顺序流必中)
     // ★ WB 那一项是写回特有的: 行刚被驱逐、脏数据还在缓冲里没落盘, 此刻发 AR 读回的是旧值。
@@ -402,18 +597,13 @@ module dcache #(
     assign pf_base_w      = ((DC_PREFETCH == 1) ? dc_fill_line_w
                                                 : {lk_addr_r[31 : SPLIT], {SPLIT{1'b0}}})
                           + (DC_LINE_WORDS * 4);
-    // 存在性查 (DFF tag 镜像, 与 st_hit_g 同款 —— 不占读口) + 可缓存 (AXI 内存只到 0x0fffffff)
+    // 存在性查: 待查行的组号/tag (探针的发起侧地址就是它) + 可缓存 (AXI 内存只到 0x0fffffff)
     assign pf_set_w = ONE_SET ? {DC_IW{1'b0}} : dpf_base_r[TAGHI - 1 : SPLIT];
     assign pf_tag_w = dpf_base_r[TAGHI +: TAG_W];
-    generate
-        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : pfcmp
-            assign pf_hit_g[gj] = valid_r[gj * DC_SETS + pf_set_w]
-                && (tag_r[gj * (DC_SETS * TAG_W) + pf_set_w * TAG_W +: TAG_W] == pf_tag_w);
-        end
-    endgenerate
-    assign pf_present_w = |pf_hit_g;
-    // 起填条件: 排队有效 + 目标确实不在 + 可缓存 + 引擎空闲 + **无需求在等** (需求绝对优先)
-    assign dpf_sel_w   = (DC_PREFETCH != 0) && dpf_v_r && !pf_present_w
+    // 起填条件: 排队有效 + **查过了** (`pfc_same_w`) + 目标确实不在 + 可缓存 + 引擎空闲 + 无需求在等。
+    //   ★ `pfc_same_w` 不能省: 没查过时 pf_present_w 恒 0, 省了就成了"不查即起填" —— 而存在性检查
+    //     是硬要求 (对已驻留行再起填会静默作废另一路的脏副本, 见头注释)。没查过就等下一拍。
+    assign dpf_sel_w   = (DC_PREFETCH != 0) && dpf_v_r && pfc_same_w && !pf_present_w
                       && (dpf_base_r[31 : 28] == 4'h0)
                       && !fill_busy_r && !pf_v_r && !dc_demand_w;
     assign dpf_start_w = dpf_sel_w && !fill_blk_w && !rmw_hold_w;
@@ -438,13 +628,17 @@ module dcache #(
     // ---- 起填门控 (写回新增) ----
     assign vic_v_w     = valid_r[victim_way_w * DC_SETS + new_set_w];
     assign vic_dirty_w = dirty_r[victim_way_w * DC_SETS + new_set_w];
-    assign vic_tag_w   = tag_r[victim_way_w * (DC_SETS * TAG_W) + new_set_w * TAG_W +: TAG_W];
+    // ★ 受害行的 tag **不在这里取** (原来查 tag 镜像) —— 它随 WB 捕获读的那份回包一起回来, 见第 8 节
+    //   `wbc_lat_r` 那支。起填那拍把 `wb_base_r` 先写成"组号对、tag 待填", 用 `wb_tag_v_r` 标出未知窗口。
     // 起填被写回挡住的两种情况: ①同一行还在飞 (内存此刻可能还是旧值) ②要驱逐脏行但缓冲被占。
     // 被挡住时让"排队的那条"接住 (fill_pend_w), 不白丢一次填充机会 —— 当前这条 miss 的 AR 照发。
     // ③部分字 store 的读-改-写窗口 (rmw_hold_w): 此刻起填可能把**它正要改写的那一路**选作受害路,
     //   行一朝被清 valid, 那笔已经读出老字、还没来得及落盘的 store 就写进了一条无效行(静默丢数据)。
     //   被挡住的 miss 落进 fill_pend_w ⇒ 排队等窗口结束, 不丢。
-    assign fill_blk_w  = (wb_line_busy_w && (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT]))
+    //   ★ 同行比较同样带 tag 未知窗口 (保守 = 只多挡): 起填若撞上未知窗口, 同组一律当同行, 推迟一拍
+    //     —— 那一拍过后 tag 就到了 (受害行 tag 由捕获读回包给出)。
+    assign fill_blk_w  = (wb_line_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT])
+                                                        : (wb_base_r[TAGHI - 1 : SPLIT] == fill_base_new_w[TAGHI - 1 : SPLIT])))
                       || (wb_buf_busy_w && vic_v_w && vic_dirty_w);
     assign fill_go_w   = dc_demand_w && !fill_busy_r && !pf_v_r && !fill_blk_w && !rmw_hold_w;
     assign fill_pend_w = miss_pending_w && !coalesce_w && !fill_go_w && !DC_OFF && lk_cacheable_w;
@@ -591,6 +785,7 @@ module dcache #(
             wbc_set_r     <= {DC_IW{1'b0}};
             wbc_way_r     <= {WY_W{1'b0}};
             wb_base_r     <= 32'd0;
+            wb_tag_v_r    <= 1'b0;
             wb_v_r        <= 1'b0;
             wb_beat_r     <= {BIW{1'b0}};
             wb_hold_r     <= 1'b0;
@@ -600,10 +795,14 @@ module dcache #(
             wbc_lat_r <= wbc_pend_r;
             if (wbc_pend_r) wbc_pend_r <= 1'b0;
             if (wbc_lat_r) begin
-                wb_v_r    <= 1'b1;
-                wb_beat_r <= {BIW{1'b0}};
-                wb_bcnt_r <= {FIW{1'b0}};
-                wb_data_r <= rdata_w[wbc_way_r * WAY_W +: 32 * DC_LINE_WORDS];
+                wb_v_r     <= 1'b1;
+                wb_beat_r  <= {BIW{1'b0}};
+                wb_bcnt_r  <= {FIW{1'b0}};
+                wb_data_r  <= rdata_w[wbc_way_r * WAY_W +: 32 * DC_LINE_WORDS];
+                // ★ 受害行的 tag 就在这份回包的 tag 槽里 —— 起填那拍还不知道, 这里补上。
+                //   读口和组号都是现成的 (捕获读只按组寻址) ⇒ 这条路径零额外读口, 也不占拍。
+                wb_base_r  <= {rdata_w[wbc_way_r * WAY_W + TAGOFF +: TAG_W], wbc_set_r, {SPLIT{1'b0}}};
+                wb_tag_v_r <= 1'b1;
             end
             if (fill_start_w) begin
                 fill_busy_r   <= 1'b1;
@@ -615,15 +814,18 @@ module dcache #(
                 // 起填那拍 fill_base_r 还没更新 —— fill_line 输出此刻已指向**新行**, 污染按新行判
                 fill_poison_r <= fill_blk;
                 // 受害路脏 ⇒ 下一拍把整行读进 WB 缓冲 (该路 valid/dirty 同拍清零, 数据不丢)
-                // ★ wb_base_r 必须是**受害行**的基址 (受害路的 tag 镜像 + 本组), 不是新填充行的:
-                //   捕获读只按组寻址, 给错行照样读到对的整行; 但排水那 8 笔的地址与 wb_line_busy_w
-                //   的同行比较都靠它 ⇒ 给成新行 = 把旧行的数据写到新行的地址上 (静默算错)。
-                //   tag_r 在 vset_w 才更新, 此刻仍是被驱逐那条的 tag。
+                // ★ wb_base_r 必须是**受害行**的基址, 不是新填充行的: 捕获读只按组寻址, 给错行照样读
+                //   到对的整行; 但排水那 8 笔的地址与 wb_line_busy_w 的同行比较都靠它 ⇒ 给成新行 =
+                //   把旧行的数据写到新行的地址上 (静默算错)。
+                //   ★ 受害行的 tag 此刻**还不知道** (它来自下一拍的捕获读回包, 见上面 wbc_lat_r 那支):
+                //     这里先写"组号对、tag 置 0", `wb_tag_v_r=0` 标出未知窗口 —— 窗口内一切同行比较
+                //     退化成只比组号 (保守: 多挡), 两拍后 tag 到位。
                 if (vic_v_w && vic_dirty_w) begin
                     wbc_pend_r <= 1'b1;
                     wbc_set_r  <= new_set_w;
                     wbc_way_r  <= victim_way_w;
-                    wb_base_r  <= {vic_tag_w, new_set_w, {SPLIT{1'b0}}};
+                    wb_base_r  <= {{TAG_W{1'b0}}, new_set_w, {SPLIT{1'b0}}};
+                    wb_tag_v_r <= 1'b0;
                 end
             end else if (fill_busy_r) begin
                 if (fill_hs_w)         fill_word_r <= fill_word_r + 1'b1;   // 被 load 抢走就原地重试
@@ -740,9 +942,11 @@ module dcache #(
             rd_ok_r   <= 1'b0;
         end else begin
             rd_addr_q <= rd_addr_w;
-            // 写的那拍 / WB 捕获读占口的那拍 / 读-改-写取老字的那拍, 都没有"本次查表"的读
-            // ⇒ 下一拍条目不可信 (被偷的查表读一律走重放, 不判缺失)
-            rd_ok_r   <= !sram_we_w && !wb_cap_w && !rmw_rd_w;
+            // 写的那拍 / WB 捕获读占口的那拍 / 读-改-写取老字的那拍 / **探针硬抢**的那拍, 都没有
+            // "本次查表"的读 ⇒ 下一拍条目不可信 (被偷的查表读一律走重放, 不判缺失)。
+            // ★ 探针那两项成对: 走**空槽** (probe_slot_w) 时它没偷任何人, 这一位必须留 1 —— 若也置 0,
+            //   一个恰好在这拍被接受的 load 会白白重放两拍; 硬抢 (probe_steal_w) 时才置 0。
+            rd_ok_r   <= !sram_we_w && !wb_cap_w && !rmw_rd_w && !probe_steal_w;
         end
     end
 
@@ -750,7 +954,7 @@ module dcache #(
     // fill_line = 本拍"有效填充行": 起填那拍 fill_base_r 还是上一条, 必须给**新行** —— 上层
     // sq_line_blk_f 拿它去比 SQ 条目, 给错行就会漏判污染 (或误判)。
     assign fill_line = fill_start_w ? fill_base_new_w : fill_base_r;
-    wire [TAG_W - 1 : 0] fill_tag_w = fill_base_r[31 : TAGHI];       // 本次填充行的 tag
+    assign fill_tag_w = fill_base_r[31 : TAGHI];
     // 最后一字落地才置位; 被污染的填充不置 (行没装全, 装了就是"半行冒充整行")
     assign vset_w = fill_last_w && !fill_poison_r && !fill_poison_now_w;
 
@@ -771,15 +975,17 @@ module dcache #(
                 dirty_r[fill_way_r * DC_SETS + fill_set_r] <= 1'b0;
             end
             // ★ 不变量 1: 同组任一时点最多一路持有某 tag —— 安装那拍把其它持有同一 tag 的路一并
-            //   作废。重复 tag 在写回下是**静默算错** (脏副本被换出 / 陈旧副本被读出); 这里只是
-            //   DC_WAYS 个比较器加几次 valid 位清除, 不占 SRAM 口。valid_r 这一项是必须的:
-            //   没写过的路的 tag_r 从未定义 (见第 2 节), 不能参与比较。
-            //   ★ 归纳法保证它永不命中 (valid+tag 只在 vset_w 一处置位, 而 vset_w 同拍就清干净了
-            //     其它同 tag 的路) ⇒ 也就不会有一条**脏**副本被这里清掉; 写回下这条很要紧。
-            if (vset_w)
+            //   作废。重复 tag 在写回下是**静默算错** (脏副本被换出 / 陈旧副本被读出)。
+            //   ★ 比较结果来自本次填充期间的一次 **tag 探针** (`fc_tm_r`, 见第 3 节): 一次填充在飞时
+            //     同组的 valid/tag 是冻结的 (别的填充被 `fill_busy_r` 挡住, store 吸收只动 dirty) ⇒
+            //     期间任何一拍查到的答案到安装这拍都还成立, 所以每次填充只查一次就够。
+            //   ★ `fc_tm_v_r` 是必须的: 探针还没回时那一拍允许安装 (不能为它停安装 —— 回包不可反压),
+            //     此时**跳过清理**。这个窗口只在"真有重复 tag"时才有意义, 而重复 tag 本身要靠
+            //     "对已驻留行再起填"才产生, 那已被三个起填口各自的检查挡住 (需求口靠 `any_hit_w`,
+            //     预取口靠 `pf_present_w`)。
+            if (vset_w && fc_tm_v_r)
                 for (gi = 0; gi < DC_WAYS; gi = gi + 1)
-                    if ((gi != fill_way_r) && valid_r[gi * DC_SETS + fill_set_r]
-                        && (tag_r[gi * (DC_SETS * TAG_W) + fill_set_r * TAG_W +: TAG_W] == fill_tag_w)) begin
+                    if ((gi != fill_way_r) && valid_r[gi * DC_SETS + fill_set_r] && fc_tm_r[gi]) begin
                         valid_r[gi * DC_SETS + fill_set_r] <= 1'b0;
                         dirty_r[gi * DC_SETS + fill_set_r] <= 1'b0;
                     end
@@ -788,9 +994,6 @@ module dcache #(
             if (st_absorb) dirty_r[st_way_w * DC_SETS + st_set_w] <= 1'b1;
         end
     end
-
-    always @(posedge clk)                                            // 无复位: 见第 2 节 tag_r 的论证
-        if (vset_w) tag_r[fill_way_r * (DC_SETS * TAG_W) + fill_set_r * TAG_W +: TAG_W] <= fill_tag_w;
 
     // ==================== 9. store 退休口 (写回: 命中就地把字节写进行, 未命中旁路) ====================
     // 语义: SQ 队首那条 store 要在**本拍**定下去向 (mem_subsystem 拿这里的回答当退休许可)。
@@ -808,16 +1011,21 @@ module dcache #(
     assign st_tag_w  = st_addr[TAGHI +: TAG_W];
     assign st_word_w = st_addr[SPLIT - 1 : 2];
     assign st_cacheable_w = (st_addr[31 : 28] == 4'h0);   // MMIO (>=0x10000000) 永不吸收, 必上总线
+    // 命中判定 = {探针拿到的"逐路 tag 是否相等"} ∧ {本拍该路的 valid}。前一半来自锁存 (第 3 节),
+    // 后一半必须**本拍现取** —— valid 是唯一允许随时变的状态, 探针那拍和现在之间它可能已清零。
+    // `st_tm_ok_w` 是"这个答案还代表本拍问的那个地址吗": 不是就判定不成立 ⇒ 本拍让路, 下一拍重试
+    // (stp_req_w 会重新发探针)。让路只发生在探针刚发出/刚换地址那几拍, 队首原地重试, 不丢条目。
     generate
-        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : stcmp
-            assign st_hit_g[gj] = valid_r[gj * DC_SETS + st_set_w]
-                && (tag_r[gj * (DC_SETS * TAG_W) + st_set_w * TAG_W +: TAG_W] == st_tag_w);
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : sthit
+            assign st_hit_g[gj] = st_tm_ok_w && valid_r[gj * DC_SETS + st_set_w] && st_tm_sel_w[gj];
         end
     endgenerate
     assign st_way_w     = hitway_f(st_hit_g);
     assign any_st_hit_w = |st_hit_g;
     wire   st_vic_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_w == victim_way_w);
-    wire   st_wb_same_w = wb_buf_busy_w && (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT]);
+    // tag 未知窗口内只比组号 (保守: 只多让路一拍, 队首原地重试) —— 见 lk_wb_wait_w 同款论证。
+    wire   st_wb_same_w = wb_buf_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT])
+                                                      : (wb_base_r[TAGHI - 1 : SPLIT] == st_addr[TAGHI - 1 : SPLIT]));
     // ★ 同一行**正有填充在飞**。只认 register 出来的 fill_busy_r, 不认本拍起填 —— 起填与否本身
     //   取决于 fill_blk, 而 fill_blk (mem_subsystem 的毒化判定) 又取决于本判定, 认了就成组合环。
     //   在飞的填充必然已经过了起填那一拍, 靠它就够。
@@ -844,7 +1052,8 @@ module dcache #(
     //   留在 SQ 里 (sq_pend_w) 毒死这次填充 ⇒ 行不安装 ⇒ 下一轮再缺失 ⇒ 再旁路, **自我否定环**。
     //   rsort 实测: 起填 16474 次只装上 2568 次 (15.6%), 中止拍 99.97% 是同行未落地 store。
     //   等它落地不额外花 AR (填充本来就在飞), 落地后本行 valid ⇒ 自然命中吸收。
-    assign st_bypass    = st_valid && (!st_cacheable_w || (!any_st_hit_w && !st_fill_same_w))
+    assign st_bypass    = st_valid && st_ready_w
+                       && (!st_cacheable_w || (!any_st_hit_w && !st_fill_same_w))
                        && !st_wb_same_w;
 
     always @(posedge clk or negedge rst_n) begin
