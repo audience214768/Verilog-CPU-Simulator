@@ -355,8 +355,9 @@ module mem_subsystem #(
     wire [SQ_DEPTH - 1 : 0] sq_vis_w  = sq_ab_r | sq_b_ack_r;    // 数据已可见 (吸收 或 B 已回)
     wire [SQ_DEPTH - 1 : 0] sq_pend_w = sq_v_w & ~sq_vis_w;      // 尚未落地 ⇒ 会污染同行的填充
 
-    // 字节地址 pos 的最终值: 扫队列 (由老到新, 后者覆盖前者 ⇒ 最年轻胜) → AXI 原始字节
-    // ★ 遍历必须按**年龄** (队首 + 年龄, 模 SQ_DEPTH), 不能按槽号 0..SQ_DEPTH-1: 三指针是自由跑的
+    // 字节地址 pos 的最终值: **覆盖它的最年轻条目** → 无则 AXI 原始字节。年龄 = 从队首沿物理序前进的步数;
+    // 第六刀起实现为"逐条目覆盖掩码 + 年龄 max 归约树"(见下方函数头), 判据本身不变。
+    // ★ 优先级必须按**年龄** (队首 + 年龄, 模 SQ_DEPTH), 不能按槽号 0..SQ_DEPTH-1: 三指针是自由跑的
     //   回绕计数器, 队列一旦绕过一圈, **低槽号反而是更年轻的条目** ⇒ 按槽号扫会让最老的 store 赢,
     //   与"后写覆盖先写"正好相反 (载入结果被改写成一个过期值 —— 静默算错)。
     //   触发要两个条件同时成立: ①队列已回绕 ②>=2 条存活条目覆盖同一字节。
@@ -458,37 +459,65 @@ module mem_subsystem #(
         end
     endfunction
 
+    // ★★ 第六刀（plan.md §16）：旧式把"选条目"塞进**年龄循环**里 —— 每个年龄先按 `q_ret == ((e-m)&7)`
+    //    译出槽号、再选 66 位（addr/data/width），于是 8 年龄 × 66 位 = 4224 个选通 AND，8 个最小项
+    //    各驱动 552 个门（官方 abc 无 `-constr` ⇒ 不 buffer，该级实测 1.6882 ns 摆率税，§14/§15）。
+    //    新式两句话：
+    //      ① **每条目只读一次自己的字段**，直接算出它对四个输出字节各贡献什么 —— 覆盖掩码与"谁选它"
+    //         无关 ⇒ 选通整片消失，`sq_ret_p` 的译码从合并链里彻底退出；
+    //      ② 优先级仍按**年龄**（队首沿物理序前进的步数），但每条目只算一次 `age[e] = (e - q_ret) & 7`
+    //         （8 个 3 位减法器），再做一遍 **8 路 max 归约树** —— 键 = `{覆盖, 年龄}`（覆盖占最高位）。
+    //    等价性：旧式按 m 递增覆盖写，胜者 = "满足 (q_v[e] && 覆盖) 的条目里年龄最大者"；键的 max 对
+    //    任意 q_v 形状都是同一件事（年龄两两不同 ⇒ 树顶唯一）⇒ **与"存活区间连续"这类外部不变量无关**，
+    //    也不需要"回绕"特判。覆盖判据与右旋口径逐字保持原式（含 32 位回绕），故逐位等价。
     function [31 : 0] sq_merge_word_f;
         input [31 : 0]                base;
         input [SQ_DEPTH * 32 - 1 : 0] q_a, q_d;
         input [SQ_DEPTH * 2 - 1 : 0]  q_w;
         input [SQ_DEPTH - 1 : 0]      q_v;
-        input [SQ_IW - 1 : 0]         q_ret;        // 队首 (最老条目所在槽)
+        input [SQ_IW - 1 : 0]         q_ret;        // 队首 (最老条目所在槽) —— 只用来算年龄
         input [31 : 0]                raw;
-        integer m, i, e;
-        reg [SQ_DEPTH - 1 : 0] oh;
-        reg [31 : 0] q_addr, q_end, dword, rot, val;
+        integer e, i, lv, n;
+        reg [31 : 0] a_e, e_end;
+        reg [1 : 0]  d_e;
+        reg [31 : 0] cov;                                  // cov[i*SQ_DEPTH + e]: 条目 e 覆盖通道 i?
+        reg [SQ_DEPTH * 32 - 1 : 0] cb;                    // cb[i*SQ_DEPTH*8 + e*8 +: 8]: 条目 e 给通道 i 的字节
+        reg [SQ_DEPTH * SQ_IW - 1 : 0] age;                // 条目 e 的年龄 (0 = 队首, 模 SQ_DEPTH)
+        reg [SQ_DEPTH * (SQ_IW + 1) - 1 : 0] key;          // 归约树节点: {覆盖, 年龄}
+        reg [SQ_DEPTH * 8 - 1 : 0]           byt;          // 归约树节点: 该节点贡献的字节
+        reg                                  hi;
+        reg [31 : 0] val;
         begin
-            val = raw;
-            for (m = 0; m < SQ_DEPTH; m = m + 1) begin
-                // 年龄 m ⇒ 槽号 (模 SQ_DEPTH): 反写成"q_ret 等于哪个常数", 使这一级是 8 个 3 输入
-                // 最小项而不是 8 个 3 位加法器 (e - m 为负时按补码取低 3 位, 恰好就是模 8 的结果)
-                for (e = 0; e < SQ_DEPTH; e = e + 1)
-                    oh[e] = (q_ret == ((e - m) & (SQ_DEPTH - 1)));
-                q_addr = sq_sel32_f(q_a, oh);
-                q_end  = q_addr + wd_bytes(sq_sel2_f(q_w, oh));
-                dword  = sq_sel32_f(q_d, oh);
-                // 右旋 d 字节 (d = (base - q_addr) mod 4): rot 的第 i 字节 = dword 的第 (d + i) mod 4 字节
-                case ((base[1 : 0] - q_addr[1 : 0]))
-                    2'd0: rot = dword;
-                    2'd1: rot = {dword[7 : 0],  dword[31 : 8]};
-                    2'd2: rot = {dword[15 : 0], dword[31 : 16]};
-                    2'd3: rot = {dword[23 : 0], dword[31 : 24]};
-                endcase
+            cov = 0; cb = 0; val = raw;
+            for (e = 0; e < SQ_DEPTH; e = e + 1) begin
+                a_e   = q_a[e * 32 +: 32];
+                d_e   = base[1 : 0] - a_e[1 : 0];
+                e_end = a_e + wd_bytes(q_w[e * 2 +: 2]);
+                // 年龄 = 从队首沿物理序前进的步数 (e - q_ret 为负时按补码取低 3 位 = 模 8 的结果)
+                age[e * SQ_IW +: SQ_IW] = (e - q_ret) & (SQ_DEPTH - 1);
                 for (i = 0; i < 4; i = i + 1) begin
-                    if ((|(q_v & oh)) && ((base + i) >= q_addr) && ((base + i) < q_end))
-                        val[i * 8 +: 8] = rot[i * 8 +: 8];
+                    // 右旋 d 字节: 通道 i 取条目的第 (i+d) mod 4 字节 (与旧式 case 的 rot 逐位同义)
+                    cb[i * SQ_DEPTH * 8 + e * 8 +: 8] = q_d[e * 32 + (((i + d_e) & 2'd3) * 8) +: 8];
+                    // 覆盖判据 = 旧式原样 (pos = base + i, 32 位回绕, 端点 a_e + wd)
+                    cov[i * SQ_DEPTH + e] = q_v[e] && ((base + i) >= a_e) && ((base + i) < e_end);
                 end
+            end
+            // 每条通道一遍 8 路 max 归约: 相邻两两比键, 大者连同它的字节进上一级 (3 级 = 7 个节点)
+            for (i = 0; i < 4; i = i + 1) begin
+                for (e = 0; e < SQ_DEPTH; e = e + 1) begin
+                    key[e * (SQ_IW + 1) +: SQ_IW + 1] = {cov[i * SQ_DEPTH + e], age[e * SQ_IW +: SQ_IW]};
+                    byt[e * 8 +: 8] = cb[i * SQ_DEPTH * 8 + e * 8 +: 8];
+                end
+                for (lv = SQ_DEPTH; lv > 1; lv = lv >> 1)
+                    for (n = 0; n < (lv >> 1); n = n + 1) begin
+                        hi = (key[(2 * n + 1) * (SQ_IW + 1) +: SQ_IW + 1] >
+                              key[(2 * n) * (SQ_IW + 1) +: SQ_IW + 1]);
+                        key[n * (SQ_IW + 1) +: SQ_IW + 1] =
+                            hi ? key[(2 * n + 1) * (SQ_IW + 1) +: SQ_IW + 1]
+                               : key[(2 * n) * (SQ_IW + 1) +: SQ_IW + 1];
+                        byt[n * 8 +: 8] = hi ? byt[(2 * n + 1) * 8 +: 8] : byt[(2 * n) * 8 +: 8];
+                    end
+                if (key[SQ_IW]) val[i * 8 +: 8] = byt[7 : 0];   // 树顶键的最高位 = 覆盖位
             end
             sq_merge_word_f = val;
         end
