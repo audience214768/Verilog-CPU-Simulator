@@ -6,9 +6,11 @@
 read/synth 序列在 abc 之前把网表写出来, 名字还在, 扇出算术 (tools/fanout_model.py)
 才能把网表数字对回 RTL 构造。
 
-与官方路径的等价性 (已核实): 官方 elaborate 阶段把每个数组都打成
-`Replacing memory \\x with list of registers`, 没有任何存储器被推断成 SRAM
-(`configurations: []`), 所以省掉 prepare_memories/sram_fakeram 包装不影响网表结构。
+与官方路径的等价性 —— **已证伪** (2026-10-09, plan.md §14.3): 本脚本是**单趟**流程, 省掉
+prepare_memories/sram_fakeram 包装后结构确实变了 —— `--stage gate` 出 1889 个触发器, 官方
+同参数出 8936 个; `$auto$ff.cc:337:slice$` 的序数与官方 `design.json` 几乎不交 (交集 1)。
+**要 pre-ABC 网表就复用官方 pass-1 的 `ram/prepared.json` + `ram/wrappers.v`, 跑官方
+`synth.ys` 截断在 `abc` 之前** (配方见 plan.md §14.3)。本脚本只保留作历史参考。
 
 口径纪律 (**重要**):
   - 宿主 yosys 0.68 / ASAP7 r27 与容器 0.63 / r28 不同源 ⇒ 本产物**只用于 RTL 名字
