@@ -369,43 +369,56 @@ module mem_subsystem #(
     //   UNOPTFLAT: sw_valid → ld_m0 → lsq.mem_done_data → lsq.mb0 → execute_slot → misp_det
     //   → cpu_top.ce_w → sw_valid。环上两处都不可动 (ce_w 的 misp 项是防提交副作用重复的硬要求,
     //   见 cpu_top.v 第 4/5 节), 而这一项本就冗余 ⇒ 删掉, 环随之消失。
-    function [7 : 0] sq_merge_byte_f;
-        input [31 : 0]                pos;
+    // ★ 四条字节通道共用**一次**队列扫描。旧版是把"逐字节"按 pos 偏移复制成 4 份 (sq_merge_byte_f ×4),
+    //   每条目被读 4 遍: `q_a`/`q_d`/`q_w`/`q_v` 的动态读各 4 份 (索引 `s = q_ret + m` 也各算 4 遍),
+    //   实测 `q_a` 的 256→32 动态读 32 份、`q_d` 的 256→8 32 份、`q_w`/`q_v` 各 32 份 (wvec)。
+    //   现在每条目只读一次槽地址/整字数据/宽度/有效位, 四条通道靠一个**只含连线**的右旋各取一个字节。
+    //   依据: 通道 i 取的字节下标是 (pos_i - q_addr) 的低 2 位, 而 pos_i = dl_addr_w + i
+    //   ⇒ (pos_i - q_addr) ≡ (dl_addr_w - q_addr) + i (mod 4); 且命中时该差必落在 [0,3]:
+    //   32 位回绕下 `pos_i >= q_addr` 与 `pos_i < q_addr + wd` 同时成立 ⇒ q_addr + wd 未回绕
+    //   ⇒ 右旋 d = (dl_addr_w - q_addr) mod 4 之后的第 i 个字节, 正是通道 i 原来取的那一位组。
+    //   命中条件仍**逐通道按原式**写 (含回绕), 故与"逐通道各扫一遍"逐位等价。
+    function [31 : 0] sq_merge_word_f;
+        input [31 : 0]                base;
         input [SQ_DEPTH * 32 - 1 : 0] q_a, q_d;
         input [SQ_DEPTH * 2 - 1 : 0]  q_w;
         input [SQ_DEPTH - 1 : 0]      q_v;
         input [SQ_IW - 1 : 0]         q_ret;        // 队首 (最老条目所在槽)
-        input [7 : 0]                 raw;
-        integer m;
+        input [31 : 0]                raw;
+        integer m, i;
         reg [SQ_IW - 1 : 0] s;
-        reg [31 : 0] q_addr;
-        reg [7 : 0]  val;
+        reg [31 : 0] q_addr, q_end, dword, rot, val;
         begin
             val = raw;
             for (m = 0; m < SQ_DEPTH; m = m + 1) begin
                 s = q_ret + m[SQ_IW - 1 : 0];      // 年龄 m ⇒ 槽号 (模 SQ_DEPTH, 截断即取模)
                 q_addr = q_a[s * 32 +: 32];
-                if (q_v[s] && (pos >= q_addr) && (pos < (q_addr + wd_bytes(q_w[s * 2 +: 2]))))
-                    val = q_d[s * 32 + (pos - q_addr) * 8 +: 8];
+                q_end  = q_addr + wd_bytes(q_w[s * 2 +: 2]);
+                dword  = q_d[s * 32 +: 32];
+                // 右旋 d 字节 (d = (base - q_addr) mod 4): rot 的第 i 字节 = dword 的第 (d + i) mod 4 字节
+                case ((base[1 : 0] - q_addr[1 : 0]))
+                    2'd0: rot = dword;
+                    2'd1: rot = {dword[7 : 0],  dword[31 : 8]};
+                    2'd2: rot = {dword[15 : 0], dword[31 : 16]};
+                    2'd3: rot = {dword[23 : 0], dword[31 : 24]};
+                endcase
+                for (i = 0; i < 4; i = i + 1) begin
+                    if (q_v[s] && ((base + i) >= q_addr) && ((base + i) < q_end))
+                        val[i * 8 +: 8] = rot[i * 8 +: 8];
+                end
             end
-            sq_merge_byte_f = val;
+            sq_merge_word_f = val;
         end
     endfunction
 
     // ★ 合并链的输入是 dl_* (命中数据或回包数据) —— 命中路径同样可能读到缓存里的旧值, 必须一起兜
-    wire [7 : 0] ld_m0 = sq_merge_byte_f(dl_addr_w + 32'd0,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[7 : 0]);
-    wire [7 : 0] ld_m1 = sq_merge_byte_f(dl_addr_w + 32'd1,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[15 : 8]);
-    wire [7 : 0] ld_m2 = sq_merge_byte_f(dl_addr_w + 32'd2,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[23 : 16]);
-    wire [7 : 0] ld_m3 = sq_merge_byte_f(dl_addr_w + 32'd3,
-                                         sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w[31 : 24]);
+    wire [31 : 0] ld_merge_w = sq_merge_word_f(dl_addr_w,
+                                               sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w);
 
     // 零扩展 (符号由 lsq.v:291-297 按 is_unsigned_r 做)
-    assign ld_done_data = (dl_width_w == 2'b10) ? {ld_m3, ld_m2, ld_m1, ld_m0}
-                        : (dl_width_w == 2'b01) ? {16'd0, ld_m1, ld_m0}
-                        : {24'd0, ld_m0};
+    assign ld_done_data = (dl_width_w == 2'b10) ? ld_merge_w
+                        : (dl_width_w == 2'b01) ? {16'd0, ld_merge_w[15 : 0]}
+                        : {24'd0, ld_merge_w[7 : 0]};
 
     // SQ 里"尚未落地"(sq_pend_w) 的条目是否落在 dcache 本拍填充的那一行 —— 判填充污染。
     // 只要同行有未落地的 store, 填充读回的数据就可能混进旧值 ⇒ 本次填充作废 (见 dcache.v 第五条
