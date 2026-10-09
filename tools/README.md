@@ -58,6 +58,24 @@ tools/census.py <preabc.v> --target '\regs[k]'  # 定点: 该信号的每一条�
 所以 `\regs[k]` 记 96 = 每比特 3 次引用 × 32 位。**它给不出比特精确的门级扇出** ——
 要那个数只能读 `mapped.v`（post-ABC，匿名名）或 `timing.rpt`（带 Fanout 列）。见 §2 实测。
 
+### `wvec.py` —— 全设计**宽向量 × 动态访问**普查
+
+```sh
+tools/wvec.py /tmp/preabc_base/preabc.json            # 按 A_WIDTH 排序的全表
+tools/wvec.py /tmp/preabc_base/preabc.json --min 64   # 只看 A_WIDTH >= 64
+tools/wvec.py /tmp/preabc_base/preabc.json --src dcache
+```
+
+数据源是 `tools/preabc.py` 的 `preabc.json`：把网表里所有 `$shiftx/$shift`（RTL 里
+`v[i +: W]`、`i` 是信号时在网表里的**唯一**物化载体）连 `A_WIDTH`（被索引向量的宽度）、
+`Y_WIDTH`（取出的字段宽度 = 该访问的**理论下界**）、`attributes.src`（RTL 位置）一起列出。
+
+**它只覆盖"读"**：动态**写** `v[i +: W] <= d` 不是 `$shiftx`，而是"一条使能 × N×W 个触发器"，
+要在 `mapped.v` 上用 `tools/bombs.py` 找。两侧量级差两个数量级（实测：`tag_r` 的读数据位
+每位扇出 7，同一条向量的写使能 1202）⇒ **排序键取写侧的使能扇出**。见 `docs/plan.md` §9。
+
+"份数"列 = 该源码行**展开出的 `$shiftx` 个数**（generate/for 会展开），不是模块例化数。
+
 ### `path.py` —— 关键路径解剖（**本工具链信息量最大的一个**）
 
 数据源是**官方判分产物自己**：OpenSTA 写的 `timing.rpt` 每行本来就带
