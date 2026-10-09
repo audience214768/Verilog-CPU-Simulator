@@ -335,6 +335,10 @@ module mem_subsystem #(
     reg [SQ_DEPTH * 16 - 1 : 0] sq_ticket_r;          // 该条"可见"那拍已发出的 load 数
     reg [SQ_IW - 1 : 0]         sq_wr_p, sq_iss_p, sq_snd_p, sq_ret_p;
     reg [15 : 0]                ld_issue_cnt_r, ld_done_cnt_r;
+    integer                     we;                    // 槽写口的循环变量 (one-hot 展开用)
+
+    wire [SQ_DEPTH - 1 : 0] sq_oh_wr_w  = sq_oh_f(sq_wr_p);                        // 写口条目号
+    wire [SQ_DEPTH - 1 : 0] sq_oh_tag_w = sq_oh_f(wr_resp_tag[SQ_IW - 1 : 0]);     // B 回包条目号
 
     wire [SQ_IW - 1 : 0] sq_occ_w   = sq_wr_p - sq_ret_p;
     wire sq_full_w  = ((sq_wr_p + 1'b1) == sq_ret_p);
@@ -378,6 +382,82 @@ module mem_subsystem #(
     //   32 位回绕下 `pos_i >= q_addr` 与 `pos_i < q_addr + wd` 同时成立 ⇒ q_addr + wd 未回绕
     //   ⇒ 右旋 d = (dl_addr_w - q_addr) mod 4 之后的第 i 个字节, 正是通道 i 原来取的那一位组。
     //   命中条件仍**逐通道按原式**写 (含回绕), 故与"逐通道各扫一遍"逐位等价。
+    //
+    // ★★ 槽索引读/写一律走 **one-hot + 逐位 AND-OR** (本设计第 3/4 次用同一模板: `prf.v:33-58`
+    //    实测峰值扇出 1025→32、`execute_slot.v:119-127` 实测 1152→144)。原写法 `vec[idx*W +: W]`
+    //    在 yosys 里落成**桶形移位器** (`$shiftx`, 宿主实测: 合并链/iss/snd/ticket 的 256 位读全是
+    //    `$shiftx A_W=256`) 或同形的选通树, 其**最宽一级由索引的某一位独占驱动** ⇒ 扇出 ≈ 位宽 × 2^(级数-1);
+    //    官方 abc 无 `-constr` ⇒ 不 buffer 也不 upsize, 那一级的摆率税直接变成延时。
+    //    改法: 先把索引译成 one-hot, 再对每一位做 AND-OR —— `oh[e]` 只驱动条目 e 的**位宽**个门
+    //    (面积持平: mux2 ≈ 2 门 vs AND2 + OR2 ≈ 2 门)。译码器不做复制: 同一个 `idx == e` 写三遍
+    //    会被 opt_merge 并回一条网 (execute_slot.v:126-127 实测)。
+    //    ★ 判据: 索引只有 SQ_IW = 3 位 ⇒ 译码器 = 8 个 3 输入最小项。plan.md §10.1 两次负例的病型是
+    //      **宽地址**译码 (way+set 共 20+ 位 × 64 个同形比较), 与这一形状不同 —— 这也是本仓库
+    //      prf/execute_slot 两次正例与本刀的共同前提 (动之前先核过, 见 plan.md §12.5)。
+    //    ★ 写口同病且更重: `vec[idx*W +: W] <= d` 在 yosys 里是 `d << (idx*W)` + 掩码, 会落成
+    //      **桶形移位器** (宿主 yosys 形状验证: 256 位 / 3 位变址全设计 synth 后 828 cell, 其中
+    //      256 flop 之外 ≥500 cell 是移位+掩码; 逐位使能的最优形只需 ~280)。最宽一级由 idx 的
+    //      最高位驱动 = 位宽/2 个 mux ⇒ 换个写法把下标变**常数** (循环 + `oh[we]` 使能), 移位器整片消失。
+    //    ★ 覆盖面只算**宽口** (每条目 ≥16 位): 合并链读、iss 读、snd 读、wr 写、ticket 读写 (3 处)。
+    //      1 位宽的索引读 (`sq_pend_w`/`sq_ax_r`/`sq_vis_w[...]`) 与标志位写**保持原样** ——
+    //      1 位变址在 yosys 里本来就落成译码器 (移位器的每一级只有 1 个 mux), 索引负载是常数级,
+    //      换掉面积持平而收益可忽略, 不值得扩大改动面。
+    function [SQ_DEPTH - 1 : 0] sq_oh_f;
+        input [SQ_IW - 1 : 0] idx;
+        integer e;
+        begin
+            for (e = 0; e < SQ_DEPTH; e = e + 1)
+                sq_oh_f[e] = (idx == e);
+        end
+    endfunction
+
+    // 选项: 32 位 (addr/data) / 16 位 (ticket) / 2 位 (width)。sel 必须 one-hot (由 sq_oh_f 保证:
+    // 索引恒落在 [0, SQ_DEPTH-1] ⇒ 恰好一位为 1), 此时逐位 AND-OR 与 mux 树**逐位等价**。
+    function [31 : 0] sq_sel32_f;
+        input [SQ_DEPTH * 32 - 1 : 0] v;
+        input [SQ_DEPTH - 1 : 0]      sel;
+        integer b, e;
+        reg [SQ_DEPTH - 1 : 0] m;
+        reg [31 : 0]           y;
+        begin
+            for (b = 0; b < 32; b = b + 1) begin
+                for (e = 0; e < SQ_DEPTH; e = e + 1) m[e] = v[e * 32 + b] & sel[e];
+                y[b] = |m;
+            end
+            sq_sel32_f = y;
+        end
+    endfunction
+
+    function [15 : 0] sq_sel16_f;
+        input [SQ_DEPTH * 16 - 1 : 0] v;
+        input [SQ_DEPTH - 1 : 0]      sel;
+        integer b, e;
+        reg [SQ_DEPTH - 1 : 0] m;
+        reg [15 : 0]           y;
+        begin
+            for (b = 0; b < 16; b = b + 1) begin
+                for (e = 0; e < SQ_DEPTH; e = e + 1) m[e] = v[e * 16 + b] & sel[e];
+                y[b] = |m;
+            end
+            sq_sel16_f = y;
+        end
+    endfunction
+
+    function [1 : 0] sq_sel2_f;
+        input [SQ_DEPTH * 2 - 1 : 0] v;
+        input [SQ_DEPTH - 1 : 0]     sel;
+        integer b, e;
+        reg [SQ_DEPTH - 1 : 0] m;
+        reg [1 : 0]            y;
+        begin
+            for (b = 0; b < 2; b = b + 1) begin
+                for (e = 0; e < SQ_DEPTH; e = e + 1) m[e] = v[e * 2 + b] & sel[e];
+                y[b] = |m;
+            end
+            sq_sel2_f = y;
+        end
+    endfunction
+
     function [31 : 0] sq_merge_word_f;
         input [31 : 0]                base;
         input [SQ_DEPTH * 32 - 1 : 0] q_a, q_d;
@@ -385,16 +465,19 @@ module mem_subsystem #(
         input [SQ_DEPTH - 1 : 0]      q_v;
         input [SQ_IW - 1 : 0]         q_ret;        // 队首 (最老条目所在槽)
         input [31 : 0]                raw;
-        integer m, i;
-        reg [SQ_IW - 1 : 0] s;
+        integer m, i, e;
+        reg [SQ_DEPTH - 1 : 0] oh;
         reg [31 : 0] q_addr, q_end, dword, rot, val;
         begin
             val = raw;
             for (m = 0; m < SQ_DEPTH; m = m + 1) begin
-                s = q_ret + m[SQ_IW - 1 : 0];      // 年龄 m ⇒ 槽号 (模 SQ_DEPTH, 截断即取模)
-                q_addr = q_a[s * 32 +: 32];
-                q_end  = q_addr + wd_bytes(q_w[s * 2 +: 2]);
-                dword  = q_d[s * 32 +: 32];
+                // 年龄 m ⇒ 槽号 (模 SQ_DEPTH): 反写成"q_ret 等于哪个常数", 使这一级是 8 个 3 输入
+                // 最小项而不是 8 个 3 位加法器 (e - m 为负时按补码取低 3 位, 恰好就是模 8 的结果)
+                for (e = 0; e < SQ_DEPTH; e = e + 1)
+                    oh[e] = (q_ret == ((e - m) & (SQ_DEPTH - 1)));
+                q_addr = sq_sel32_f(q_a, oh);
+                q_end  = q_addr + wd_bytes(sq_sel2_f(q_w, oh));
+                dword  = sq_sel32_f(q_d, oh);
                 // 右旋 d 字节 (d = (base - q_addr) mod 4): rot 的第 i 字节 = dword 的第 (d + i) mod 4 字节
                 case ((base[1 : 0] - q_addr[1 : 0]))
                     2'd0: rot = dword;
@@ -403,7 +486,7 @@ module mem_subsystem #(
                     2'd3: rot = {dword[23 : 0], dword[31 : 24]};
                 endcase
                 for (i = 0; i < 4; i = i + 1) begin
-                    if (q_v[s] && ((base + i) >= q_addr) && ((base + i) < q_end))
+                    if ((|(q_v & oh)) && ((base + i) >= q_addr) && ((base + i) < q_end))
                         val[i * 8 +: 8] = rot[i * 8 +: 8];
                 end
             end
@@ -475,9 +558,10 @@ module mem_subsystem #(
     // st_valid 保持到有回答为止 (dcache 若因安装写/写回捕获读占着 SRAM 口, 会二选一都不抬)。
     wire sq_unres_w = sq_iss_v_w && sq_pend_w[sq_iss_p] && !sq_ax_r[sq_iss_p];
     assign sq_st_valid_w = sq_unres_w;
-    assign sq_st_addr_w  = sq_addr_r[sq_iss_p * 32 +: 32];
-    assign sq_st_data_w  = sq_data_r[sq_iss_p * 32 +: 32];
-    assign sq_st_width_w = sq_width_r[sq_iss_p * 2 +: 2];
+    wire [SQ_DEPTH - 1 : 0] sq_oh_iss_w = sq_oh_f(sq_iss_p);
+    assign sq_st_addr_w  = sq_sel32_f(sq_addr_r, sq_oh_iss_w);
+    assign sq_st_data_w  = sq_sel32_f(sq_data_r, sq_oh_iss_w);
+    assign sq_st_width_w = sq_sel2_f(sq_width_r, sq_oh_iss_w);
     wire sq_absorb_hs_w = sq_st_valid_w && sq_st_absorb_w;
     wire sq_bypass_dc_w = sq_st_valid_w && sq_st_bypass_w;
 
@@ -486,8 +570,11 @@ module mem_subsystem #(
     wire sq_snd_block_w = (sq_snd_p == sq_iss_p) ? !sq_absorb_hs_w : sq_ax_r[sq_snd_p];
     wire sq_wr_valid_w  = sq_snd_block_w && (sq_snd_p != sq_iss_p);
     wire sq_snd_adv_w   = !sq_snd_block_w && (sq_snd_p != sq_wr_p);
-    wire [1 : 0] sq_off_w = sq_addr_r[sq_snd_p * 32 +: 2];     // 字内字节偏移 = addr[1:0]
-    wire [1 : 0] sq_w_w   = sq_width_r[sq_snd_p * 2 +: 2];
+    wire [SQ_DEPTH - 1 : 0] sq_oh_snd_w = sq_oh_f(sq_snd_p);
+    wire [31 : 0] sq_snd_addr_w = sq_sel32_f(sq_addr_r, sq_oh_snd_w);   // 一次译码, 两个读口共用
+    wire [31 : 0] sq_snd_data_w = sq_sel32_f(sq_data_r, sq_oh_snd_w);
+    wire [1 : 0] sq_off_w = sq_snd_addr_w[1 : 0];              // 字内字节偏移 = addr[1:0]
+    wire [1 : 0] sq_w_w   = sq_sel2_f(sq_width_r, sq_oh_snd_w);
 
     // ---- 写通道仲裁: D-cache 写回优先, SQ 旁路 store 其次 ----
     // WB 手里攥着该行**唯一**的副本 (脏行已被驱逐出缓存), 且一个来回只有 DC_LINE_WORDS 笔;
@@ -495,9 +582,9 @@ module mem_subsystem #(
     // SQ 侧不会饿死: 每收下一笔 snd 都会前进, 而缓存型 store 压根不走写通道。
     // 地址对齐到字, 字节道靠 strb 选 (从机口径: wstrb 第 i 位 ↔ address+i, 字节取 wdata[8i+:8])
     assign wr_req_valid = wb_req_valid_w || sq_wr_valid_w;
-    assign wr_req_addr  = wb_req_valid_w ? wb_req_addr_w : {sq_addr_r[sq_snd_p * 32 + 2 +: 30], 2'b00};
+    assign wr_req_addr  = wb_req_valid_w ? wb_req_addr_w : {sq_snd_addr_w[31 : 2], 2'b00};
     assign wr_req_data  = wb_req_valid_w ? wb_req_data_w
-                                         : (sq_data_r[sq_snd_p * 32 +: 32] << {sq_off_w, 3'b000});
+                                         : (sq_snd_data_w << {sq_off_w, 3'b000});
     assign wr_req_strb  = wb_req_valid_w ? 4'hf : (wd_mask(sq_w_w) << sq_off_w);
     assign wr_req_tag   = wb_req_valid_w ? {(SQ_IW + 1){1'b1}} : {1'b0, sq_snd_p};
     assign wb_req_ready_w = wr_req_ready;              // WB 恒优先 ⇒ 能收下就是收下
@@ -509,7 +596,7 @@ module mem_subsystem #(
     //   ★ "可见"本身就蕴含"数据已落地"(吸收进缓存行 或 B 已回), 故不再单列 B 项。
     //   ★ 吸收型条目从"写进行"到"退休"之间隔着 ticket 的等待 —— 这期间条目仍在队里, 合并链照旧
     //     兜着它 (行里已是新值, 合并同一个值 = 幂等), 故不像写直达那样要求"两个窗口同拍结束"。
-    wire [15 : 0] sq_tick_w = sq_ticket_r[sq_ret_p * 16 +: 16];
+    wire [15 : 0] sq_tick_w = sq_sel16_f(sq_ticket_r, sq_oh_f(sq_ret_p));
     wire          sq_ret_ok = sq_head_v && sq_vis_w[sq_ret_p]
                            && ((ld_done_cnt_r - sq_tick_w) < 16'h8000);
 
@@ -537,7 +624,9 @@ module mem_subsystem #(
                 // ★ ticket 必须在**吸收那拍**取: 从这一刻起该行就是新值, 而"吸收前发出的 load"
                 //   可能读到旧行 (或被这次写偷读后重放), 它们全得先完成, 合并链才敢撤。
                 //   同拍被接受的 load 一并算进 (1 条, 它读的是写之前那一版)。
-                sq_ticket_r[sq_iss_p * 16 +: 16] <= ld_issue_cnt_r + ld_accept;
+                for (we = 0; we < SQ_DEPTH; we = we + 1)     // 变址写: 换成常数下标后每位使能 = 译码位
+                    if (sq_oh_iss_w[we])                     // (原式的 `vec[idx*W +: W] <= d` 会被落成
+                        sq_ticket_r[we * 16 +: 16] <= ld_issue_cnt_r + ld_accept;   // 桶形移位器)
             end
             if (sq_bypass_dc_w) sq_ax_r[sq_iss_p] <= 1'b1;
             if (sq_absorb_hs_w || sq_bypass_dc_w) sq_iss_p <= sq_iss_p + 1'b1;   // 判完就前进, 不等 B
@@ -551,7 +640,8 @@ module mem_subsystem #(
             // B 按发送序回; wr_resp_tag 即该条目号 (最高位为 0 才是 SQ 的)
             if (sq_b_hs) begin
                 sq_b_ack_r[wr_resp_tag[SQ_IW - 1 : 0]] <= 1'b1;
-                sq_ticket_r[wr_resp_tag[SQ_IW - 1 : 0] * 16 +: 16] <= ld_issue_cnt_r;
+                for (we = 0; we < SQ_DEPTH; we = we + 1)
+                    if (sq_oh_tag_w[we]) sq_ticket_r[we * 16 +: 16] <= ld_issue_cnt_r;
             end
             if (ld_accept)    ld_issue_cnt_r <= ld_issue_cnt_r + 16'd1;
             // ★ 必须数 ld_done_valid (= 命中 ∪ 回包), 不是 ld_resp_hs: 命中不回 AXI, 只数回包
@@ -561,11 +651,12 @@ module mem_subsystem #(
         end
     end
     always @(posedge clk) begin
-        if (sq_push) begin
-            sq_addr_r[sq_wr_p * 32 +: 32] <= sw_addr;
-            sq_data_r[sq_wr_p * 32 +: 32] <= sw_data;
-            sq_width_r[sq_wr_p * 2 +: 2]  <= sw_width;
-        end
+        for (we = 0; we < SQ_DEPTH; we = we + 1)
+            if (sq_push && sq_oh_wr_w[we]) begin
+                sq_addr_r[we * 32 +: 32] <= sw_addr;
+                sq_data_r[we * 32 +: 32] <= sw_data;
+                sq_width_r[we * 2 +: 2]  <= sw_width;
+            end
     end
 
     // ==================== 5. 读口仲裁 (需求 load > 取指填充 > 数据填充) ====================
