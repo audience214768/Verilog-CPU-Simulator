@@ -62,12 +62,15 @@ HOST, ID = A.host, A.id
 
 # ---------- 0) 远端体检 ----------
 probe = remote("""
+command -v rsync >/dev/null 2>&1 || { echo NO_RSYNC; exit 0; }
 command -v docker >/dev/null 2>&1 || { echo NO_DOCKER; exit 0; }
 docker image inspect cpu2026:local >/dev/null 2>&1 || { echo NO_IMAGE; exit 0; }
 docker run --rm cpu2026:local true >/dev/null 2>&1 || { echo DOCKER_BROKEN; exit 0; }
 printf 'OK %s\\n' "$HOME"
 """)
 verdict, _, rhome = probe.partition(" ")
+if verdict == "NO_RSYNC":
+    sys.exit("远端没有 rsync (两头都要有, 回传也用它): sudo apt install -y rsync")
 if verdict == "NO_DOCKER":
     sys.exit("远端没有 docker。WSL2 里: sudo apt update && sudo apt install -y docker.io && sudo usermod -aG docker $USER (重登)")
 if verdict == "NO_IMAGE":

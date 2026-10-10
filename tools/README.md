@@ -309,29 +309,92 @@ elaborate 从 5.9 min 拖到 26 min（4.4×）的原因是**宿主 swap 抖动**
 **同步纪律**：只推 `verilog/ scripts/ tools/ Makefile config.mk`（≈1 MB），
 **`runs/` 17 GB 一个字节都不推**；跑完只 rsync 回 `snap.py` 那 8 个小文件 + 两个日志。
 
-**远端前置（只做一次；镜像必须用官方 Dockerfile 现构，不能搬本机这份）**：
+**远端机器 = Windows 11 / WSL2（2026-10-10 建成，逐段实测过）**：
 
-```sh
-# WSL2 内: docker 可用 (apt 装 docker.io 后把用户加进 docker 组并重登, 或用 Docker Desktop 的 WSL 集成)
-rsync -az /Users/audience/opt/cpu2026-fw/ <host>:~/cpu2026-fw/     # 官方框架仓库 (含 Dockerfile)
-ssh <host> 'cd ~/cpu2026-fw && docker build -t cpu2026:local .'    # → 原生 x86-64 镜像
-ssh <host> 'docker run --rm cpu2026:local cat /opt/versions.txt'   # 与本机逐行相同才算可比
+- **链路走 Tailscale**（同一账号两端登录），不走局域网：校园网对无线客户端做了隔离
+  （两台机器同 /15 网段、ARP 互不可达，见下"踩坑"）。Mac `100.84.90.8` ↔ PC `100.121.142.80`，
+  实测经 **DERP(hkg) 中继**、RTT ~130 ms —— 对 ~1 MB/次的同步量无感。
+  **PC 上的 VPN 客户端要关掉**（TUN/全局模式抢路由会让 Tailscale 连不上或走不动）。
+- Mac 侧 `~/.ssh/config` 已加别名（**免密**已装，脚本用 `ssh -o BatchMode=yes` 探测）：
+
+  ```
+  Host pc
+      HostName 100.121.142.80
+      User aud_xiejiaye
+      Port 2222
+      ServerAliveInterval 30
+  ```
+
+- Windows 侧一条链：`portproxy 2222 → <WSL eth0 的 IP>:22`，`listenaddress` 绑 tailnet 地址
+  ⇒ 这个口在校园网里不存在，只有 tailnet 内可达。
+
+**PC 重启后必做（三条命令）**：
+
+```powershell
+wsl -d Ubuntu -u root -e true     # 叫醒 WSL; systemd 会带起 sshd + docker (两者实测均 enabled)
+wsl hostname -I                   # 取 eth0 的 IP —— 不是 172.17.0.1, 那是 docker0 网桥
+# 若 IP 与上次不同（管理员 PowerShell）：
+netsh interface portproxy delete v4tov4 listenaddress=100.121.142.80 listenport=2222
+netsh interface portproxy add v4tov4 listenaddress=100.121.142.80 listenport=2222 connectaddress=<新IP> connectport=22
 ```
 
-★ **本机那份 `cpu2026:local` 是 arm64**（Apple Silicon 上构建的）—— 搬到 x86-64 只能 qemu
-模拟，**别搬镜像**。官方 Dockerfile 的三个 pin（Yosys `70a11c6bf` / ASAP7 **r28** `f970bd3c` /
-OpenSTA `f89887b5`）与架构无关，x86-64 上原生构建出来的是同一套工具版本 ⇒ 数字与本机历史可比。
-宿主那套 ASAP7 是 **r27**，两边绝不可混。
+**镜像必须现构**（本机那份是 arm64，搬到 x86-64 只能 qemu 模拟）。Hub 在 PC 上也不可达
+⇒ 镜像站拉基础镜像后打官方 tag（**不要改 daemon 级 registry-mirror**）：
 
-Windows 侧另需一次端口转发（WSL2 的 IP 每次重启会变）：`netsh interface portproxy add v4tov4
-listenport=22 connectaddress=<wsl ip> connectport=22`；`.wslconfig` 里给 `memory=10GB`
-（默认只给宿主一半 = 8 GB，跑 yosys 偏紧）。
+```sh
+docker pull docker.m.daocloud.io/library/ubuntu:24.04
+docker tag  docker.m.daocloud.io/library/ubuntu:24.04 ubuntu:24.04
+docker pull docker.m.daocloud.io/docker/dockerfile:1
+docker tag  docker.m.daocloud.io/docker/dockerfile:1 docker/dockerfile:1   # BuildKit 前端备用
+```
 
-**已验证 / 未验证**：前置探测路径实测过（对着一个没装 docker 的机器跑，正确报 `NO_DOCKER`
-并退出）；rsync / 起跑 / 观察 / 回传四段**尚无远端 docker 主机可实测**，等 PC 那边就位后第一次真跑要盯一眼。
+Docker 29.1.3 经典 builder **仍可用**（`DOCKER_BUILDKIT=0`，Dockerfile 首行 `# syntax=` 按注释忽略）；
+WSL 只有宿主一半内存（本机 7 GB）⇒ 必须 `--build-arg BUILD_JOBS=4`，否则 `-j8` 编译 Yosys 会被 OOM 杀。
+
+★ **PC 直连 GitHub 不通**（2026-10-10 实测：DNS 正常，TCP 443 连不上；`git fetch` 主仓偶尔能过、
+子模块必挂）⇒ **借本机的通路**：本机跑一个 CONNECT 代理，构建时用 docker 的预定义代理 build-arg
+（**不用改 Dockerfile**，也**不会**烤进镜像 config —— 实测 `.Config.Env` 干净）：
+
+```sh
+# ① 本机（Mac）起代理 —— 只监听 tailnet 地址, 没鉴权, 用完就关
+python3 tools/github_proxy.py            # 默认 100.84.90.8:8899
+# ② 本机验证通路
+curl -sS -x http://100.84.90.8:8899 -o /dev/null -w '%{http_code}\n' https://github.com/
+# ③ 推官方框架仓库 + 远端后台构建
+rsync -az --exclude .git /Users/audience/opt/cpu2026-fw/ pc:~/cpu2026-fw/
+ssh pc 'cd ~/cpu2026-fw && setsid nohup env DOCKER_BUILDKIT=0 docker build \
+        --build-arg BUILD_JOBS=4 \
+        --build-arg HTTPS_PROXY=http://100.84.90.8:8899 --build-arg https_proxy=http://100.84.90.8:8899 \
+        -t cpu2026:local . > build.log 2>&1 < /dev/null &'
+ssh pc 'docker run --rm cpu2026:local cat /opt/versions.txt'   # 与本机逐行相同才算可比
+```
+
+**踩坑**：`docker build` 的**构建上下文不能放在 `/tmp`**（WSL 里有 root 属主的 `/tmp/snap-private-tmp`，
+经典 builder 遍历上下文时报 `can't stat` 直接失败）；`git ls-remote` 走镜像站（如
+`https://ghfast.top/https://github.com/...`）能通，但**子模块取不到确定内容**，所以正式构建走上面的代理。
+
+三个 pin（Yosys `70a11c6bf` / ASAP7 **r28** `f970bd3c` / OpenSTA `f89887b5`）与架构无关，
+x86-64 原生构建出来是同一套版本 ⇒ 数字与本机历史可比；宿主那套 ASAP7 是 **r27**，两边绝不可混。
+
+**首次真跑 = 验收**：`tools/remote_synth.py pc xcheck`，期望复现 cutD 的 **6.2871 ns / 159.06 MHz**
+（顺带复核 A2 已回滚）。对上之后，所有官方综合一律走远端，本机只做仿真。
+
+**已验证 / 未验证**（2026-10-10）：Tailscale 链路、`ssh pc` 免密、portproxy 链、镜像站拉取、经典 builder、
+**Mac 代理借道**（PC 经代理取 GitHub 200 / 1.5 s；浅克隆 `abc` 60 MB < 30 s）全部实测通过；
+**镜像构建与 `versions.txt` 比对在进行中**，完整的一次远端综合（`xcheck`）是最后一道未验的关口。
 
 `tools/run.sh` 的 `sed -i ''` 已改成 `sed -i.bak`（BSD/GNU 通吃）—— 原来那写法在远端 Linux 上
 会把 `''` 当文件名。补丁后一律 `rm -f *.bak`，不会把 `.bak` 带进变体树。
+
+### `github_proxy.py` —— 本机当 CONNECT 代理，给连不上 GitHub 的机器借道
+
+```sh
+python3 tools/github_proxy.py [绑定地址=100.84.90.8] [端口=8899]
+```
+
+只实现 CONNECT（git / curl 的 https 都走它）、只放行 443/80、**只绑 Tailscale 地址**（校园网内看不见）、
+没有鉴权 ⇒ **构建期间才开，用完就关**。用途与完整配方见上面 `remote_synth.py` 的"PC 直连 GitHub 不通"一节
+（docker 的预定义代理 build-arg，不用改 Dockerfile）。
 
 ### `sweep.sh` —— 参数消融（**只量 IPC**）
 
