@@ -376,6 +376,29 @@ module cpu_top #(
         if (!rst_n) lsq_invalidate <= {LSQ_SIZE{1'b0}};
         else        lsq_invalidate <= lsq_invalidate_c;
     end
+    // ---- load 完成口: 存储边界寄存一级 (刀 D, plan §22: 拆流水级, 靶 = §21.6 墙 ①) ----
+    // 墙 ① 的 64 级里, 存储侧 (dcache 填充/写回引擎 → mem_subsystem 的字节合并) 与消费侧 (lsq 的
+    // SQ 字节前向 + 符号扩展 → load_cdb 寄存器) 各占约一半, 故在边界断一刀。三件套必须整组同拍寄存
+    // (valid/idx 与 data 错开 = idx 配错数据)。端口级契约不变: 仍是"接受一个 load 恰好回一个
+    // ld_done_valid", 只是这一拍晚到; ld_busy **保持组合不动** —— 它是"当场兑现"的承诺
+    // (mem_subsystem.v:20-22), 寄存即死锁。
+    // 陈旧完成安全: lsq 的 issued_r 是完成与请求之间唯一的身份标识, 在飞条目即使 valid 被清也
+    // 不算死、槽位不可复用 (lsq.v 头注释 ②) ⇒ 多等一拍不会打到已被 push 复用的新条目。
+    // 复位与 mem_subsystem 同步断言 ⇒ 在飞 load 不跨复位存活 (两侧 issued/计数一起清)。
+    reg              ld_done_valid_q;
+    reg [LW - 1 : 0] ld_done_idx_q;
+    reg [31 : 0]     ld_done_data_q;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ld_done_valid_q <= 1'b0;
+            ld_done_idx_q   <= {LW{1'b0}};
+            ld_done_data_q  <= 32'd0;
+        end else begin
+            ld_done_valid_q <= ld_done_valid;
+            ld_done_idx_q   <= ld_done_idx;
+            ld_done_data_q  <= ld_done_data;
+        end
+    end
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
         .clk(clk), .rst_n(rst_n),
         .head(lsq_head_w), .last(lsq_last_w), .full(lsq_full), .free_count(lsq_free_w),
@@ -390,7 +413,7 @@ module cpu_top #(
         .set_addr_req(set_addr_req), .set_addr_idx(set_addr_idx), .set_addr_val(set_addr_val),
         .set_data_req(set_data_req), .set_data_idx(set_data_idx), .set_data_val(set_data_val),
         .flush_mask(lsq_flush_mask), .invalidate(lsq_invalidate),
-        .mem_done_valid(ld_done_valid), .mem_done_idx(ld_done_idx), .mem_done_data(ld_done_data),
+        .mem_done_valid(ld_done_valid_q), .mem_done_idx(ld_done_idx_q), .mem_done_data(ld_done_data_q),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx), .ld_busy(ld_busy),
         .load_cdb_valid(load_cdb_valid_raw), .load_cdb_prd(load_cdb_prd_raw),
