@@ -1,0 +1,141 @@
+mapped.v 模块 33, 例化总数 79827
+design.json 模块 237, cell 总数 79827
+join 成功 33/33 个模块, 失败 0
+
+===== 路径 1/5: u_mem/u_dc/_15062_ -> u_cpu/_7346_  63 级 =====
+起点: u_mem/u_dc/_15062_  模块=dcache  type=DFFASRHQNx1_ASAP7_75t_R  src=/work/verilog/core/dcache.v:939.5-951.8  hdl=None
+终点: u_cpu/_7346_  模块=cpu_top  type=DFFASRHQNx1_ASAP7_75t_R  src=/work/verilog/top/cpu_top.v:391.5-401.8  hdl=None
+
+   扇出       增量       累计  cell                           类型                       src
+   36   0.1311   0.1311  u_mem/u_dc/_15062_             DFFASRHQNx1_ASAP7_75t_R  /work/verilog/core/dcache.v:939.5-951.8  <<< 跨模块
+   12   0.0641   0.1952  u_mem/u_dc/_08151_             INVx1_ASAP7_75t_R        None
+   14   0.0854   0.2807  u_mem/u_dc/_08472_             NAND2xp33_ASAP7_75t_R    None
+    1   0.0417   0.3224  u_mem/u_dc/_08476_             OAI221xp5_ASAP7_75t_R    None
+    1   0.0199   0.3422  u_mem/u_dc/_08485_             OAI211xp5_ASAP7_75t_R    None
+    5   0.0479   0.3902  u_mem/u_dc/_08486_             OA211x2_ASAP7_75t_R      None
+   35   0.2325   0.6227  u_mem/u_dc/_08637_             NOR2xp33_ASAP7_75t_R     None
+    3   0.0825   0.7051  u_mem/u_dc/_08660_             OAI21xp33_ASAP7_75t_R    None
+    7   0.0619   0.7671  u_mem/u_dc/_08752_             NAND4xp25_ASAP7_75t_R    None
+   46   0.0742   0.8412  u_mem/u_dc/_08795_             AND2x2_ASAP7_75t_R       None
+   10   0.0615   0.9027  u_mem/u_dc/_08806_             AOI21xp33_ASAP7_75t_R    None
+   38   0.2469   1.1496  u_mem/u_dc/_08809_             NAND2xp33_ASAP7_75t_R    None
+    1   0.0865   1.2361  u_mem/u_dc/_08840_             OA222x2_ASAP7_75t_R      None
+    1   0.0163   1.2524  u_mem/u_dc/_08843_             OAI211xp5_ASAP7_75t_R    None
+    2   0.0339   1.2864  u_mem/u_dc/_08844_             NAND3xp33_ASAP7_75t_R    None
+    2   0.0216   1.3079  u_mem/u_dc/_08845_             AOI32xp33_ASAP7_75t_R    None
+    3   0.0465   1.3544  u_mem/u_dc/_08874_             AND2x2_ASAP7_75t_R       None
+    3   0.0292   1.3836  u_mem/u_dc/_09052_             O2A1O1Ixp33_ASAP7_75t_R  None
+    5   0.0443   1.4279  u_mem/u_dc/_09056_             OAI21xp33_ASAP7_75t_R    None
+   70   0.3627   1.7906  u_mem/u_dc/_09062_             NAND2xp33_ASAP7_75t_R    None
+   10   0.2443   2.0349  u_mem/u_dc/_09987_             OAI21xp33_ASAP7_75t_R    None
+    4   0.0512   2.0861  u_mem/_11553_                  INVx1_ASAP7_75t_R        None  <<< 跨模块
+    1   0.0192   2.1053  u_mem/_21156_                  AOI22xp33_ASAP7_75t_R    None
+    1   0.0252   2.1305  u_mem/_21157_                  OAI221xp5_ASAP7_75t_R    None
+    1   0.0246   2.1551  u_mem/_21158_                  AOI211xp5_ASAP7_75t_R    None
+    1   0.0303   2.1854  u_mem/_21159_                  AND4x1_ASAP7_75t_R       None
+    1   0.0110   2.1964  u_mem/_21171_                  NAND4xp25_ASAP7_75t_R    None
+    1   0.0144   2.2108  u_mem/_21172_                  O2A1O1Ixp33_ASAP7_75t_R  None
+    1   0.0299   2.2406  u_mem/_21173_                  NAND5xp2_ASAP7_75t_R     None
+    1   0.0197   2.2603  u_mem/_21215_                  OAI221xp5_ASAP7_75t_R    None
+    2   0.0360   2.2963  u_mem/_21408_                  OR4x1_ASAP7_75t_R        None
+   11   0.0701   2.3664  u_mem/u_dc/_08456_             AOI21xp33_ASAP7_75t_R    None  <<< 跨模块
+   44   0.0849   2.4513  u_mem/u_dc/_08457_             AND2x2_ASAP7_75t_R       None
+   59   0.4209   2.8722  u_mem/u_dc/_10344_             NAND5xp2_ASAP7_75t_R     None
+  117   0.7331   3.6053  u_mem/u_dc/_12384_             OAI21xp33_ASAP7_75t_R    None
+   48   0.4468   4.0521  u_mem/_11562_                  INVx1_ASAP7_75t_R        None  <<< 跨模块
+   21   0.2514   4.3035  u_mem/_11773_                  NOR2xp33_ASAP7_75t_R     None
+   71   0.2827   4.5862  u_mem/_11775_                  AOI21xp33_ASAP7_75t_R    None
+   18   0.2863   4.8725  u_mem/_14441_                  OAI211xp5_ASAP7_75t_R    None
+    7   0.1021   4.9746  u_mem/_14446_                  NOR5xp2_ASAP7_75t_R      None
+    5   0.0421   5.0167  u_mem/_14454_                  AND4x1_ASAP7_75t_R       None
+    4   0.0255   5.0422  u_mem/_14459_                  NAND5xp2_ASAP7_75t_R     None
+    3   0.0396   5.0818  u_mem/_14466_                  OR4x1_ASAP7_75t_R        None
+    3   0.0297   5.1116  u_mem/_14467_                  NOR2xp33_ASAP7_75t_R     None
+    3   0.0328   5.1443  u_mem/_14469_                  NAND3xp33_ASAP7_75t_R    None
+    4   0.0715   5.2158  u_mem/_14470_                  NOR2xp33_ASAP7_75t_R     None
+    2   0.0541   5.2699  u_mem/_14471_                  NAND2xp33_ASAP7_75t_R    None
+   26   0.1153   5.3852  u_mem/_14476_                  XNOR2xp5_ASAP7_75t_R     None
+    2   0.0552   5.4404  u_mem/_15409_                  XNOR2xp5_ASAP7_75t_R     None
+    1   0.0299   5.4703  u_mem/_15416_                  NOR4xp25_ASAP7_75t_R     None
+    1   0.0186   5.4889  u_mem/_15417_                  OAI211xp5_ASAP7_75t_R    None
+    1   0.0220   5.5110  u_mem/_15477_                  AOI32xp33_ASAP7_75t_R    None
+    2   0.0330   5.5440  u_mem/_15478_                  OAI211xp5_ASAP7_75t_R    None
+   13   0.0667   5.6107  u_mem/_15488_                  MAJIxp5_ASAP7_75t_R      None
+    2   0.0429   5.6536  u_mem/_15491_                  OAI21xp33_ASAP7_75t_R    None
+    4   0.0400   5.6936  u_mem/_15493_                  MAJx2_ASAP7_75t_R        None
+   18   0.1258   5.8194  u_mem/_15495_                  NAND2xp33_ASAP7_75t_R    None
+    1   0.0404   5.8598  u_mem/_15520_                  OAI211xp5_ASAP7_75t_R    None
+    1   0.0197   5.8794  u_mem/_15527_                  A2O1A1Ixp33_ASAP7_75t_R  None
+    2   0.0207   5.9001  u_mem/_15533_                  AOI21xp33_ASAP7_75t_R    None
+    8   0.0626   5.9627  u_mem/_15535_                  NOR2xp33_ASAP7_75t_R     None
+    1   0.0267   5.9894  u_mem/_15915_                  O2A1O1Ixp33_ASAP7_75t_R  None
+    1   0.0252   6.0146  u_mem/_15917_                  O2A1O1Ixp33_ASAP7_75t_R  None
+
+===== 路径 2/5: u_mem/u_dc/_15062_ -> u_cpu/_7347_  63 级 =====
+起点: u_mem/u_dc/_15062_  模块=dcache  type=DFFASRHQNx1_ASAP7_75t_R  src=/work/verilog/core/dcache.v:939.5-951.8  hdl=None
+终点: u_cpu/_7347_  模块=cpu_top  type=DFFASRHQNx1_ASAP7_75t_R  src=/work/verilog/top/cpu_top.v:391.5-401.8  hdl=None
+
+   扇出       增量       累计  cell                           类型                       src
+   36   0.1311   0.1311  u_mem/u_dc/_15062_             DFFASRHQNx1_ASAP7_75t_R  /work/verilog/core/dcache.v:939.5-951.8  <<< 跨模块
+   12   0.0641   0.1952  u_mem/u_dc/_08151_             INVx1_ASAP7_75t_R        None
+   14   0.0854   0.2807  u_mem/u_dc/_08472_             NAND2xp33_ASAP7_75t_R    None
+    1   0.0417   0.3224  u_mem/u_dc/_08476_             OAI221xp5_ASAP7_75t_R    None
+    1   0.0199   0.3422  u_mem/u_dc/_08485_             OAI211xp5_ASAP7_75t_R    None
+    5   0.0479   0.3902  u_mem/u_dc/_08486_             OA211x2_ASAP7_75t_R      None
+   35   0.2325   0.6227  u_mem/u_dc/_08637_             NOR2xp33_ASAP7_75t_R     None
+    3   0.0825   0.7051  u_mem/u_dc/_08660_             OAI21xp33_ASAP7_75t_R    None
+    7   0.0619   0.7671  u_mem/u_dc/_08752_             NAND4xp25_ASAP7_75t_R    None
+   46   0.0742   0.8412  u_mem/u_dc/_08795_             AND2x2_ASAP7_75t_R       None
+   10   0.0615   0.9027  u_mem/u_dc/_08806_             AOI21xp33_ASAP7_75t_R    None
+   38   0.2469   1.1496  u_mem/u_dc/_08809_             NAND2xp33_ASAP7_75t_R    None
+    1   0.0865   1.2361  u_mem/u_dc/_08840_             OA222x2_ASAP7_75t_R      None
+    1   0.0163   1.2524  u_mem/u_dc/_08843_             OAI211xp5_ASAP7_75t_R    None
+    2   0.0339   1.2864  u_mem/u_dc/_08844_             NAND3xp33_ASAP7_75t_R    None
+    2   0.0216   1.3079  u_mem/u_dc/_08845_             AOI32xp33_ASAP7_75t_R    None
+    3   0.0465   1.3544  u_mem/u_dc/_08874_             AND2x2_ASAP7_75t_R       None
+    3   0.0292   1.3836  u_mem/u_dc/_09052_             O2A1O1Ixp33_ASAP7_75t_R  None
+    5   0.0443   1.4279  u_mem/u_dc/_09056_             OAI21xp33_ASAP7_75t_R    None
+   70   0.3627   1.7906  u_mem/u_dc/_09062_             NAND2xp33_ASAP7_75t_R    None
+   10   0.2443   2.0349  u_mem/u_dc/_09987_             OAI21xp33_ASAP7_75t_R    None
+    4   0.0512   2.0861  u_mem/_11553_                  INVx1_ASAP7_75t_R        None  <<< 跨模块
+    1   0.0192   2.1053  u_mem/_21156_                  AOI22xp33_ASAP7_75t_R    None
+    1   0.0252   2.1305  u_mem/_21157_                  OAI221xp5_ASAP7_75t_R    None
+    1   0.0246   2.1551  u_mem/_21158_                  AOI211xp5_ASAP7_75t_R    None
+    1   0.0303   2.1854  u_mem/_21159_                  AND4x1_ASAP7_75t_R       None
+    1   0.0110   2.1964  u_mem/_21171_                  NAND4xp25_ASAP7_75t_R    None
+    1   0.0144   2.2108  u_mem/_21172_                  O2A1O1Ixp33_ASAP7_75t_R  None
+    1   0.0299   2.2406  u_mem/_21173_                  NAND5xp2_ASAP7_75t_R     None
+    1   0.0197   2.2603  u_mem/_21215_                  OAI221xp5_ASAP7_75t_R    None
+    2   0.0360   2.2963  u_mem/_21408_                  OR4x1_ASAP7_75t_R        None
+   11   0.0701   2.3664  u_mem/u_dc/_08456_             AOI21xp33_ASAP7_75t_R    None  <<< 跨模块
+   44   0.0849   2.4513  u_mem/u_dc/_08457_             AND2x2_ASAP7_75t_R       None
+   59   0.4209   2.8722  u_mem/u_dc/_10344_             NAND5xp2_ASAP7_75t_R     None
+  117   0.7331   3.6053  u_mem/u_dc/_12384_             OAI21xp33_ASAP7_75t_R    None
+   48   0.4468   4.0521  u_mem/_11562_                  INVx1_ASAP7_75t_R        None  <<< 跨模块
+   21   0.2514   4.3035  u_mem/_11773_                  NOR2xp33_ASAP7_75t_R     None
+   71   0.2827   4.5862  u_mem/_11775_                  AOI21xp33_ASAP7_75t_R    None
+   18   0.2863   4.8725  u_mem/_14441_                  OAI211xp5_ASAP7_75t_R    None
+    7   0.1021   4.9746  u_mem/_14446_                  NOR5xp2_ASAP7_75t_R      None
+    5   0.0421   5.0167  u_mem/_14454_                  AND4x1_ASAP7_75t_R       None
+    4   0.0255   5.0422  u_mem/_14459_                  NAND5xp2_ASAP7_75t_R     None
+    3   0.0396   5.0818  u_mem/_14466_                  OR4x1_ASAP7_75t_R        None
+    3   0.0297   5.1116  u_mem/_14467_                  NOR2xp33_ASAP7_75t_R     None
+    3   0.0328   5.1443  u_mem/_14469_                  NAND3xp33_ASAP7_75t_R    None
+    4   0.0715   5.2158  u_mem/_14470_                  NOR2xp33_ASAP7_75t_R     None
+    2   0.0541   5.2699  u_mem/_14471_                  NAND2xp33_ASAP7_75t_R    None
+   26   0.1153   5.3852  u_mem/_14476_                  XNOR2xp5_ASAP7_75t_R     None
+    2   0.0552   5.4404  u_mem/_15409_                  XNOR2xp5_ASAP7_75t_R     None
+    1   0.0299   5.4703  u_mem/_15416_                  NOR4xp25_ASAP7_75t_R     None
+    1   0.0186   5.4889  u_mem/_15417_                  OAI211xp5_ASAP7_75t_R    None
+    1   0.0220   5.5110  u_mem/_15477_                  AOI32xp33_ASAP7_75t_R    None
+    2   0.0330   5.5440  u_mem/_15478_                  OAI211xp5_ASAP7_75t_R    None
+   13   0.0667   5.6107  u_mem/_15488_                  MAJIxp5_ASAP7_75t_R      None
+    2   0.0429   5.6536  u_mem/_15491_                  OAI21xp33_ASAP7_75t_R    None
+    4   0.0400   5.6936  u_mem/_15493_                  MAJx2_ASAP7_75t_R        None
+   18   0.1258   5.8194  u_mem/_15495_                  NAND2xp33_ASAP7_75t_R    None
+    1   0.0404   5.8598  u_mem/_15520_                  OAI211xp5_ASAP7_75t_R    None
+    1   0.0197   5.8794  u_mem/_15527_                  A2O1A1Ixp33_ASAP7_75t_R  None
+    2   0.0207   5.9001  u_mem/_15533_                  AOI21xp33_ASAP7_75t_R    None
+    8   0.0626   5.9627  u_mem/_15535_                  NOR2xp33_ASAP7_75t_R     None
+    1   0.0267   5.9894  u_mem/_15863_                  O2A1O1Ixp33_ASAP7_75t_R  None
+    1   0.0252   6.0146  u_mem/_15865_                  O2A1O1Ixp33_ASAP7_75t_R  None

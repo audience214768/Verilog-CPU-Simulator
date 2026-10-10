@@ -1,0 +1,21 @@
+mapped.v: 33 模块, 79827 例化
+mapped.v 模块 33, 例化总数 79827
+design.json 模块 237, cell 总数 79827
+join 成功 33/33 个模块, 失败 0
+
+路径: u_mem/u_dc/_15062_ -> u_cpu/_7346_  63 级
+
+>>> 第 21 级跨边界  dcache → mem_subsystem   累计 2.0861 ns
+    上一级: _09987_/Y (OAI21xp33_ASAP7_75t_R)  出网 = fill_line[14]
+    下一级: _11553_ (INVx1_ASAP7_75t_R) 在 mem_subsystem 里的连接 = {'A': 'dc_fill_line_w[14]', 'Y': '_03907_'}
+    父模块 student_top 的例化 u_mem 上, 网 fill_line[14] 出现在端口 []
+
+>>> 第 31 级跨边界  mem_subsystem → dcache   累计 2.3664 ns
+    上一级: _21408_/Y (OR4x1_ASAP7_75t_R)  出网 = ??
+    下一级: _08456_ (AOI21xp33_ASAP7_75t_R) 在 dcache 里的连接 = {'A1': 'fill_busy', 'A2': 'fill_blk', 'B': '_01458_', 'Y': '_02187_'}
+    父模块 mem_subsystem 的例化 u_dc 上, 网 ?? 出现在端口 []
+
+>>> 第 35 级跨边界  dcache → mem_subsystem   累计 4.0521 ns
+    上一级: _12384_/Y (OAI21xp33_ASAP7_75t_R)  出网 = hit_valid  [= 本模块输出端口]
+    下一级: _11562_ (INVx1_ASAP7_75t_R) 在 mem_subsystem 里的连接 = {'A': 'dc_hit_valid', 'Y': '_03916_'}
+    父模块 student_top 的例化 u_mem 上, 网 hit_valid 出现在端口 []
