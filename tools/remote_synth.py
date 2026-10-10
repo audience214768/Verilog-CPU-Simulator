@@ -118,7 +118,11 @@ if not cid:
     # ---------- 3) 起 (断线不死; 日志落在远端 runs/_launch_<id>.log) ----------
     print("→ 远端起综合: tools/run.sh %s %s" % (ID, " ".join(A.runargs)))
     launch = "runs/_launch_%s.log" % ID
-    remote("cd %s && setsid nohup bash tools/run.sh %s %s > %s 2>&1 < /dev/null & echo started"
+    # `{ ... & }` 不能省: 写成 `cd X && setsid .. &` 时, `&&` 让整串变成 AND-list, bash 得 fork
+    # 个子 shell 来跑它 —— 那个子 shell 的 stdout 还是 ssh 的管道, 又要等 run.sh 结束才退,
+    # 于是 ssh 永不返回 (实测 180 s 超时, 但远端其实已经在跑了)。加花括号后背景的是**简单命令**,
+    # 子进程直接 exec、管道随即关闭, ssh ~2 s 返回。
+    remote("cd %s && { setsid nohup bash tools/run.sh %s %s > %s 2>&1 < /dev/null & }; echo started"
            % (shlex.quote(RDIR), shlex.quote(ID),
               " ".join(shlex.quote(x) for x in A.runargs), shlex.quote(launch)))
     time.sleep(5)

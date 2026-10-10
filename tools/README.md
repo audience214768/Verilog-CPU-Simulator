@@ -373,15 +373,42 @@ ssh pc 'docker run --rm cpu2026:local cat /opt/versions.txt'   # 与本机逐行
 经典 builder 遍历上下文时报 `can't stat` 直接失败）；`git ls-remote` 走镜像站（如
 `https://ghfast.top/https://github.com/...`）能通，但**子模块取不到确定内容**，所以正式构建走上面的代理。
 
+★ **ASAP7 那一步打了本地补丁**（2026-10-10）：官方 Dockerfile 从 `raw.githubusercontent.com` 取 ASAP7 r28
+的 5 个 `.7z` + LICENSE，而该域**两台机器都时通时断**（TCP 连得上、几十秒收不到一个字节 ⇒ `curl: (56)`，
+代理也救不了 —— Mac 自己也连不上）⇒ 本地把这一步换成 `COPY asap7/`，字节取自**既有的官方镜像**
+（`docker cp <容器>:/opt/asap7`），原版留档 `Dockerfile.official`。`~/opt/cpu2026-fw/{Dockerfile,asap7/}`
+在**本机与 PC 是同一份**（rsync 推过去），**别再单独改 PC 那份**。内容是不是同一份由 SHA256SUMS 对账：
+
+```sh
+ssh pc 'docker run --rm cpu2026:local cat /opt/asap7/SHA256SUMS'   # 与本机 docker run 同一命令逐行相同
+```
+
 三个 pin（Yosys `70a11c6bf` / ASAP7 **r28** `f970bd3c` / OpenSTA `f89887b5`）与架构无关，
 x86-64 原生构建出来是同一套版本 ⇒ 数字与本机历史可比；宿主那套 ASAP7 是 **r27**，两边绝不可混。
 
-**首次真跑 = 验收**：`tools/remote_synth.py pc xcheck`，期望复现 cutD 的 **6.2871 ns / 159.06 MHz**
-（顺带复核 A2 已回滚）。对上之后，所有官方综合一律走远端，本机只做仿真。
+**首次真跑 = 验收（已通过，2026-10-10）**：`tools/remote_synth.py pc xcheck` 在**本机同一份源码**上复现 cutD，
+不止频率 —— min_period **6.287109375 ns** / fmax **159.0556 MHz** / 面积 **9249.919425 µm²** / 时序面积
+2893.05108 / slack −4.287069，与本机 arm64 归档（6.2871 / 159.06 / 9249.919 / 2893.051 / −4.2871）**逐位相同**
+（顺带复核 A2 已回滚）⇒ x86-64 原生构建与本机历史数字可比。一次完整跑 **18 min**（elaborate 4.9 / synth 13.3）。
+**之后官方综合一律走远端，本机只做仿真**；`xcheck` 是复现，不单独进 `results.csv`。
 
 **已验证 / 未验证**（2026-10-10）：Tailscale 链路、`ssh pc` 免密、portproxy 链、镜像站拉取、经典 builder、
-**Mac 代理借道**（PC 经代理取 GitHub 200 / 1.5 s；浅克隆 `abc` 60 MB < 30 s）全部实测通过；
-**镜像构建与 `versions.txt` 比对在进行中**，完整的一次远端综合（`xcheck`）是最后一道未验的关口。
+**Mac 代理借道**（PC 经代理取 GitHub 200 / 1.5 s；浅克隆 `abc` 60 MB < 30 s）、**镜像构建 + `versions.txt`
+与 `SHA256SUMS` 逐字节对账**、**一次完整远端综合并复现本机数字**、**启动链修好后的端到端起跑**
+（见下"踩坑"）—— 全部实测通过。未验证的只剩「`--restart` 重跑」与「产物回传后 `snap.py` 归档」两条分支
+（回传本身已跑通）。
+
+**端到端的起跑怎么测**：不必烧一次 18 min 的综合 —— 传一个坏的 `FILELIST` 让它快速失败即可
+（`tools/remote_synth.py pc launchtest FILELIST=verilog/nonexistent.f`），一次走完 rsync → 起跑 → 观察 →
+"流程退出"判定。注意 **`FILELIST` 里有 `/` 会踩 `run.sh` 里 `sed s///` 的转义**（用别的坏法，别用带斜杠的路径）。
+另外：容器若在两次轮询之间起落，"见过容器"标志不会被置上，要等满 300 s 兜底才报退出 —— 慢但正确。
+
+**踩坑**：`remote_synth.py` 起综合那步曾用 `cd X && setsid nohup bash tools/run.sh … & echo started` ——
+`&&` 让整串成为 **AND-list**，bash 必须 fork 子 shell 去跑，而子 shell 的 stdout 还是 ssh 的管道、又要等
+`run.sh` 结束才退 ⇒ **ssh 永不返回**（表现为 `subprocess.TimeoutExpired` 180 s，但远端其实已经在跑了）。
+修法是给背景那截加花括号：`cd X && { setsid … & }; echo started`（背景的是**简单命令**，子进程直接 exec，
+管道随即关闭，ssh ~2 s 返回）。**这个坑的代价可恢复**：脚本死了不用管远端，原样重跑即可 ——
+`find_alive()` 会按挂载点 `/runs/<id>` 认领正在跑的容器，走"直接观察"分支接着看并回传产物。
 
 `tools/run.sh` 的 `sed -i ''` 已改成 `sed -i.bak`（BSD/GNU 通吃）—— 原来那写法在远端 Linux 上
 会把 `''` 当文件名。补丁后一律 `rm -f *.bak`，不会把 `.bak` 带进变体树。
