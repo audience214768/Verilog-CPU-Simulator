@@ -35,6 +35,7 @@ def main():
         if ln.startswith('Endpoint:'):
             print(ln)
 
+    start = head.splitlines()[0].partition(' (')[0]
     cells = []
     for ln in body.splitlines():
         m = CELL.match(ln)
@@ -42,7 +43,7 @@ def main():
             if ln.startswith('         ---'):
                 break
             continue
-        if m.group(6).startswith('DFF'):        # 起点触发器单独打
+        if m.group(4) == start and m.group(5) != 'CLK':     # 起点触发器单独打 (CLK 那行跳过)
             print('  起始触发器 %s (%s)' % (m.group(4), m.group(6)))
             continue
         cells.append((m.group(4), m.group(6), float(m.group(2)), float(m.group(3))))

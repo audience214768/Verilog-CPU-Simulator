@@ -61,7 +61,9 @@ FNAME=$(basename "$FLIST")
 # 没有 set_load 也没有 set_driving_cell ⇒ 这两个值只能自己定)。
 if [ -n "$CONSTR" ]; then
     printf 'set_driving_cell INVx1_ASAP7_75t_R\nset_load 5.0\n' > "$TREE/abc.constr"
-    sed -i '' 's|:.9g}"|:.9g} -constr /work/abc.constr"|' "$TREE/scripts/synth.py"
+    # -i.bak 而不是 -i '': BSD sed 与 GNU sed 通吃 (远端 Linux 上 -i '' 会把 '' 当文件名)
+    sed -i.bak 's|:.9g}"|:.9g} -constr /work/abc.constr"|' "$TREE/scripts/synth.py"
+    rm -f "$TREE/scripts/synth.py.bak"
     grep -q -- '-constr /work/abc.constr' "$TREE/scripts/synth.py" || { echo "constr 补丁失败"; exit 1; }
     echo "  已加 -constr (abc.constr: set_driving_cell INVx1 / set_load 5.0)"
 fi
@@ -78,8 +80,9 @@ for kv in "$@"; do
         *) echo "跳过无法识别的参数: $kv"; continue ;;
     esac
     k=${kv%%=*}; v=${kv#*=}
-    sed -i '' -E "s/^([[:space:]]*parameter[[:space:]]+$k[[:space:]]*=[[:space:]]*)[0-9]+/\1$v/" \
+    sed -i.bak -E "s/^([[:space:]]*parameter[[:space:]]+$k[[:space:]]*=[[:space:]]*)[0-9]+/\1$v/" \
         "$TREE/verilog/top/student_top.v"
+    rm -f "$TREE/verilog/top/student_top.v.bak"
     got=$(sed -nE "s/^[[:space:]]*parameter[[:space:]]+$k[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p" \
         "$TREE/verilog/top/student_top.v")
     [ "$got" = "$v" ] || { echo "参数补丁失败: $k (期望 $v, 实得 '$got')"; exit 1; }

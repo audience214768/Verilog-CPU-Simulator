@@ -293,6 +293,46 @@ ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任�
 命令（报 `bad flag in substitute command: 't'`），而 `set -e` 让整次运行**静默退出**
 （现象：日志只有一行"变体树: ..."，`runs/<id>/build/` 根本没生成）。
 
+### `remote_synth.py` —— 把**官方综合**挪到另一台机器上跑（2026-10-10 加）
+
+```sh
+tools/remote_synth.py <ssh主机> <id> [--restart] [run.sh 的参数...]
+tools/remote_synth.py pc cutA3              # 推源码 → 远端起 → 观察 → 只捞回小产物
+tools/remote_synth.py pc cutA3 --restart    # 远端同 id 的容器先杀掉重跑
+```
+
+**为什么要挪**：`make synth` 是**单线程**的，而且 memory-bound —— 2026-10-10 那次把
+elaborate 从 5.9 min 拖到 26 min（4.4×）的原因是**宿主 swap 抖动**（6.2/7.2 GB 已用），
+不是 CPU 不够。换一台空闲机器即回到 ~7–10 min/次。**判分口径不变**：仍是官方
+`scripts/synth.py`、opt 模式、不传 `-constr`。
+
+**同步纪律**：只推 `verilog/ scripts/ tools/ Makefile config.mk`（≈1 MB），
+**`runs/` 17 GB 一个字节都不推**；跑完只 rsync 回 `snap.py` 那 8 个小文件 + 两个日志。
+
+**远端前置（只做一次；镜像必须用官方 Dockerfile 现构，不能搬本机这份）**：
+
+```sh
+# WSL2 内: docker 可用 (apt 装 docker.io 后把用户加进 docker 组并重登, 或用 Docker Desktop 的 WSL 集成)
+rsync -az /Users/audience/opt/cpu2026-fw/ <host>:~/cpu2026-fw/     # 官方框架仓库 (含 Dockerfile)
+ssh <host> 'cd ~/cpu2026-fw && docker build -t cpu2026:local .'    # → 原生 x86-64 镜像
+ssh <host> 'docker run --rm cpu2026:local cat /opt/versions.txt'   # 与本机逐行相同才算可比
+```
+
+★ **本机那份 `cpu2026:local` 是 arm64**（Apple Silicon 上构建的）—— 搬到 x86-64 只能 qemu
+模拟，**别搬镜像**。官方 Dockerfile 的三个 pin（Yosys `70a11c6bf` / ASAP7 **r28** `f970bd3c` /
+OpenSTA `f89887b5`）与架构无关，x86-64 上原生构建出来的是同一套工具版本 ⇒ 数字与本机历史可比。
+宿主那套 ASAP7 是 **r27**，两边绝不可混。
+
+Windows 侧另需一次端口转发（WSL2 的 IP 每次重启会变）：`netsh interface portproxy add v4tov4
+listenport=22 connectaddress=<wsl ip> connectport=22`；`.wslconfig` 里给 `memory=10GB`
+（默认只给宿主一半 = 8 GB，跑 yosys 偏紧）。
+
+**已验证 / 未验证**：前置探测路径实测过（对着一个没装 docker 的机器跑，正确报 `NO_DOCKER`
+并退出）；rsync / 起跑 / 观察 / 回传四段**尚无远端 docker 主机可实测**，等 PC 那边就位后第一次真跑要盯一眼。
+
+`tools/run.sh` 的 `sed -i ''` 已改成 `sed -i.bak`（BSD/GNU 通吃）—— 原来那写法在远端 Linux 上
+会把 `''` 当文件名。补丁后一律 `rm -f *.bak`，不会把 `.bak` 带进变体树。
+
 ### `sweep.sh` —— 参数消融（**只量 IPC**）
 
 ```sh
