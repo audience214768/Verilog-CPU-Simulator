@@ -287,11 +287,42 @@ module cpu_top #(
     wire [ISSUE_WIDTH * PW - 1 : 0] cdb_exec_prd;
     wire [ISSUE_WIDTH * 32 - 1 : 0] cdb_exec_result;
     wire [ISSUE_WIDTH * RW - 1 : 0] cdb_exec_rob_tag;
-    wire load_cdb_valid;
-    wire [PW - 1 : 0]   load_cdb_prd;
-    wire [31 : 0]     load_cdb_result;
-    wire [RW - 1 : 0]   load_cdb_rob_tag;
-    wire            load_cdb_rob_wr;
+    // ---- load CDB 组: lsq 出口 → 边界寄存一级 (刀 A, plan §20/§21: 拆流水级) ----
+    // 关键路径 (diag9 逐级归因) 是 dcache 读口 → mem_subsystem → lsq 合并 → CDB → slot 旁路 →
+    // branch 加法器 → misp 广播 → fetch/rs 一条**单拍**长链; 在这一刀之前 lsq 的 5 根 CDB 输出
+    // 同拍喂给 u_cdb / u_slot 旁路 / rs 唤醒广播。这里整组寄存, 所有消费者**一致**晚一拍 ⇒ 语义 =
+    // "load-use 延迟 +1 拍" (实测 geo IPC −3.42%, plan §21.4)。
+    // **陈旧广播**: 打一拍后本组可能指向**已被 flush 杀掉**的条目 (raw 那拍还合法, 下一拍到),
+    // 而那个槽可能已被复用的新指令占用 ⇒ 消费者必须让"新住户"赢, 否则新指令带 ready 入队:
+    //   · rob: push 的清零压过 set_ready (plan §21.3 —— 修复前 magic 静默死锁)
+    //   · ready_table: clear(重分配/冲刷) 压过 set (既有优先级, 无需改)
+    // prd 复用另有一层安全: load 的 prd 只能在自己提交后才回收, 而提交依赖本组里的 rob_ready
+    // (同样晚一拍) ⇒ 回收 ≥ N+2、再分配 ≥ N+3, 本组的 prf 写落在 posedge N+1 ⇒ 早于任何再分配。
+    wire            load_cdb_valid_raw;
+    wire [PW - 1 : 0]   load_cdb_prd_raw;
+    wire [31 : 0]     load_cdb_result_raw;
+    wire [RW - 1 : 0]   load_cdb_rob_tag_raw;
+    wire            load_cdb_rob_wr_raw;
+    reg             load_cdb_valid;
+    reg [PW - 1 : 0]    load_cdb_prd;
+    reg [31 : 0]      load_cdb_result;
+    reg [RW - 1 : 0]    load_cdb_rob_tag;
+    reg             load_cdb_rob_wr;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            load_cdb_valid   <= 1'b0;
+            load_cdb_prd     <= {PW{1'b0}};
+            load_cdb_result  <= 32'd0;
+            load_cdb_rob_tag <= {RW{1'b0}};
+            load_cdb_rob_wr  <= 1'b0;
+        end else begin
+            load_cdb_valid   <= load_cdb_valid_raw;
+            load_cdb_prd     <= load_cdb_prd_raw;
+            load_cdb_result  <= load_cdb_result_raw;
+            load_cdb_rob_tag <= load_cdb_rob_tag_raw;
+            load_cdb_rob_wr  <= load_cdb_rob_wr_raw;
+        end
+    end
     cdb #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_cdb (
         .exec_valid(cdb_exec_valid), .exec_prd(cdb_exec_prd), .exec_result(cdb_exec_result),
         .exec_rob_tag(cdb_exec_rob_tag), .exec_rob_wr(cdb_exec_rob_wr),
@@ -362,9 +393,9 @@ module cpu_top #(
         .mem_done_valid(ld_done_valid), .mem_done_idx(ld_done_idx), .mem_done_data(ld_done_data),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx), .ld_busy(ld_busy),
-        .load_cdb_valid(load_cdb_valid), .load_cdb_prd(load_cdb_prd),
-        .load_cdb_result(load_cdb_result), .load_cdb_rob_tag(load_cdb_rob_tag),
-        .load_cdb_rob_wr(load_cdb_rob_wr)
+        .load_cdb_valid(load_cdb_valid_raw), .load_cdb_prd(load_cdb_prd_raw),
+        .load_cdb_result(load_cdb_result_raw), .load_cdb_rob_tag(load_cdb_rob_tag_raw),
+        .load_cdb_rob_wr(load_cdb_rob_wr_raw)
     );
     // 存储由外部提供 (TB 例化 core/memory.v, student_top 例化 core/mem_subsystem.v)
 

@@ -1,6 +1,6 @@
 // tb_rob: 段 1 小规模+极端 (push 批/环形回绕/set_ready/set_head 释放/set_last 截断与清空/
 //        满窗 + 截断点落在 head 前一条时的回绕歧义消解/
-//        优先级 set_last>set_head>set_ready>push/满判据/empty 判据/越界槽位回绕);
+//        优先级 set_last>set_head>push>set_ready/满判据/empty 判据/越界槽位回绕);
 //        段 2 随机模型对照 (300 拍, 指针/条目全字段逐拍断言)
 `timescale 1ns/1ps
 module tb_rob;
@@ -88,6 +88,10 @@ module tb_rob;
         reg [RW - 1 : 0]  d_new_rw, d_h_rw;
         integer li, lk;
         begin
+            // set_ready 先写, 后被 push 的清零覆盖 ⇒ 优先级 push > set_ready
+            for (li = 0; li < RB; li = li + 1)
+                if (set_ready_req[li])
+                    m_ready[li] = 1'b1;
             // push 条目写 (与指针更新独立: flush 同拍也写条目, 但窗口截断将其丢弃)
             for (lk = 0; lk < IW; lk = lk + 1) begin
                 if (push_valid[lk]) begin
@@ -126,10 +130,6 @@ module tb_rob;
                     m_head = set_head_val;
                 end
             end
-            // set_ready: 后写覆盖 push 的 ready=0
-            for (li = 0; li < RB; li = li + 1)
-                if (set_ready_req[li])
-                    m_ready[li] = 1'b1;
         end
     endtask
 
@@ -321,16 +321,19 @@ module tb_rob;
                      head, last, free_count); errors = errors + 1;
         end
 
-        // C9b set_ready+push 同条目 (槽 0): push 清 0 后 set_ready 置 1 → 赢
+        // C9b push 与 set_ready 撞同槽 (槽 0): **push 清零必须赢**。推进槽 last_r 是首个空闲槽,
+        //     活条目在 [head, last) 内 ⇒ 指向它的完成广播只可能来自已被 kill / 已回收的条目
+        //     (陈旧广播)。若让置位赢, 新指令会带 ready 入队 —— 从不执行却可直接提交, 其 prd
+        //     永不置 ready ⇒ 消费者死等 (刀 A 现场: 延迟一拍的 load 广播撞上复用槽, magic 死锁)
         clr();
         push_valid = 4'b0001; push_opcode = {4{7'h33}}; push_new = {4{6'd50}};
         set_ready_req[0] = 1'b1;
         tick();
         check_all();
-        if (ready[0] !== 1'b1 || opcode[0 * 7 +: 7] !== 7'h33) begin
-            $display("FAIL: C9 set_ready>push"); errors = errors + 1;
+        if (ready[0] !== 1'b0 || opcode[0 * 7 +: 7] !== 7'h33) begin
+            $display("FAIL: C9b push must clear stale set_ready (ready=%0b)", ready[0]); errors = errors + 1;
         end else begin
-            $display("PASS: C9 set_ready beats push (same entry)");
+            $display("PASS: C9b push beats stale set_ready (same entry)");
         end
 
         // C10b 非满窗口 + 截断点 == head: 同样 d_new_rw=0, 但窗口没满 ⇒ 该条目已提交 (head 已越过

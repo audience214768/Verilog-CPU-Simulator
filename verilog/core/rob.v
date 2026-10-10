@@ -1,6 +1,9 @@
 // 重排序缓冲: 环形 (ROB_SIZE = 2^RW), 乱序完成按序提交
-// 写优先级: set_last (flush 截断, 最高; head 若被截则收敛到 last+1) > set_head (提交) > set_ready (CDB) > push
-// push 时清该条目 ready; set_ready_req 为 ready 唯一置位源
+// 指针写优先级: set_last (flush 截断, 最高; head 若被截则收敛到 last+1) > set_head (提交) > push
+// 条目写优先级: **push (新住户清 ready) > set_ready (CDB 置位)** —— push 目标槽 last_r 是首个空闲槽,
+//   而活条目在 [head, last) 内 ⇒ 指向它的 set_ready 必然是陈旧广播 (条目已被 flush 杀掉或已回收),
+//   必须被新住户的清零压掉, 否则新指令带 ready 入队 → 从不执行却可直接提交 → 其 prd 永不置 ready
+//   → 消费者死等。set_ready_req 为 ready 唯一置位源 (与 ready_table 的「clear > set」同一不变量)
 module rob #(
     parameter ISSUE_WIDTH = 1,
     parameter ROB_SIZE    = 32,
@@ -104,7 +107,7 @@ module rob #(
         end
     end
 
-    // ---- 条目写: push (清 ready) 与 set_ready (置位); 优先级 set_ready > push 由顺序保证 ----
+    // ---- 条目写: set_ready (置位) 与 push (清 ready); 优先级 push > set_ready 由顺序保证 ----
     integer k, i;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -118,6 +121,10 @@ module rob #(
                 ins_r[i] <= 32'd0;
             end
         end else begin
+            // set_ready: CDB 完成置位
+            for (i = 0; i < ROB_SIZE; i = i + 1)
+                if (set_ready_req[i])
+                    ready_r[i] <= 1'b1;
             // push: 写入 last_r + psum[k] (回绕掩码) 并清 ready (后于 set_ready 执行 → 优先级高)
             for (k = 0; k < ISSUE_WIDTH; k = k + 1) begin
                 if (push_valid[k]) begin
@@ -131,10 +138,6 @@ module rob #(
                     ready_r[i]  <= 1'b0;
                 end
             end
-            // set_ready: CDB 完成置位
-            for (i = 0; i < ROB_SIZE; i = i + 1)
-                if (set_ready_req[i])
-                    ready_r[i] <= 1'b1;
         end
     end
 
