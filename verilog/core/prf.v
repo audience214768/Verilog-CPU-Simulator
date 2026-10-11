@@ -34,15 +34,24 @@ module prf #(
     // 地址**最低位落在最宽的一级** ⇒ 扇出 = 32 × 32 位 = 1024 (实测 1025)。
     // 官方 abc 没带 `-constr` ⇒ 不做 buffer/upsize (§15.10.8), 那一级实测 1.3 ns。
     // 改成 one-hot: oh1[p] 只驱动寄存器 p 的那 32 位 ⇒ 峰值扇出 1024 → 32。
-    // 面积持平 (mux ≈ 2 门 vs AND2 + OR2 ≈ 2 门; 译码器 64 项 × 6 门 ≈ 384 门/口)。
+    // 面积持平 (mux ≈ 2 门 vs AND2 + OR2 ≈ 2 门; 译码器 64 项 × 6 门 ≈ 384 门/口 —— 刀 P 后译码
+    // 重写成 16 个 3 输入与 + 64 个 2 输入与, 比这还少)。
+    // ★ 刀 P (2026-10-11): one-hot 的**译码**也拆两级 (8×8)。上一版把数据侧扇出 1024 → 32, 但译码
+    //   写成一个 6 输入比较器 × 64 ⇒ **地址侧**每根位驱动 64 个门 (实测 91 脚/网) —— 官方 ABC 无
+    //   buffer, 这一根就是头名家族 (b) (`sel_all_q` → `div.a_r/b_r`) 的级 3 (0.53 ns)。拆成
+    //   "高位 8 选 1 + 低位 8 选 1 + AND2" 后每根地址位只驱动 8 个门, 且门数净减 (16 个 3 输入与
+    //   + 64 个 2 输入与 < 64 个 6 输入与)。逐位等价: 两个子比较成立 ⇔ 整字相等。
+    localparam LO = PW / 2;                                 // 低位译码宽度 (64 项 ⇒ 3/3)
     genvar g, gp, gb;
     generate
         for (g = 0; g < ISSUE_WIDTH; g = g + 1) begin : rd
             wire [31 : 0] d1, d2;
             wire [PRF_SIZE - 1 : 0] oh1, oh2;
             for (gp = 0; gp < PRF_SIZE; gp = gp + 1) begin : dec
-                assign oh1[gp] = (rd1_preg[g * PW +: PW] == gp[PW - 1 : 0]);
-                assign oh2[gp] = (rd2_preg[g * PW +: PW] == gp[PW - 1 : 0]);
+                assign oh1[gp] = (rd1_preg[g * PW + LO +: PW - LO] == gp[PW - 1 : LO])
+                               & (rd1_preg[g * PW       +: LO] == gp[LO - 1 : 0]);
+                assign oh2[gp] = (rd2_preg[g * PW + LO +: PW - LO] == gp[PW - 1 : LO])
+                               & (rd2_preg[g * PW       +: LO] == gp[LO - 1 : 0]);
             end
             // 逐位归约 (constant 索引读存储器字, 不会退回 mux 树)
             for (gb = 0; gb < 32; gb = gb + 1) begin : red

@@ -198,7 +198,7 @@ module mem_subsystem #(
         .wdata(wdata), .wstrb(wstrb), .wvalid(wvalid), .wready(wready),
         .bresp(bresp), .bvalid(bvalid), .bready(bready)
     );
-    assign rd_resp_ready = 1'b1;      // 回包当场消化: 取指写窗口, load 当拍出 ld_done_valid
+    assign rd_resp_ready = 1'b1;      // 回包当场消化 (取指写窗口); 交付侧刀 R 打了一拍, 1 深无背压仍不丢
     assign wr_resp_ready = 1'b1;      // B 只用于置 sq_b_ack
 
     // ==================== 2. load 通路 (D-cache + miss 队列) ====================
@@ -261,15 +261,61 @@ module mem_subsystem #(
         .busy(dc_busy), .fill_busy(dc_fill_busy_w)
     );
 
-    assign ld_done_valid = dc_hit_valid || ld_resp_hs;       // dcache 保证二者互斥 ⇒ 每拍恰一个
-    assign ld_done_idx   = dc_hit_valid ? dc_hit_idx : ld_i_w;
-
     // 交付数据的统一 mux: 命中与回包互斥 ⇒ 第 4 节的字节合并链只需**一条**, 输入由 dl_* 选。
     // (复制两条合并链不仅白费面积, 还会让"合并只看 SQ 快照"这条论证出现两个副本。)
+    wire          dl_cap_w   = dc_hit_valid || ld_resp_hs;    // dcache 保证二者互斥 ⇒ 每拍恰一个
     wire [31 : 0] dl_addr_w  = dc_hit_valid ? dc_hit_addr  : ld_a_w;
     wire [1 : 0]  dl_width_w = dc_hit_valid ? dc_hit_width : ld_w_w;
     wire [31 : 0] dl_word_w  = dc_hit_valid ? dc_hit_word  : rd_resp_data;
-    wire [31 : 0] dl_raw_w   = dl_word_w >> {dl_addr_w[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
+    wire [LIW - 1 : 0] dl_idx_w = dc_hit_valid ? dc_hit_idx : ld_i_w;
+
+    // ★ 刀 R (2026-10-11, plan §2 T1): 交付链入口打一拍 —— 唯一能同时切掉两条共同头名的位置。
+    //   cutQ 头名族 (24 条 >5.0 ns, 终点全在 `ld_done_data_q`) 有两条共同头名: 宏读出口
+    //   (`u_mem.u_dc.u_arr.lane_*/rd_out`) 与 dcache §9 退休口 RMW 状态 (`rmw_rd1_r`/`rmw_v_r`),
+    //   两者在命中 way 选择处 (t≈1.87 ns) **汇合**, 其后 3.19 ns 完全共享 ⇒ 单点刀无用, 只能切
+    //   汇合点之后的公共段。本寄存器把上面这个交付 mux 的**输出**整体寄存 (stage1 到 D 端为止最短),
+    //   右旋 + 字节合并树 + 宽度 mux 全部改读 `dl_*_r` ⇒ 头名族被切成
+    //     stage1 = 宏读/退休口状态 → 命中比较·选通 → 交付 mux
+    //     stage2 = 右旋 + 8 目 max 归约 + 宽度 mux
+    //   两段都远低于第二档 (icache 填充族 4.5177) ⇒ 头名换族, 官方天花板 ≈4.58 ns / 218 MHz。
+    // 端口级契约不变: "接受一个 load 恰好回一个 ld_done_valid", 只是**晚一拍**; `ld_busy` 仍组合
+    //   不动 —— 那是"当场兑现"的承诺, 寄存即死锁 (见本文件头注释)。1 深寄存器无背压 ⇒ 每拍必排空
+    //   ⇒ 不吞脉冲、不改溢序 (完成序仍 = 接受序, ticket 口径依赖这一点)。
+    // ★ SQ 快照安全性 (合并发生在 T+1 而要的是 T 的口径): T 边上队列只可能 push 或 pop ——
+    //   · push 进来的条目**必比本 load 老** (提交前提 rob_ready: 它的数据比"本拍才到数据的 load"
+    //     早 ⇒ 本刀把完成再推后一拍只会更宽松), 合并它属**幂等/正确**, 且同一拍提交的那条本就由
+    //     lsq.v 的字节合并兜着 (见第 4 节 369-376 行的论证), 本刀让它更早进队 ⇒ 更稳;
+    //   · pop 被 ticket 兜住: 条目 E 的 ticket = 吸收/旁路那拍已接受的 load 数; 交付脉冲**本身也迟一拍**
+    //     ⇒ 计数满足 `d(t) ≤ i(t-3)` (t 拍已数到的脉冲 ⟺ 捕获在 t-2 边上 ⟺ 数组读 ≤ t-3; 每条被接受的
+    //     load 恰一个脉冲)。合并拍 M_V = R_V + 2, 而退休闸要求 d(t) ≥ ticket ≥ i(R_V) ⇒ 最早退休拍
+    //     t ≥ R_V + 3 = M_V + 1 ⇒ "可能读到旧行"的条目**不可能**在本 load 合并之前退休。
+    //     完整论证见 plan §2 T1 自查 ④ ⇒ 本刀不另加闸 (加闸反而把 rd_resp_valid 组合拉进 sq_ret_p,
+    //     且每个交付拍都卡队首)。T13 就是这条的对拍定向测试: load 在 store 可见之前被接受 ⇒ 合并非走不可。
+    //   ★★ 由此得一条硬约束: "数组读 → 合并"之间**还剩 1 拍裕量** —— 本级之后**再插一级**同类寄存器,
+    //     裕量降到 0: 退休与合并同拍仍安全 (退休在边沿生效, 合并是组合的); 插到**第三级**才真的踩穿
+    //     (退休先于合并 ⇒ 合并兜不住 ⇒ 静默算错)。
+    //   · SQ↔LSQ 接力也随之后移一拍且仍无缝: 本模块只合并"已进队"的 store (见第 4 节 369-376 行),
+    //     本拍提交的那条由 lsq.v 兜, 而 `lsq_invalidate` 是**寄存器** (cpu_top.v:374-377) ⇒ 同一条
+    //     store 在两边重叠一拍: SQ 侧覆盖提交拍 C ≤ T, LSQ 侧覆盖 C ≥ T+1。换掉那个打拍会让缝裂开。
+    reg  [31 : 0]      dl_addr_r, dl_word_r;
+    reg  [1 : 0]       dl_width_r;
+    reg  [LIW - 1 : 0] dl_idx_r;
+    reg                dl_valid_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) dl_valid_r <= 1'b0;
+        else        dl_valid_r <= dl_cap_w;
+    end
+    // 数据侧不复位 (valid=0 的那拍下游不看); 与 ld_addr_r/ld_idx_r 同款写法
+    always @(posedge clk) begin
+        dl_addr_r  <= dl_addr_w;
+        dl_width_r <= dl_width_w;
+        dl_word_r  <= dl_word_w;
+        dl_idx_r   <= dl_idx_w;
+    end
+
+    assign ld_done_valid = dl_valid_r;
+    assign ld_done_idx   = dl_idx_r;
+    wire [31 : 0] dl_raw_w = dl_word_r >> {dl_addr_r[1 : 0], 3'b000};   // 对齐字 → 该地址起的字节
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -378,10 +424,10 @@ module mem_subsystem #(
     //   每条目被读 4 遍: `q_a`/`q_d`/`q_w`/`q_v` 的动态读各 4 份 (索引 `s = q_ret + m` 也各算 4 遍),
     //   实测 `q_a` 的 256→32 动态读 32 份、`q_d` 的 256→8 32 份、`q_w`/`q_v` 各 32 份 (wvec)。
     //   现在每条目只读一次槽地址/整字数据/宽度/有效位, 四条通道靠一个**只含连线**的右旋各取一个字节。
-    //   依据: 通道 i 取的字节下标是 (pos_i - q_addr) 的低 2 位, 而 pos_i = dl_addr_w + i
-    //   ⇒ (pos_i - q_addr) ≡ (dl_addr_w - q_addr) + i (mod 4); 且命中时该差必落在 [0,3]:
+    //   依据: 通道 i 取的字节下标是 (pos_i - q_addr) 的低 2 位, 而 pos_i = dl_addr_r + i
+    //   ⇒ (pos_i - q_addr) ≡ (dl_addr_r - q_addr) + i (mod 4); 且命中时该差必落在 [0,3]:
     //   32 位回绕下 `pos_i >= q_addr` 与 `pos_i < q_addr + wd` 同时成立 ⇒ q_addr + wd 未回绕
-    //   ⇒ 右旋 d = (dl_addr_w - q_addr) mod 4 之后的第 i 个字节, 正是通道 i 原来取的那一位组。
+    //   ⇒ 右旋 d = (dl_addr_r - q_addr) mod 4 之后的第 i 个字节, 正是通道 i 原来取的那一位组。
     //   命中条件仍**逐通道按原式**写 (含回绕), 故与"逐通道各扫一遍"逐位等价。
     //
     // ★★ 槽索引读/写一律走 **one-hot + 逐位 AND-OR** (本设计第 3/4 次用同一模板: `prf.v:33-58`
@@ -523,13 +569,14 @@ module mem_subsystem #(
         end
     endfunction
 
-    // ★ 合并链的输入是 dl_* (命中数据或回包数据) —— 命中路径同样可能读到缓存里的旧值, 必须一起兜
-    wire [31 : 0] ld_merge_w = sq_merge_word_f(dl_addr_w,
+    // ★ 合并链的输入是 dl_*_r (命中数据或回包数据, 刀 R 起是打了一拍的那份) —— 命中路径同样可能
+    //   读到缓存里的旧值, 必须一起兜
+    wire [31 : 0] ld_merge_w = sq_merge_word_f(dl_addr_r,
                                                sq_addr_r, sq_data_r, sq_width_r, sq_v_w, sq_ret_p, dl_raw_w);
 
     // 零扩展 (符号由 lsq.v:291-297 按 is_unsigned_r 做)
-    assign ld_done_data = (dl_width_w == 2'b10) ? ld_merge_w
-                        : (dl_width_w == 2'b01) ? {16'd0, ld_merge_w[15 : 0]}
+    assign ld_done_data = (dl_width_r == 2'b10) ? ld_merge_w
+                        : (dl_width_r == 2'b01) ? {16'd0, ld_merge_w[15 : 0]}
                         : {24'd0, ld_merge_w[7 : 0]};
 
     // SQ 里"尚未落地"(sq_pend_w) 的条目是否落在 dcache 本拍填充的那一行 —— 判填充污染。

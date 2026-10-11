@@ -53,6 +53,7 @@ module tb_mem_axi;
     localparam T9_H    = 32'h0000_0C00;            // T9 命中行 (组 32)
     localparam T9_M    = 32'h0000_0E00;            // T9 缺失行 (组 48)
     localparam T10_L   = 32'h0000_0A00;            // T10 失效时点行 (组 40)
+    localparam T13_BASE = 32'h0000_0100;           // T13 吸收型 store × 交付对齐区 (组 8, 未被别处碰过)
 
     reg clk = 1'b0;
     wire rst_n;
@@ -112,6 +113,7 @@ module tb_mem_axi;
 
     integer errors = 0;
     integer i, k, n;
+    reg merge_needed;                // T13: 是否存在"load 接受时那条 store 还没可见"的对齐 (空跑哨兵)
 
     // ================= 从机模型 (照 sim.cpp 的 Memory) =================
     reg [7:0] mem_bytes [0 : MEM_BYTES - 1];
@@ -319,6 +321,9 @@ module tb_mem_axi;
             end
             // 提交拍与完成拍必须同一口径: 都用"握手可见的那一拍" (st_push 里读 tcyc 会晚一拍)
             if (s_sw_hs) commit_t = tcyc;
+            // T13 空跑哨兵: 接受这条 load 时队列非空、且**没有条目可见** ⇒ 它读到的行必不含 store 的字节,
+            //   最终值只能由合并链补上 (没有这一档的话本题没打到要测的东西)。
+            if (s_ld_hs && !dut.sq_empty_w && (dut.sq_vis_w === {SQ_DEPTH{1'b0}})) merge_needed = 1'b1;
         end
     endtask
 
@@ -546,7 +551,7 @@ module tb_mem_axi;
     endfunction
 
     integer t1_cyc, t1_total;
-    reg [31:0] t10_orig, t12_orig;
+    reg [31:0] t10_orig, t12_orig, t13_orig;
     reg        t11_absorb, t11_fill, t12_byp;
     reg same_cycle_hit;
     integer commit_cyc, done_cyc;
@@ -892,6 +897,39 @@ module tb_mem_axi;
         ld_push(32'h0000_0020, 2'b10, 4'd11); ld_wait(80);       // 行已装上且被 store 就地更新
         expect_v(cap_ld_data === 32'hA5A5_5A5A, "T12 second load must hit the installed line and see the stored value");
         $display("PASS: T12 pending store on the filling line does not poison the fill (no self-defeating loop)");
+
+        // ---- T13 吸收型 store 的退休 × load 交付对齐 (刀 R 的 ticket 裕量) ----
+        // 为什么单列: 刀 R 在"数组读 → 合并"之间插了一级, 条目 E 的退休闸 —— "可见 且 吸收那拍之前的
+        //   load 都已回" (`ld_done_cnt_r ≥ ticket`) —— 随之只剩 **1 拍裕量**: 合并拍是 `R_V+2`, 而闸最早
+        //   只允许 `R_V+3` 退休 (交付脉冲与计数同步后移 ⇒ 引理是 `d(t) ≤ i(t-3)`; 论证见 plan §2 T1 自查 ④)。
+        //   闸若失效 (E 在合并**之前**退休), 那条 load 从数组读出的旧行就再也补不上 ⇒ **静默算错**。
+        //   ★ "退休与交付同拍"在本刀之后**结构上不可达** (那正是裕量 0 的含义) —— 初版哨兵就是这么写的,
+        //     永远不触发; 也正是它把预注册稿里"裕量 0"那处错算暴露了出来。
+        //   T5 覆盖的是**旁路型**条目 (写通道压住 ⇒ 永不退休), 碰不到这条缝 —— 所以本题必须自己造。
+        // 造法: 先让该行驻留 (不驻留 ⇒ store 判旁路, 又回到 T5 那条路), 提交一条**同址** store (命中 ⇒
+        //   就地吸收), 隔 k 拍接受同址 load; k 扫 0..7, 覆盖"load 的数组读早于 / 恰逢 / 晚于吸收"三种对齐。
+        //   TB 侧口径: store 先提交, 其后才接受 load ⇒ 这条 load **必比它年轻** (不违 T12 记的那条 TB 约定)。
+        // 判据: ①每种对齐都必须读到 store 的值 ②store 全程被吸收 (内存图案不变 ⇒ 没走旁路)
+        //       ③条目最终能退休 (闸只是延后, 不是死锁) ④**确实存在"合并非走不可"的对齐** (否则是空跑)。
+        t13_orig = mem_word(T13_BASE);
+        merge_needed = 1'b0;
+        for (k = 0; k <= 7; k = k + 1) begin
+            do_reset();
+            fetch_wait(FA_PARK, FETCH_MAX);
+            ld_push(T13_BASE, 2'b10, 4'd0);                 // 预热: 填充并驻留该行
+            ld_wait(200);
+            expect_v(cap_ld_data === exp_ld(T13_BASE, 2'b10), "T13 warm-up load pattern");
+            race_val = 32'hC0DE_0000 + k;
+            st_push(T13_BASE, race_val, 2'b10);             // 同址 store: 命中 ⇒ 就地吸收 (不占写通道)
+            for (n = 0; n < k; n = n + 1) tick();
+            ld_push(T13_BASE, 2'b10, 4'd1);                 // 年轻 load: 读到的可能是吸收前那一版
+            ld_wait(200);
+            expect_v(cap_ld_data === race_val, "T13 absorbed store must be visible to the later load");
+            sq_drain(300);                                  // ③吸收型条目必须能退休
+            expect_v(mem_word(T13_BASE) === t13_orig, "T13 store must be absorbed, not written through");
+        end
+        expect_v(merge_needed, "T13 vacuous: no k left the store invisible when the load was accepted");
+        $display("PASS: T13 absorbed-store retirement vs load delivery alignment (k sweep 0..7, merge forced)");
 
         // 账本: 收下与完成必须相等 (不多给也不少给)
         expect_v(ld_inflight_tb == 0, "load bookkeeping not balanced");

@@ -42,6 +42,14 @@ module tb_lsq;
     reg               mem_done_valid, ld_busy;
     reg  [LW - 1 : 0] mem_done_idx;
     reg  [31 : 0]     mem_done_data;
+    // ★ 刀 Q: 完成口的 one-hot 与 cpu_top 的边界寄存器同款 —— TB 只摆索引, 另由这里现译 (含 valid),
+    //   语义与真实连接逐位一致 (激励写法一个不改)。
+    wire [LSQ - 1 : 0] mem_done_oh;
+    genvar goh;
+    generate
+        for (goh = 0; goh < LSQ; goh = goh + 1)
+            assign mem_done_oh[goh] = mem_done_valid && (mem_done_idx == goh[LW - 1 : 0]);
+    endgenerate
     wire              ld_start_valid;
     wire [31 : 0]     ld_start_addr;
     wire [1 : 0]      ld_start_width;
@@ -63,7 +71,8 @@ module tb_lsq;
         .set_addr_req(set_addr_req), .set_addr_idx(set_addr_idx), .set_addr_val(set_addr_val),
         .set_data_req(set_data_req), .set_data_idx(set_data_idx), .set_data_val(set_data_val),
         .flush_mask(flush_mask), .invalidate(invalidate),
-        .mem_done_valid(mem_done_valid), .mem_done_idx(mem_done_idx),
+        .mem_done_idx(mem_done_idx),
+        .mem_done_oh(mem_done_oh),
         .mem_done_data(mem_done_data),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx),
@@ -196,6 +205,8 @@ module tb_lsq;
         reg [7 : 0]      b0, b1, b2, b3;
         reg [31 : 0]     la;
         reg [LW : 0]     dd;
+        reg [1 : 0]      ew;      // ★ 刀 Q: 空闲拍的宽度/符号 (DUT 的 one-hot 读天然为 0)
+        reg              eu;
         begin
             #1;
             #8;
@@ -281,19 +292,26 @@ module tb_lsq;
             e_la = m_addr[e_pidx * 32 +: 32];
             e_lw = m_wid[e_pidx * 2 +: 2];
             // ---- 期望: load_cdb ----
-            e_ok = mem_done_valid && m_valid[mem_done_idx] && m_is_load[mem_done_idx];
-            e_prd = m_preg[mem_done_idx * PW +: PW];
-            e_rob = m_rob[mem_done_idx * RW +: RW];
-            la = m_addr[mem_done_idx * 32 +: 32];
+            // ★ 刀 Q: 五个字段改走 one-hot 读 (选通 = **完成脉冲** mem_done_oh, 与 DUT 逐位同款):
+            //   无脉冲拍天然全 0 (旧版是"保持上次索引的旧值")。注意选通用的是 mem_done_valid 而**不是**
+            //   e_ok —— DUT 里 `ld_ok_oh = mem_done_oh & valid_r & is_load_r` 只喂 valid/rob_wr/done,
+            //   字段读不做这道限定 (被 flush 后回来的 load 就是这种情况: valid=0, 字段值无意义但非 0)。
+            //   契约仍是"仅 valid=1 时字段有效", TB 照旧逐位严查 ⇒ 空闲拍断言为 0 (X 也会 FAIL)。
+            e_ok  = mem_done_valid && m_valid[mem_done_idx] && m_is_load[mem_done_idx];
+            e_prd = mem_done_valid ? m_preg[mem_done_idx * PW +: PW] : {PW{1'b0}};
+            e_rob = mem_done_valid ? m_rob[mem_done_idx * RW +: RW] : {RW{1'b0}};
+            la    = mem_done_valid ? m_addr[mem_done_idx * 32 +: 32] : 32'd0;
+            ew    = mem_done_valid ? m_wid[mem_done_idx * 2 +: 2] : 2'b00;
+            eu    = mem_done_valid ? m_unsg[mem_done_idx] : 1'b0;
             dd = (mem_done_idx - m_head) & (LSQ - 1);
             b0 = mbyte(8'd0, la, dd);
             b1 = mbyte(8'd1, la, dd);
             b2 = mbyte(8'd2, la, dd);
             b3 = mbyte(8'd3, la, dd);
-            e_res = (m_wid[mem_done_idx * 2 +: 2] == 2'b10) ? {b3, b2, b1, b0}
-                  : (m_wid[mem_done_idx * 2 +: 2] == 2'b01)
-                    ? (m_unsg[mem_done_idx] ? {16'd0, b1, b0} : {{16{b1[7]}}, b1, b0})
-                    : (m_unsg[mem_done_idx] ? {24'd0, b0} : {{24{b0[7]}}, b0});
+            e_res = (ew == 2'b10) ? {b3, b2, b1, b0}
+                  : (ew == 2'b01)
+                    ? (eu ? {16'd0, b1, b0} : {{16{b1[7]}}, b1, b0})
+                    : (eu ? {24'd0, b0} : {{24{b0[7]}}, b0});
         end
     endtask
 

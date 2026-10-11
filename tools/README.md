@@ -69,6 +69,12 @@ tools/census.py <preabc.v> --target '\regs[k]'  # 定点: 该信号的每一条�
 所以 `\regs[k]` 记 96 = 每比特 3 次引用 × 32 位。**它给不出比特精确的门级扇出** ——
 要那个数只能读 `mapped.v`（post-ABC，匿名名）或 `timing.rpt`（带 Fanout 列）。见 §2 实测。
 
+**⚠ 转义名里有空格**（2026-10-11 踩到）：`timing.rpt`/`mapped.v` 里含 `.` 的网名是 Verilog
+**转义标识符**，形式为 `\u_mem.u_dc.rdata_w [569]` —— 名字与位下标之间**有一个空格**
+（真实例见 `docs/plan.md` §2 T1 落点证据）。所以任何 `\S+` / `[^\s]+` 的抓名正则都会在那里**截断**
+（拿到 `…rdata_w`，把 `[569]` 丢掉或错当成另一个信号）⇒ 要么用 `(\\[^\s]*\s*\[?\d*\]?|_\d+_)` 这类
+带空格的模式，要么先按 `^\s*\S+\s+(\\\S+(?: \[\d+\])?|_\d+_)\s*\(` 逐行解析。
+
 ### `wvec.py` —— 全设计**宽向量 × 动态访问**普查
 
 ```sh
@@ -178,6 +184,20 @@ docker run --rm --cpus=2 -e CENSUS_DIR=<树内 opt 目录> -e CENSUS_N=4000 \
 这时"最差延时"的分布能直接回答**全设计有多少终点达不到目标周期**——这是判断
 "要不要重划流水"唯一的定量依据，见 `docs/plan.md` §15.10.29。副作用：日志有 8758 行，
 别直接 `cat`。
+
+### `census_src.py` —— 把普查按 **RTL src** 归族（预注册判据的验收工具，2026-10-11 加）
+
+```sh
+python3 tools/census_src.py <opt目录> <census.txt> <tools目录>     # 需 design.json + mapped.v, 故在远端跑
+```
+
+复用 `pathsrc.py` 的**位置对齐 join**（`mapped.v` 的 cell 顺序 ↔ `design.json` 的顺序），把每条
+`CENSUS` 行的**起点与终点**各归到一个 RTL 行号，再按 `(起点/终点, src)` 聚合出"哪个 RTL 家族的
+路径最长、有几条、最差的那条长什么样"。用途是把预注册的结构判据（"某族作为终点应跌出 4000 榜"、
+"应降到 X 以下"）变成一条命令，不用每次人工翻 `timing.rpt`。
+
+**踩坑**：转义标识符里可能**含空格**（`\u_mem.u_dc.rdata_w [569]`），按 `\S+` 切会把它截断
+⇒ 脚本只按空白切分、再 `rsplit("/", 1)[0]` 取实例路径。
 
 ### `cone.py` —— 锥规模 + 逐级模块归因
 
@@ -427,6 +447,14 @@ x86-64 原生构建出来是同一套版本 ⇒ 数字与本机历史可比；�
 
 `tools/run.sh` 的 `sed -i ''` 已改成 `sed -i.bak`（BSD/GNU 通吃）—— 原来那写法在远端 Linux 上
 会把 `''` 当文件名。补丁后一律 `rm -f *.bak`，不会把 `.bak` 带进变体树。
+
+**两个调用侧小坑**（2026-10-11 实测）：
+- 仓库里 `tools/remote_synth.py` 存的是 **100644（无 `+x`）** ⇒ 上面写的 `tools/remote_synth.py pc <id>`
+  直接敲会 `zsh: permission denied`。用 **`python3 tools/remote_synth.py pc <id>`**。
+- 远端 `runs/<id>` 若由**被中途杀掉的容器**留在挂载点上（容器内以 root 跑）⇒ 属主是 root，
+  下次同 id 重跑时 `run.sh:53` 的 `rm -rf "$TREE"` 失败，而 `set -e` 让它**静默退出**
+  （现象：日志只有一行"变体树: …"，`runs/<id>/build/` 根本没生成）。修法：远端 `sudo rm -rf runs/<id>`，
+  或用 `--restart` 换 id。
 
 ### `github_proxy.py` —— 本机当 CONNECT 代理，给连不上 GitHub 的机器借道
 

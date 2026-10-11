@@ -385,18 +385,29 @@ module cpu_top #(
     // 陈旧完成安全: lsq 的 issued_r 是完成与请求之间唯一的身份标识, 在飞条目即使 valid 被清也
     // 不算死、槽位不可复用 (lsq.v 头注释 ②) ⇒ 多等一拍不会打到已被 push 复用的新条目。
     // 复位与 mem_subsystem 同步断言 ⇒ 在飞 load 不跨复位存活 (两侧 issued/计数一起清)。
-    reg              ld_done_valid_q;
+    // ★ 刀 Q (2026-10-11): 同一拍**另寄存一份 one-hot** (`ld_done_oh_q`) 给 lsq 的索引读用 ——
+    //   4 位索引在 lsq 里要展开成"取哪个条目的地址/宽度/prd/rob_tag"的 16 选 1 宽译码, 索引 bit0
+    //   单脚驱动 120 脚、级 0~2 共 1.01 ns (头名家族 (c) 的 21%)。译码挪到本寄存器的 **D 端**
+    //   (与 `cpu_top.v` 提交口的 `lsq_oh` 同一写法), 索引位就只剩 16 个 2 输入比较器, 而且**越过
+    //   寄存器之后 abc 无法反推**"它是那个索引的 one-hot"(对下游组合锥它只是主输入) ⇒ 结构必保。
+    //   索引本身仍要寄存 (`ddi` 的年龄减法用) ⇒ 两个寄存器**同一 always 块同拍更新**(错拍 = 索引配错数据)。
+    //   one-hot 生效后完成脉冲不再需要单独寄存 valid (lsq 的选通一律走 `mem_done_oh`) ⇒ 原
+    //   `ld_done_valid_q` 与 lsq 的 `mem_done_valid` 端口一并净删 (各 1 个触发器/端口)。
     reg [LW - 1 : 0] ld_done_idx_q;
     reg [31 : 0]     ld_done_data_q;
+    reg [LSQ_SIZE - 1 : 0] ld_done_oh_q;
+    integer ldoh;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            ld_done_valid_q <= 1'b0;
             ld_done_idx_q   <= {LW{1'b0}};
             ld_done_data_q  <= 32'd0;
+            ld_done_oh_q    <= {LSQ_SIZE{1'b0}};
         end else begin
-            ld_done_valid_q <= ld_done_valid;
             ld_done_idx_q   <= ld_done_idx;
             ld_done_data_q  <= ld_done_data;
+            // valid 折进 one-hot (与 `lsq_oh` 同款): "无完成"时全 0 ⇒ 下游 AND-OR 天然为 0
+            for (ldoh = 0; ldoh < LSQ_SIZE; ldoh = ldoh + 1)
+                ld_done_oh_q[ldoh] <= ld_done_valid && (ld_done_idx == ldoh[LW - 1 : 0]);
         end
     end
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
@@ -413,7 +424,8 @@ module cpu_top #(
         .set_addr_req(set_addr_req), .set_addr_idx(set_addr_idx), .set_addr_val(set_addr_val),
         .set_data_req(set_data_req), .set_data_idx(set_data_idx), .set_data_val(set_data_val),
         .flush_mask(lsq_flush_mask), .invalidate(lsq_invalidate),
-        .mem_done_valid(ld_done_valid_q), .mem_done_idx(ld_done_idx_q), .mem_done_data(ld_done_data_q),
+        .mem_done_idx(ld_done_idx_q), .mem_done_data(ld_done_data_q),
+        .mem_done_oh(ld_done_oh_q),
         .ld_start_valid(ld_start_valid), .ld_start_addr(ld_start_addr),
         .ld_start_width(ld_start_width), .ld_start_idx(ld_start_idx), .ld_busy(ld_busy),
         .load_cdb_valid(load_cdb_valid_raw), .load_cdb_prd(load_cdb_prd_raw),

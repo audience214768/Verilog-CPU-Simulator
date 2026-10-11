@@ -51,8 +51,8 @@ module lsq #(
     input  [LSQ_SIZE - 1 : 0]       flush_mask,     // 窗口内条目失效
     input  [LSQ_SIZE - 1 : 0]       invalidate,     // store/load 提交后失效
     // 内存接口
-    input               mem_done_valid,
     input  [$clog2(LSQ_SIZE) - 1 : 0]     mem_done_idx,
+    input  [LSQ_SIZE - 1 : 0]  mem_done_oh,    // ★ 刀 Q: 同一个索引的 one-hot (含 valid), 边界寄存器直接给
     input  [31 : 0]       mem_done_data,
     output              ld_start_valid,     // 组合发起: 最老未完成 load + 更老 store 全执行 + 有空槽
     output [31 : 0]       ld_start_addr,
@@ -160,6 +160,56 @@ module lsq #(
     assign ld_start_width = width_r[pidx * 2 +: 2];
     assign ld_start_idx   = pidx;
 
+    // ★ 刀 Q (2026-10-11): 完成口的**索引读全改 one-hot AND-OR** (与 `cpu_top.v` 提交口 `lsq_oh`
+    //   同一个写法)。原来 7 处 `arr[mem_done_idx * W +: W]` 综合成 16 选 1 宽译码 —— 索引 bit0
+    //   单脚驱动 120 脚、级 1 INV 82 脚、级 2 NAND2 64 脚 (级 0~2 共 1.01 ns = 头名家族 (c) 的 21%)。
+    //   one-hot 由**边界寄存器**(刀 D 的 `ld_done_*_q`)在 D 端译好 ⇒ 每个 oh 位只驱动"它自己条目"
+    //   的位宽个门 (≈46), 索引位只剩 16 个 2 输入比较器且**越过寄存器后 abc 无法反推**。
+    //   逐位等价: `arr[idx]` ≡ `|(arr[g] & oh[g])`; oh 已含 `mem_done_valid` ⇒ "无完成"时全 0,
+    //   OR 天然为 0 (与 `lsq_oh` 注释同理), 不需要末级 `? : 0`。
+    //   ★ `ddi` 仍用二进制索引 (年龄减法), 故 `mem_done_idx` 端口保留 —— 两者在边界寄存器同拍更新。
+    //   选通口径: **五个字段的读**只认完成脉冲 `mem_done_oh` (被 flush 后回来的 load 也照读, 值无意义
+    //   但确定); `valid`/`rob_wr`/`done` 另用 `ld_ok_oh` 再限定"命中有效 load" —— 与旧索引读同义。
+    wire [LSQ_SIZE - 1 : 0] ld_ok_oh = mem_done_oh & valid_r & is_load_r;   // 完成脉冲命中一个**有效 load**
+    wire ld_ok = |ld_ok_oh;
+    wire [31 : 0]             md_addr_w;
+    wire [PW - 1 : 0]         md_prd_w;
+    wire [RW - 1 : 0]         md_tag_w;
+    wire [1 : 0]              md_wid_w;
+    wire                      md_uns_w;
+    genvar gq, gr;
+    generate
+        for (gr = 0; gr < 32; gr = gr + 1) begin : mda
+            wire [LSQ_SIZE - 1 : 0] t;
+            for (gq = 0; gq < LSQ_SIZE; gq = gq + 1) begin : e
+                assign t[gq] = addr_r[gq * 32 + gr] & mem_done_oh[gq];
+            end
+            assign md_addr_w[gr] = |t;
+        end
+        for (gr = 0; gr < PW; gr = gr + 1) begin : mdp
+            wire [LSQ_SIZE - 1 : 0] t;
+            for (gq = 0; gq < LSQ_SIZE; gq = gq + 1) begin : e
+                assign t[gq] = prs2_or_prd_r[gq * PW + gr] & mem_done_oh[gq];
+            end
+            assign md_prd_w[gr] = |t;
+        end
+        for (gr = 0; gr < RW; gr = gr + 1) begin : mdt
+            wire [LSQ_SIZE - 1 : 0] t;
+            for (gq = 0; gq < LSQ_SIZE; gq = gq + 1) begin : e
+                assign t[gq] = rob_tag_r[gq * RW + gr] & mem_done_oh[gq];
+            end
+            assign md_tag_w[gr] = |t;
+        end
+        for (gr = 0; gr < 2; gr = gr + 1) begin : mdw
+            wire [LSQ_SIZE - 1 : 0] t;
+            for (gq = 0; gq < LSQ_SIZE; gq = gq + 1) begin : e
+                assign t[gq] = width_r[gq * 2 + gr] & mem_done_oh[gq];
+            end
+            assign md_wid_w[gr] = |t;
+        end
+        assign md_uns_w = |(is_unsigned_r & mem_done_oh);
+    endgenerate
+
     // ---- posedge 写 (优先级: flush > invalidate > push > set_*; 指针更新) ----
     integer i;
     always @(posedge clk) begin
@@ -218,9 +268,12 @@ module lsq #(
             if (ld_start_valid) issued_r[pidx] <= 1'b1;
             // 5) 完成: 清 in-flight (无条件清 —— 已被 flush 的条目也靠它放开 head 跳过),
             //    有效条目再置 done 抑制重复发起。同拍 4)/5) 命中同一条目时 5) 胜 (完成后不再在飞)
-            if (mem_done_valid) issued_r[mem_done_idx] <= 1'b0;
-            if (mem_done_valid && valid_r[mem_done_idx] && is_load_r[mem_done_idx])
-                done_r[mem_done_idx] <= 1'b1;
+            // ★ 刀 Q: 逐位写 (one-hot 已在边界寄存器译好)。优先级语义逐位不变 —— `ld_ok_oh` 已含
+            //   `valid_r`/`is_load_r`/`mem_done_valid`, 且这两支写在 4) 之后 ⇒ 同拍命中同一条目时 5) 胜。
+            for (i = 0; i < LSQ_SIZE; i = i + 1) begin
+                if (mem_done_oh[i]) issued_r[i] <= 1'b0;
+                if (ld_ok_oh[i])    done_r[i]   <= 1'b1;
+            end
             // 6) 指针更新 (free_count 由 head/last 组合导出, 无独立状态)
             head_r <= head_r + skip;
             last_r <= last_r + push_cnt;
@@ -228,8 +281,8 @@ module lsq #(
     end
 
     // ---- load 完成: 字节合并前向 + 符号扩展 (组合, 丢弃失效条目) ----
-    wire ld_ok = mem_done_valid && valid_r[mem_done_idx] && is_load_r[mem_done_idx];
-    wire [LW : 0] ddi = (mem_done_idx - head_r) & (LSQ_SIZE - 1);
+    // (`ld_ok`/`ld_ok_oh` 与五个字段的 one-hot 读在 always 块**之前**声明 —— iverilog 要求先声明)
+    wire [LW : 0] ddi = (mem_done_idx - head_r) & (LSQ_SIZE - 1);   // 年龄减法仍用索引 (刀 Q 保留)
 
     // 字节 b 的最终值: 最年轻重叠未提交 store 的 data, 否则内存字节
     // 注意: 状态全部作为参数传入 (iverilog 连续赋值中的函数只对参数变化重算,
@@ -271,30 +324,30 @@ module lsq #(
                                  : md[b * 8 +: 8];
         end
     endfunction
-    wire [7 : 0] mb0 = merge_byte_f(8'd0, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+    wire [7 : 0] mb0 = merge_byte_f(8'd0, md_addr_w, ddi, mem_done_data,
                                     valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
                                     addr_r, data_r, head_r);
-    wire [7 : 0] mb1 = merge_byte_f(8'd1, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+    wire [7 : 0] mb1 = merge_byte_f(8'd1, md_addr_w, ddi, mem_done_data,
                                     valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
                                     addr_r, data_r, head_r);
-    wire [7 : 0] mb2 = merge_byte_f(8'd2, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+    wire [7 : 0] mb2 = merge_byte_f(8'd2, md_addr_w, ddi, mem_done_data,
                                     valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
                                     addr_r, data_r, head_r);
-    wire [7 : 0] mb3 = merge_byte_f(8'd3, addr_r[mem_done_idx * 32 +: 32], ddi, mem_done_data,
+    wire [7 : 0] mb3 = merge_byte_f(8'd3, md_addr_w, ddi, mem_done_data,
                                     valid_r, is_load_r, addr_ready_r, data_ready_r, width_r,
                                     addr_r, data_r, head_r);
 
     assign load_cdb_valid    = ld_ok;
-    assign load_cdb_prd      = prs2_or_prd_r[mem_done_idx * PW +: PW];
-    assign load_cdb_rob_tag  = rob_tag_r[mem_done_idx * RW +: RW];
+    assign load_cdb_prd      = md_prd_w;
+    assign load_cdb_rob_tag  = md_tag_w;
     assign load_cdb_rob_wr   = ld_ok;
-    assign load_cdb_result   = (width_r[mem_done_idx * 2 +: 2] == 2'b10)
+    assign load_cdb_result   = (md_wid_w == 2'b10)
                              ? {mb3, mb2, mb1, mb0}
-                             : (width_r[mem_done_idx * 2 +: 2] == 2'b01)
-                               ? (is_unsigned_r[mem_done_idx] ? {16'd0, mb1, mb0}
-                                                              : {{16{mb1[7]}}, mb1, mb0})
-                               : (is_unsigned_r[mem_done_idx] ? {24'd0, mb0}
-                                                              : {{24{mb0[7]}}, mb0});
+                             : (md_wid_w == 2'b01)
+                               ? (md_uns_w ? {16'd0, mb1, mb0}
+                                           : {{16{mb1[7]}}, mb1, mb0})
+                               : (md_uns_w ? {24'd0, mb0}
+                                           : {{24{mb0[7]}}, mb0});
 
     // ---- 输出 ----
     assign head       = head_r;
