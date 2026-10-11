@@ -73,6 +73,15 @@
 //      窗口内既无在飞回包也无新起填, 与存储延迟无关 (LATENCY=1 的 TB 也成立) ⇒ `fill_wr_w` 在窗口内
 //      恒 0, 旧刀 M 的判决点 `~fill_wr_w` 退化成 `1'b1`。
 //      代价: 命中行的 store 吸收从此要等**在飞填充收尾** (≤ ~22 拍); 收益: 净删 ~256 FF + 288→32 位 mux。
+//   ⑤ **刀 U (2026-10-11): 探针那一读就是读相**。④ 之后"命中的 store 还得占读口把整路取回来"其实是
+//      **重复读**: 探针 (`stp_go_w`) 那一拍读的就是本笔 store 的组, `probe_hold_w` 保证那拍读口确实
+//      是它的 (`rd_addr_w = probe_addr_w`) ⇒ 回包拍 `rdata_w` 上正是本笔 store 那一整路 —— tag 比较器
+//      (`st_tm_now_w`) 本来就在信任这一条。做法: 读-改-写分两支, 回包那拍 (`rmw_now_w`) 直接合成,
+//      读相 (`rmw_rd_w`) 只留给"答案来自锁存"那一支 ⇒ 吸收 3 拍 → 2 拍、每笔吸收少占读口 1 拍。
+//      ★ 附带的**频率收益**: 旧 `rmw_rd_w` 的判决吃了本拍 rdata (`any_st_hit_w`/`st_vic_now_w`),
+//      而它又去选 `rd_addr_w` 的 `st_addr` 支 ⇒ 宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 →
+//      地址" (census 头名族 4.5588, plan §3.30)。改后读相判决只认锁存 (`st_hit_lat_w`/
+//      `st_vic_lat_now_w`), 回包支只写寄存器、不碰读口 ⇒ 该闭环在结构上不存在。
 //   ★ 配套三处守卫 (缺一条都是静默算错, 逐条论证见各点注释):
 //     ① `st_fill_same_w` 含落盘拍 (`fill_wr_r`): 漏了则同行 store 在落盘拍被判"旁路" —— 那一刻行还没
 //        valid ⇒ 判不命中 ⇒ 数据只进内存, 而行随即被标 valid (此后命中读到旧值);
@@ -342,7 +351,12 @@ module dcache #(
     wire                     vic_v_w, vic_dirty_w;       // 受害路此刻有效? 脏?
     wire                     wb_last_push_w, wb_done_w;
     // ---- 第 9 节: store 命中吸收 (整路写粒度 ⇒ **一律**读-改-写, 整字与部分字同一条路) ----
-    wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w;
+    // ★ 刀 U (2026-10-11): 读-改-写分两支 —— `rmw_now_w` = 回包那拍 (探针那一读**就是**读相, 整路已在
+    //   `rdata_w` 上, 直接合成); `rmw_rd_w` = 答案来自**锁存**那一支 (才需要单独占读口取整路)。
+    wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w, rmw_now_w;
+    wire                     st_tm_lat_w, st_hit_lat_w, st_vic_lat_now_w;   // 只用锁存状态的命中判定 (无 rdata)
+    wire [WY_W - 1 : 0]      st_way_lat_w;
+    wire [DC_WAYS - 1 : 0]   st_hit_lat_g;
     wire [WMASK_W - 1 : 0]   rmw_wmask_w;
     wire [32 * DC_LINE_WORDS - 1 : 0] rmw_data_new_w;    // 回包八字的**数据**+ 只替换命中的那个 word 槽
     wire [31 : 0]            rmw_tag_old_w;              // 回包那一路的 tag 槽 (原样写回)
@@ -489,8 +503,10 @@ module dcache #(
     wire                   st_tm_same_w = (stp_set_r == st_set_w) && (stp_tag_r == st_tag_w);
     // 采用条件: 结果这拍刚到且地址没换, 或者锁存还在且**问的还是同一个地址**。
     wire                   st_tm_live_w = stp_act_r && st_tm_same_w;
-    assign                 st_tm_ok_w = st_tm_live_w
-                                      || (st_tm_v_r && (st_set_r == st_set_w) && (st_tag_r == st_tag_w));
+    // ★ 刀 U: 后一项单立 (它**只含寄存器**, 无 rdata) —— 读相判决 (`rmw_rd_w`) 用它, 好让
+    //   "rdata → 比较器 → 命中 → 占读口 → 地址" 这条一拍闭环在结构上不存在 (见第 9 节注释)。
+    assign                 st_tm_lat_w = st_tm_v_r && (st_set_r == st_set_w) && (st_tag_r == st_tag_w);
+    assign                 st_tm_ok_w = st_tm_live_w || st_tm_lat_w;
     // ★ 探针没答出来 (刚发出/刚换地址) 时**两条出路都不许抬** —— 否则"还没查就判缺失"会把一条
     //   本该吸收的 store 旁路到内存 (缓存行不置脏, 之后换出时把旧值写回去) = 静默算错。
     //   不可缓存的 (MMIO) 例外: 它本来就必上总线, 不需要 tag 比较。
@@ -788,19 +804,23 @@ module dcache #(
     // 整路载荷 = 回包里那一路的**原文**, 只把 store 命中的那个 word 槽换掉; tag 槽与其余 7 字原样带回
     //   (回包就是本路当时的全部内容 ⇒ 它们本来就是对的)。整字 store 也走这条: 那时
     //   `st_bmask_bits_w` 全 1 且移位为 0 ⇒ rmw_merge_w = st_data, 与"就地写整字"逐位等价。
-    wire [WAY_W - 1 : 0]   rmw_pay_old_w = rdata_w[rmw_way_r * WAY_W +: WAY_W];
+    // ★ 刀 U: 位置分源 —— `rmw_now_w` 那拍整路就在 `rdata_w` 上, 位置取**本拍**的 st_way_w/st_word_w;
+    //   读相那一支照旧取锁存的 `rmw_way_r`/`rmw_woff_r` (写相那拍 `rmw_now_w` 恒 0 ⇒ 两支不相撞)。
+    wire [WY_W - 1 : 0]    rmw_way_sel_w  = rmw_now_w ? st_way_w  : rmw_way_r;
+    wire [OFF_W - 1 : 0]   rmw_woff_sel_w = rmw_now_w ? st_word_w : rmw_woff_r;
+    wire [WAY_W - 1 : 0]   rmw_pay_old_w = rdata_w[rmw_way_sel_w * WAY_W +: WAY_W];
     // ★ 老字是回包那一路的**子集** ⇒ 从 `rmw_pay_old_w` (288 位) 里选, 不从 `rdata_w` (576 位) 里选:
     //   同一个 mux 少一半输入 (两条写法逐位等价; 声明放前面是为了不引出隐式网)。
-    wire [31 : 0]          rmw_old_w   = rmw_pay_old_w[rmw_woff_r * 32 +: 32];
+    wire [31 : 0]          rmw_old_w   = rmw_pay_old_w[rmw_woff_sel_w * 32 +: 32];
     assign rmw_merge_w = (rmw_old_w & ~st_bmask_bits_w) | (st_data_sh_w & st_bmask_bits_w);
-    assign rmw_wmask_w = b1_w << rmw_way_r;
+    assign rmw_wmask_w = b1_w << rmw_way_sel_w;
     // ★ 刀 O: tag 槽**不进拼接** (它永不替换, 且与安装支分源) ⇒ 单立一根线给 `rmw_tag_r`,
     //   拼接只剩 8 个 word 槽 = 256 位 (原 9 槽 288 位)。
     assign rmw_tag_old_w = rmw_pay_old_w[DC_LINE_WORDS * 32 +: 32];
     generate
         for (gj = 0; gj < DC_LINE_WORDS; gj = gj + 1) begin : rmwsplice
             assign rmw_data_new_w[gj * 32 +: 32] =
-                   (rmw_woff_r == gj) ? rmw_merge_w : rmw_pay_old_w[gj * 32 +: 32];
+                   (rmw_woff_sel_w == gj) ? rmw_merge_w : rmw_pay_old_w[gj * 32 +: 32];
         end
     endgenerate
     // SRAM 写口二选一: 安装 > store 读-改-写落盘。★ 刀 M/O 之后**两支不可能同拍** (见第 9 节
@@ -904,9 +924,10 @@ module dcache #(
             fill_vset_r  <= vset_w;
             // ---- 刀 O: store 读-改-写合成的 **256 位数据写回 `fill_buf_r`** (安装支与 RMW 支从此
             //      共用同一个整行缓冲 ⇒ 写载荷 mux 288 → 32 位)。写在回包那支**之前** = 显式优先级
-            //      "回包逐字 > RMW 合成"; 两支实际由 `rmw_rd_w` 的窗口条件 (`!fill_busy_r &&
+            //      "回包逐字 > RMW 合成"; 两支实际由 `rmw_rd_w`/`rmw_now_w` 的窗口条件 (`!fill_busy_r &&
             //      !fill_start_w` + 窗口内 `rmw_hold_w` 恒 1) **互斥**, 不可能同拍 (见第 9 节注释)。
-            if (rmw_rd1_r) fill_buf_r <= rmw_data_new_w;
+            //   ★ 刀 U: 合成拍有两个 —— `rmw_rd1_r` (读相那一支, 整路在 rdata 上) 与 `rmw_now_w` (回包那拍)。
+            if (rmw_rd1_r || rmw_now_w) fill_buf_r <= rmw_data_new_w;
             // ---- WB 捕获 (起填后一拍占读口; SRAM 同步读 ⇒ 再下一拍数据才到手) ----
             wbc_lat_r <= wbc_pend_r;
             if (wbc_pend_r) wbc_pend_r <= 1'b0;
@@ -1172,6 +1193,17 @@ module dcache #(
     assign st_way_w     = hitway_f(st_hit_g);
     assign any_st_hit_w = |st_hit_g;
     wire   st_vic_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_w == victim_way_w);
+    // ★ 刀 U: 上面那一组的**锁存版** —— 把 `st_tm_ok_w`/`st_tm_sel_w` 里的"本拍回包"项去掉,
+    //   整组只含寄存器 (`st_tm_v_r/st_tm_r/st_set_r/st_tag_r/valid_r`)。读相判决 (`rmw_rd_w`) 与
+    //   它的驱逐检查用它 ⇒ `rdata_w` 到 `rd_addr_w` 之间再无组合通路。
+    generate
+        for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : sthitlat
+            assign st_hit_lat_g[gj] = st_tm_lat_w && valid_r[gj * DC_SETS + st_set_w] && st_tm_r[gj];
+        end
+    endgenerate
+    assign st_hit_lat_w     = |st_hit_lat_g;
+    assign st_way_lat_w     = hitway_f(st_hit_lat_g);
+    assign st_vic_lat_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_lat_w == victim_way_w);
     // tag 未知窗口内只比组号 (保守: 只多让路一拍, 队首原地重试) —— 见 lk_wb_wait_w 同款论证。
     wire   st_wb_same_w = wb_buf_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT])
                                                       : (wb_base_r[TAGHI - 1 : SPLIT] == st_addr[TAGHI - 1 : SPLIT]));
@@ -1196,7 +1228,26 @@ module dcache #(
     //   (合成的 256 位要写回它) ⇒ 窗口内不许有在飞填充 (下一拍就可能回包写它) 也不许有起填。
     //   三个起填源全含 `!rmw_hold_w`, 而窗口内 `rmw_hold_w` 恒 1 ⇒ 起填只在**读相那一拍**是唯一
     //   空隙 ⇒ 用 `!fill_start_w` 堵上 (与 `!st_vic_now_w` 同一个理由: 同拍起填会驱逐本路)。
-    assign rmw_rd_w     = st_valid && any_st_hit_w && st_cacheable_w
+    // ★ 刀 U (2026-10-11): 读-改-写分两支 ——
+    //     · `rmw_now_w` = **本拍回包**那一支: 整路已在 `rdata_w` 上 ⇒ 直接合成、下一拍落盘;
+    //     · `rmw_rd_w`  = **答案来自锁存**那一支: 才需要单独占读口把整路取回来 (旧的三拍路)。
+    //   ~~旧写法只有一支 `rmw_rd_w = st_valid && any_st_hit_w && ...`~~ —— 它的判决用了本拍 rdata 上的
+    //   比较结果 (`any_st_hit_w` / `st_vic_now_w`), 而它又去选 `rd_addr_w` 的 `st_addr` 支 ⇒
+    //   宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 → 地址" (census 头名族 4.5588, plan §3.30)。
+    //   现在读相判决只认锁存 (`st_hit_lat_w` / `st_vic_lat_now_w`), 本拍回包整支交给 `rmw_now_w`
+    //   (它只写寄存器, 不碰读口) ⇒ `rdata_w` 到 `rd_addr_w` 之间再无组合通路。
+    assign rmw_rd_w     = st_valid && st_hit_lat_w && st_cacheable_w && !st_tm_live_w
+                       && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
+                       && !fill_busy_r && !fill_start_w
+                       && !st_vic_lat_now_w && !st_fill_same_w;
+    // ★ 回包那拍命中 ⇒ **探针那一读就是读相**: `probe_hold_w` 已把 wb 捕获/RMW/重放/写周期全挡在探针外,
+    //   故 `stp_go_w` 那拍读口确实是探针的、`rd_addr_w = probe_addr_w` (组号 = 本笔 store 的组) ⇒
+    //   下一拍 `rdata_w` 上**就是本笔 store 那一整路** (tag 比较器本来就在信任这一条)。既然整路已在手,
+    //   就不必再占读口读一遍 ⇒ 吸收 3 拍 → 2 拍, 且每笔吸收少占读口 1 拍。
+    //   两支天然互斥: 探针只在 `!st_tm_ok_w` 时发, 而 `st_tm_lat_w` 要在**回包那一拍**才可能为 1
+    //   (发起拍它必为 0); 再加 `!st_tm_live_w` 显式隔开。窗口保护 (刀 O 口径): 本拍 `!fill_busy_r && !fill_start_w` +
+    //   下一拍 `rmw_v_r` ∈ `rmw_hold_w` ⇒ `fill_buf_r` 仍归 RMW 独占 (本拍合成写它、下一拍落盘读它)。
+    assign rmw_now_w    = st_valid && any_st_hit_w && st_cacheable_w && st_tm_live_w
                        && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
                        && !fill_busy_r && !fill_start_w
                        && !st_vic_now_w && !st_fill_same_w;
@@ -1222,7 +1273,7 @@ module dcache #(
     //   有复位 ⇒ 复位期间端口上的 x 不会被用 (宏在 we=0 时也不看 wdata); 它的写与 `rmw_v_r` 的
     //   置位**同沿** (见下面 always), 所以 `rmw_v_r`=1 的每一拍 `rmw_tag_r` 都已是本笔的 tag。
     //   ★ 合成的 **256 位数据**写回 `fill_buf_r` (刀 O) —— 那在 fill 块的 always 里 (同一 reg 不能
-    //   两个 always 块写), 条件 = `rmw_rd1_r` (本块的合成拍), 优先级"回包逐字 > RMW 合成"。
+    //   两个 always 块写), 条件 = `rmw_rd1_r || rmw_now_w` (两个合成拍), 优先级"回包逐字 > RMW 合成"。
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             rmw_rd1_r  <= 1'b0;
@@ -1231,7 +1282,13 @@ module dcache #(
             rmw_way_r  <= {WY_W{1'b0}};
             rmw_woff_r <= {OFF_W{1'b0}};
         end else begin
-            if (rmw_rd_w) begin                       // 读相已发出: 记下位置 (整路下一拍到 rdata 上)
+            if (rmw_now_w) begin                      // ★ 刀 U: 本拍回包 ⇒ 整路就在 rdata_w 上, 直接合成
+                rmw_set_r  <= st_set_w;               //   (位置也取本拍这三个活信号 —— 它们与 rdata 同源同行)
+                rmw_way_r  <= st_way_w;
+                rmw_woff_r <= st_word_w;
+                rmw_tag_r  <= rmw_tag_old_w;
+                rmw_v_r    <= 1'b1;                    // 下一拍落盘 (选择端 = 它); 窗口内无安装在飞
+            end else if (rmw_rd_w) begin              // 读相已发出: 记下位置 (整路下一拍到 rdata 上)
                 rmw_rd1_r  <= 1'b1;
                 rmw_set_r  <= st_set_w;
                 rmw_way_r  <= st_way_w;
