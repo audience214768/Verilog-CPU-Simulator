@@ -204,11 +204,14 @@ module fetch #(
                           : cap_w          ? (pc_r + 32'd4 * ISSUE_WIDTH)
                           : pc_lead_w      ? (pc_r + 32'd4 * ISSUE_WIDTH)
                           : exp_pc_r;
-    // redirect/rewind/pc_jmp/落后补发 都必须能写进 pc, 故写使能只看"下一值是否与当前不同"
-    wire pc_wr_w = rst_n && (pc_next != pc_r);
+    // ★ 净删 (锥 ② 频率刀, 2026-10-11): 原来写 `wire pc_wr_w = rst_n && (pc_next != pc_r);`
+    //   再用它当写使能 —— 这是全 RTL **唯一**一处"值比较当写使能", 逐位等价于无条件写:
+    //   rst_n=0 两支都给 0; rst_n=1 且不等时两支都给 pc_next; 相等时 `pc_r <= pc_r` 与
+    //   `pc_r <= pc_next(=pc_r)` 也相同。故直接删掉那个 32 位不等比较器 (组合面积净减,
+    //   且 rst_n 不再进这条路径)。语义一个字没变。
     always @(posedge clk) begin
-        if (!rst_n)       pc_r <= 32'd0;
-        else if (pc_wr_w) pc_r <= pc_next;
+        if (!rst_n) pc_r <= 32'd0;
+        else        pc_r <= pc_next;
     end
 
     // ---- imem 地址 = "下一条要交付的批基址" (取指同拍推进) ----

@@ -199,8 +199,9 @@ def main():
     print(f"\n路径 #{args.path}  {p['start']} → {p['end']}   slack={p['slack']} ns  "
           f"{len(p['lvls'])} 级")
     for tag, cell in (("起点", p["start"]), ("终点", p["end"])):
+        cell = cell or "(未识别)"          # 宏/端口等无 "/" 的起终点, 解析器可能给出 None
         ty, src, up = srcmap.get(base_cell(cell), (None, None, None))
-        print(f"  {tag}: {cell:<12} {ty:<28} src={src or '（无 src）'}")
+        print(f"  {tag}: {cell:<12} {ty or '?':<28} src={src or '（无 src）'}")
         r = net_run(mapped, srcmap, base_cell(cell))
         if r and r[0] > 1:
             n, off, types, lo_name, hi_name = r

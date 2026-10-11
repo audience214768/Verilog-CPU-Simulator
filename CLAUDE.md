@@ -10,9 +10,11 @@ verilog/<域>/<模块>.v (top/front/core/exec), tb/<域>/tb_<模块>.v; 模块�
 ##   verilog/filelist.f = RTL 源文件列表 (路径相对 verilog/), 新增/删除源文件必须同步;
 ##   config.mk 保持官方原样; 本机工具链路径写进 gitignore 的 config.local.mk,
 ##     用 make CONFIG=config.local.mk <target> 生效 (APPIMAGE 禁用以走 native 工具)
-##   make synth (面积/频率口径, 需 OpenSTA) 本机跑不通 → 走 OrbStack 容器镜像 cpu2026:local,
-##     容器内用官方 config.mk 全默认即可 (ASAP7 在 /opt/asap7/lib, 是 r28; 宿主那套是 r27, 数字不可混用);
-##     构建/冒烟细节见 docs/plan.md §13.5
+##   make synth (面积/频率口径, 需 OpenSTA) 本机跑不通 → **一律优先走远端 ssh 主机 pc**:
+##     tools/remote_synth.py pc <id> [run.sh 参数...]  (推源码→远端起→只捞回小产物; 一次 18 min)
+##     本机 OrbStack 容器 cpu2026:local 只在远端不可达时当退路 (容器内 config.mk 全默认;
+##     ASAP7 在 /opt/asap7/lib, 是 r28; 宿主那套是 r27, 数字不可混用);
+##     用法/踩坑/镜像配方见 tools/README.md 的 remote_synth.py 一节
 ### 模块清单: 
 top=student_top (官方顶层: AXI4-Lite 端口, 例化下面两个) + cpu_top (乱序流水线, 存储接口已外露为端口);
 front=fetch,decode,bht,ras;
@@ -41,6 +43,9 @@ exec=adder32,mul,alu,branch,div
 - 需要记录架构探索过程和debug记录，并实时提交git
 
 - 要求以docs/description.md为准，该文件只能由我手动修改，其他计划、架构、分析文档可以修改
-arch文档用于整理项目架构，plan文档用于记录下一步计划，整体计划以及过往记录，但注意过往记录应该简单不应该干扰之后的计划，不计划做的东西或者已经实现、完成的东西不应该还大量占据计划文档。不在该文档用途的内容不应该进入文档
+arch文档用于整理项目架构，
+plan文档用于记录下一步计划，整体计划以及过往记录和经验（包括成功和失败），但注意过往记录应该简单不应该干扰之后的计划，不计划做的东西或者已经实现、完成的东西不应该还大量占据计划文档。不在该文档用途的内容不应该进入文档
 文档应该实时修正
 只在必要时进行综合，或者放在后台，避免浪费太多时间用于等待
+
+注意性能测试和正确性测试的参数不同，特别是周期上限的设置

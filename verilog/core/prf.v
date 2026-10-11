@@ -1,12 +1,17 @@
 // 物理寄存器堆: 2W 索引读口 (读地址 = preg; preg==0 短路输出 0) + W+2 CDB 写回口
-// 复位全 0; 每个 preg 每生命周期恰好写一次 (D1 不变式, 见计划)
+// ★ **无复位** (2026-10-10 净删): 原来每个 preg 复位成 0, 唯一用途是"架构寄存器初值为 0"。
+//   那件事改由 rat.v 复位时把**全部架构寄存器映射到 preg 0** 表达 —— 读口本就有
+//   `preg==0 短路输出 0` ⇒ 初值语义逐位不变, 而 2048 个触发器不再需要复位软逻辑
+//   (ASAP7 r28 无同步复位触发器, 每个都要 1 个门; 复位网少 2048 个负载脚)。
+//   安全性: 每个 preg 每生命周期恰好写一次 (D1 不变式), 且 PRF **只在就绪条目上被读**
+//   (rs.v 仲裁出的条目必满足 prs==0 || CDB 命中 || rt_ready) ⇒ 未写过的 preg 永不被读到,
+//   去掉复位不会让 X 进入数据通路。
 // 写回仅 CDB 单一来源 (load 完成经槽 W, div 完成经槽 W+1); 读口组合输出
 module prf #(
     parameter ISSUE_WIDTH = 1,
     parameter PRF_SIZE    = 64
 ) (
     input  clk,
-    input  rst_n,
     output [ISSUE_WIDTH * 32 - 1 : 0]                data_out1, data_out2,
     input  [ISSUE_WIDTH * $clog2(PRF_SIZE) - 1 : 0]  rd1_preg, rd2_preg,
     input  [ISSUE_WIDTH + 1 : 0]                     wr_valid,
@@ -19,14 +24,9 @@ module prf #(
 
     integer i;
     always @(posedge clk) begin
-        if (!rst_n) begin
-            for (i = 0; i < PRF_SIZE; i = i + 1)
-                regs[i] <= 32'd0;
-        end else begin
-            for (i = 0; i <= ISSUE_WIDTH + 1; i = i + 1)
-                if (wr_valid[i])
-                    regs[wr_preg[i * PW +: PW]] <= wr_data[i * 32 +: 32];
-        end
+        for (i = 0; i <= ISSUE_WIDTH + 1; i = i + 1)
+            if (wr_valid[i])
+                regs[wr_preg[i * PW +: PW]] <= wr_data[i * 32 +: 32];
     end
 
     // 读口: preg==0 短路输出 0 (x0 硬连线)

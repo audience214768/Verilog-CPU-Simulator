@@ -47,6 +47,17 @@ RTL 的提交流逐条比，一次就定位到 hanoi 的第一条错值。
 "关键路径上那个 637 扇出的网到底是哪段 RTL"没法从判分产物里读出来。本脚本用同一套
 read/synth 序列在 `abc` 之前把网表写出来，名字还在。
 
+### `loadtax.py` —— 从 `mapped.v` 量**全网负载税**（与 ABC 无关的结构量）
+
+```sh
+tools/loadtax.py runs/cutD/build/synth_cutD/opt/mapped.v runs/cutE/build/synth_cutE/opt/mapped.v
+```
+
+官方 ABC 不缓冲不 upsize ⇒ 一个网挂多少负载就是多少延时；而 `min_period_ns` 是 ABC **全局重分解**
+的产物，它会把一处省下的时间在别处还回去。所以判"这刀有没有赢地面"要看这个与 ABC 无关的量：
+Σ负载脚数（全网总驱动负担）、扇出 ≥16/32/64/128 的网数。**Σ 基本不动 = 那刀只是把负载挪了位置，
+不是删掉了负担**（[§62] 实测：尾巴 3.54→0.38 ns，Σ 只 +0.8%，官方数反退 1.97%）。
+
 ### `census.py` —— 在有名字的网表上数扇出
 
 ```sh
@@ -244,9 +255,13 @@ tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "
 
 ### `run.sh` —— 造变体树 + 跑官方容器综合
 
+> ★ **用户 2026-10-10 裁定：官方综合一律优先走远端**（[`remote_synth.py`](#remote_synthpy--把官方综合挪到另一台机器上跑2026-10-10-加)）。
+> `tools/run.sh` 本机这条只在**远端不可达**时当退路，且该刀记录里要注明"本机跑的"。
+> 本机保留它还有两个**非判分**用途：`--no-synth` 造树、`--mode=diagnose`/`--constr` 归因。
+
 ```sh
 tools/run.sh <id> [参数=值 ...]     # 例: tools/run.sh lsq8 LSQ_SIZE=8
-tools/run.sh <id> --no-synth       # 只造树不打综合
+tools/run.sh <id> --no-synth       # 只造树不打综合（归因/普查要的树也这么造）
 tools/run.sh <id> --filelist=docs/timing/filelist_ic.f   # 换冻结口径的源文件列表
 tools/run.sh <id> --mode=diagnose                        # 保层次网表（归因用，非判分口径）
 tools/run.sh <id> --period=6.0                           # 换 ABC 的映射时序目标（见下）

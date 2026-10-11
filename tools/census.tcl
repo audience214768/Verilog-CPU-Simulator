@@ -20,8 +20,11 @@ read_liberty "/opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib"
 set work_dir $env(CENSUS_DIR)
 # FakeRAM liberty 只在**例化了 SRAM** 的版本里有 (I-cache 落地后才有 ram/ 目录);
 # 无 SRAM 的变体树 (如最小参数点) 不能被这一行挡死 —— 否则普查只能跑一半的版本。
-if {[file exists "$work_dir/ram/fakeram_asap7_32x32.lib"]} {
-    read_liberty "$work_dir/ram/fakeram_asap7_32x32.lib"
+# ★ 宏名 = "fakeram_asap7_<DEPTH>x<WRITE_GRANULARITY>", 随 RTL 变 (dcache 由 32 位粒度改成
+#   **一整路**后宏是 32x288, icache 仍是 16x32) ⇒ 必须 glob, 写死文件名会在换粒度的那一刀上
+#   静默漏读一个宏的 liberty (宏变成无时序的黑盒 ⇒ 普查数不再是判据)。
+foreach _lib [lsort [glob -nocomplain "$work_dir/ram/*.lib"]] {
+    read_liberty $_lib
 }
 set_cmd_units -time ns -capacitance fF
 read_verilog "$work_dir/mapped.v"

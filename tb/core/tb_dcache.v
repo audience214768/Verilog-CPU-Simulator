@@ -10,7 +10,7 @@
 //
 // store 退休口 (第 9 节契约) 的驱动全部经由 store_ret / 常驻断言:
 //   · st_valid 保持到 st_absorb/st_bypass 之一抬起 (TB 里由 store_ret 保证);
-//   · 二者互斥, 且 st_absorb 绝不与安装写 (dut.fill_wr_w) 同拍 (SRAM 单口);
+//   · 二者互斥, 且 st_absorb 绝不与安装写 (dut.fill_wr_r —— 落盘拍, 见 dcache.v 锥 ①) 同拍 (SRAM 单口);
 //   · 偷读必须走重放: 不产生 ms 推送、不丢交付脉冲 (T12);
 //   · 命中抢不到交付口 (rsp_busy) 也必须走**重放**, 不许降级成缺失 (T10, 写回特有)。
 //
@@ -208,13 +208,14 @@ module tb_dcache;
                 $display("FAIL: st_absorb/st_bypass 同时抬起 (t=%0t)", $time);
                 errors = errors + 1;
             end
-            // 单口 SRAM: store 就地更新绝不能与安装写同拍
-            if (st_absorb && dut.fill_wr_w) begin
+            // 单口 SRAM: store 就地更新绝不能与安装写同拍 (安装写的**落盘拍**是 fill_wr_r;
+            // 判决拍 fill_wr_w 早就不占口了 —— 锥 ① 把落盘挪到它下一拍)
+            if (st_absorb && dut.fill_wr_r) begin
                 $display("FAIL: store 就地更新与安装写抢 SRAM 口 (t=%0t)", $time);
                 errors = errors + 1;
             end
             // 让路路径被走到的证据 (T13 末尾检查)
-            if (st_valid && dut.fill_wr_w && !st_absorb) n_gate <= n_gate + 1;
+            if (st_valid && dut.fill_wr_r && !st_absorb) n_gate <= n_gate + 1;
             // 偷读路径被走到的证据: 本拍正要对这笔 load 判定, 而它的读被写偷走了 (T12 末尾检查)
             if (dut.lk_v_r && !dut.lk_replay_r && !dut.lk_miss_r && !dut.lk_wait_r && !dut.rd_ok_r)
                 n_steal <= n_steal + 1;
@@ -264,6 +265,22 @@ module tb_dcache;
                              dk, fl_set_w, dut.fill_base_new_w, $time);
                     errors = errors + 1;
                 end
+            end
+        end
+        // ★ 落盘拍 (fill_vset_r) 起的填充必须避开正在安装的 (组,路) 与**行** (dcache.v 锥 ① 守卫③):
+        //   同 (组,路) ⇒ 同拍 vset 赢过"清受害路" ⇒ 新填充往刚标 valid 的槽里灌 tag/数据;
+        //   同行 (同组同 tag) ⇒ 对"这一拍才装上"的行再填一次 ⇒ victim 落到另一路 ⇒ 安装时的不变量 1
+        //   清理把那一份 (可能已脏) 静默作废。上面那段检查**看不见**这两条: 它读 `valid_r`, 而那一拍 valid
+        //   还没置 1 ⇒ 必须单独钉。
+        if (rst_n && dut.fill_vset_r && dut.fill_start_w) begin
+            if ((dut.fill_set_r == dut.new_set_w) && (dut.fill_way_r == dut.victim_way_w)) begin
+                $display("FAIL: 落盘拍起填选中正在安装的槽 (set %0d way %0d t=%0t)", fl_set_w, dut.fill_way_r, $time);
+                errors = errors + 1;
+            end
+            if ((dut.fill_set_r == dut.new_set_w) && (dut.fill_tag_w === fl_tag_w)) begin
+                $display("FAIL: 落盘拍对正在安装的行再起填 (base=%h t=%0t) —— 不变量 1 将作废另一路副本",
+                         dut.fill_base_new_w, $time);
+                errors = errors + 1;
             end
         end
         // 预取不得与需求抢填充器: 起填理由是预取时, 本拍必须没有需求在等
@@ -468,6 +485,7 @@ module tb_dcache;
     integer k;
     integer g8;                                       // T8/T8b 的等待计数器
     integer fr0;                                      // T17 的填充发包数快照
+    integer g13, fr13, ms13;                          // T13b 的计数器/快照
     initial begin
         $dumpfile("sim/core/tb_dcache.vcd");
         $dumpvars(0, tb_dcache);
@@ -742,7 +760,8 @@ module tb_dcache;
         idle(2);
         chk(st_absorb, "T13 填充未占口的拍必须给出 st_absorb");
         // 抬住不放, 覆盖整个填充写窗口 ⇒ 期间 store 让路 (常驻断言同时在查"绝不同拍")
-        while (fill_busy) @(negedge clk);
+        // ★ 窗口 = fill_busy **加上**落盘拍 fill_wr_r (锥 ①: 落盘比 fill_busy 晚一拍, 那拍口仍被占)
+        while (fill_busy || dut.fill_wr_r) @(negedge clk);
         #1;
         chk(n_gate > gate_n, "T13 让路路径没被走到 (填充没占上 SRAM 口?)");
         chk(st_absorb, "T13 填充收尾后应恢复给回答");
@@ -751,6 +770,49 @@ module tb_dcache;
         idle(2);
         accept(32'h0000_0108, 2'd2, 4'd9);
         expect_hit(32'h0000_0108, 4'd9, 32'h0BAD_F00D);
+
+        // ============ T13b 锥 ①: 末字回包拍接受同行 load ⇒ 不得对刚装上的行重复起填 ============
+        // 那一拍摆上口的 load 查到的是"valid 还没置"的半行; 到落盘拍判出来的缺失已经过时
+        // (`fill_busy_r` 恰好在那拍落 ⇒ 合并不成立) ⇒ 会去填一条下一拍就驻留的行, victim 落到
+        // 另一路 ⇒ 那笔填充安装时的不变量 1 清理把另一路副本 (可能已脏) 静默作废。
+        // ★ 必须让**末字回包与上一笔之间夹一个空拍**才有区分度: 回包连拍时 `fill_wr_r` 已经把
+        //   "落盘拍前那一拍"的接受窗口一并挡住 (它 = 上一拍有回包的写), 只有回包有空洞的时序才把
+        //   这一拍露出来 —— 真机的 rvalid 本来就可以插空, 所以这不是假想时序。
+        //   做法: 第 8 笔 AR 迟一拍发 ⇒ 第 8 笔回包与第 7 笔之间空一拍。
+        $display("=== T13b 锥 ①: 末字回包拍接受同行 load ⇒ 不得重复起填");
+        fr13 = n_fill_req; ms13 = n_ms;
+        accept(32'h0000_03F8, 2'd2, 4'd11);       // set 31 (没碰过的组), 缺失起填
+        expect_ms(32'h0000_03F8, 4'd11);
+        g13 = 0;
+        while ((n_fill_req - fr13 < DC_LINE_WORDS - 1) && g13 < 400) begin
+            @(negedge clk); g13 = g13 + 1;
+        end
+        fill_req_ready = 1'b0;                    // 第 8 笔 AR 压一拍 ⇒ 末字回包前留一个空拍
+        @(negedge clk);
+        fill_req_ready = 1'b1;
+        // 末字回包那一拍把同行另一个字的 load 摆上口, 且保持到握手 (真实 ld_start_valid 的语义)
+        g13 = 0;
+        while (!(dut.fill_rsp_valid && dut.fill_cnt_r == DC_LINE_WORDS - 1) && g13 < 400) begin
+            @(negedge clk); g13 = g13 + 1;
+        end
+        lk_addr = 32'h0000_03F0; lk_width = 2'd2; lk_idx = 4'd12; lk_start = 1'b1;
+        #1;
+        g13 = 0;
+        while (!lk_valid && g13 < 400) begin @(negedge clk); #1; g13 = g13 + 1; end
+        chk(lk_valid, "T13b load 最终必须被接受");
+        // 关键: 握手那拍不许是"回包拍"或"落盘拍" —— 那两个窗口接受 load 就会判出过时的缺失
+        if (lk_valid && (dut.fill_wr_w || dut.fill_wr_r)) begin
+            $display("FAIL: T13b 在回包拍/落盘拍接受了 load (fill_wr_w=%b fill_wr_r=%b t=%0t)",
+                     dut.fill_wr_w, dut.fill_wr_r, $time);
+            errors = errors + 1;
+        end
+        @(posedge clk); @(negedge clk);
+        lk_start = 1'b0;
+        expect_hit(32'h0000_03F0, 4'd12, 32'hC0DE_00FC);   // 判定期一到就命中 ⇒ 必须立刻查
+        run_fill;
+        idle(2);
+        chk(n_fill_req - fr13 == DC_LINE_WORDS, "T13b 不得重复起填 (只许本行那 8 笔 AR)");
+        chk(n_ms == ms13 + 1, "T13b 同行 load 不得被推成缺失");   // +1 = 第一条 load 那一笔 (已由 expect_ms 查过)
 
         // ============ T14 脏行被驱逐 ⇒ 捕获读 + 整行写回 + 逐笔 B ============
         // 布局 (每次都用**没碰过的组**, 免得替换指针被前面的用例带偏):

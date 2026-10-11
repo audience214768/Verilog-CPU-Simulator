@@ -1,4 +1,7 @@
-// 寄存器别名表: 32×$clog2(PRF_SIZE) 映射, 复位恒等 map[i]=i
+// 寄存器别名表: 32×$clog2(PRF_SIZE) 映射, **复位全指向 preg 0** (2026-10-10 净删, 原为恒等 map[i]=i)
+//   架构寄存器初值 0 由"全部映射到 preg 0" + prf 读口 `preg==0 短路输出 0` 共同表达,
+//   于是 prf 的 2048 个触发器可以整个去掉复位 (见 prf.v 头注释)。x0 本就恒映射 preg 0,
+//   此处只是把"初始的 32 个架构寄存器"与 x0 合并成同一件事。
 // 组合读口含批内转发: 读口 i 看到 rename[j] (j<i) 的映射, 最后匹配者 (j 最大) 赢
 // 写优先级: flush (walker 回滚) > rename; 同槽多写同一 rd: 后写覆盖
 //   (rename: 批内 j 最大赢; flush: 槽序更老者赢, 回滚收敛于最老 old)
@@ -35,7 +38,7 @@ module rat #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (k = 0; k < 32; k = k + 1)
-                map_r[k] <= k[PW - 1 : 0];      // 恒等映射
+                map_r[k] <= {PW{1'b0}};         // 全指向 preg 0
         end else begin
             for (k = 0; k < ISSUE_WIDTH; k = k + 1)
                 if (rename_valid[k] && (rename_rd[k * 5 +: 5] != 5'd0))

@@ -73,20 +73,20 @@ module tb_rat;
         clr();
         #23 rst_n = 1;                     // 复位 2 拍, t=25 起正常
         #3;
-        // C1 复位恒等
-        for (i = 0; i < 32; i = i + 1) check_map(i, i);
+        // C1 复位全指向 preg 0 (2026-10-10 净删, 原为恒等 map[i]=i)
+        for (i = 0; i < 32; i = i + 1) check_map(i, 0);
 
         // C2 基本 rename: 驱动拍内读口仍显旧值 (时序写), 锁存后阵列更新 + 读口反映
         clr();
         rename_valid = 4'b0001; rename_rd = 5'd3; rename_new = 6'd40;
         read_rs1 = 5'd3;
         #1;
-        check(map_out1[0 * PW +: PW] === 6'd3, "C2 驱动拍内读口仍显旧映射 3");
+        check(map_out1[0 * PW +: PW] === 6'd0, "C2 驱动拍内读口仍显旧映射 0");
         #8;
         #1;
         check_map(3, 40);
-        check_map(4, 4);
-        check_map(10, 10);
+        check_map(4, 0);
+        check_map(10, 0);
         // 无 rename 拍: 读口显示新映射 (阵列值 40)
         clr();
         read_rs1 = 5'd3;
@@ -103,7 +103,7 @@ module tb_rat;
         read_rs1    = {5'd5, 5'd4, 5'd3, 5'd5};   // s3 rs=5, s2 rs=4, s1 rs=3, s0 rs=5
         read_rs2    = {5'd5, 5'd0, 5'd0, 5'd0};
         #1;
-        check(map_out1[0 * PW +: PW] === 6'd5,  "C3 slot0 无转发 (阵列 5)");
+        check(map_out1[0 * PW +: PW] === 6'd0,  "C3 slot0 无转发 (阵列 0)");
         check(map_out1[1 * PW +: PW] === 6'd40, "C3 slot1 rs=3 看到 rename[0] → 40");
         check(map_out1[2 * PW +: PW] === 6'd41, "C3 slot2 rs=4 看到 rename[1] → 41");
         check(map_out1[3 * PW +: PW] === 6'd42, "C3 slot3 rs=5 看到 rename[2] → 42");

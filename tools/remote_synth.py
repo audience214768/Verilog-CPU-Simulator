@@ -57,7 +57,8 @@ ap.add_argument("id")
 ap.add_argument("--restart", action="store_true", help="杀掉远端同 id 的容器再重跑")
 ap.add_argument("--remote-dir", default="cpu2026", help="远端仓库目录 (相对 $HOME)")
 ap.add_argument("runargs", nargs="*", help="透传给 tools/run.sh 的参数, 如 LSQ_SIZE=8")
-A = ap.parse_args()
+A, _extra = ap.parse_known_args()      # 认不出的参数 (如 --mode=diagnose) 全当 run.sh 的透传参数
+A.runargs += _extra
 HOST, ID = A.host, A.id
 
 # ---------- 0) 远端体检 ----------
@@ -81,7 +82,13 @@ if verdict != "OK":
     sys.exit("远端 docker 跑不起来 (权限/守护进程?): %s" % probe)
 
 RDIR = "%s/%s" % (rhome, A.remote_dir)
-OPT = "runs/%s/build/synth_%s/opt" % (ID, ID)
+MODE = "opt"                                    # 透传参数里的 --mode=diagnose 决定产物目录
+for _a in A.runargs:
+    if _a.startswith("--mode="):
+        MODE = _a.split("=", 1)[1]
+if MODE != "opt":
+    KEEP.append("mapped.v")                     # 归因必须带层次网表 (design.json 太大不回传)
+OPT = "runs/%s/build/synth_%s/%s" % (ID, ID, MODE)
 
 
 def find_alive():

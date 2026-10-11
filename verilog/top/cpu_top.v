@@ -277,7 +277,7 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 2) * PW - 1 : 0] cdb_prf_preg;
     wire [(ISSUE_WIDTH + 2) * 32 - 1 : 0] cdb_prf_data;
     prf #(.ISSUE_WIDTH(ISSUE_WIDTH), .PRF_SIZE(PRF_SIZE)) u_prf (
-        .clk(clk), .rst_n(rst_n),
+        .clk(clk),
         .data_out1(prf_d1), .data_out2(prf_d2),
         .rd1_preg(rd1_preg), .rd2_preg(rd2_preg),
         .wr_valid(cdb_prf_valid), .wr_preg(cdb_prf_preg), .wr_data(cdb_prf_data)
@@ -479,7 +479,19 @@ module cpu_top #(
     assign n_valid  = v_acc[ISSUE_WIDTH * 3 +: 3];   // 本批有效指令数 = 本拍 ROB push 数
 
     // ---- 发射条件 (全批 or 不批; misp 周期抑制见约束 1) ----
-    // halt 后不得再发射: fetch 冻结 → have_batch 常 1, 若不门控会把同一批反复压入 rob/rs (死循环)
+    // ★ 锥 ② 频率刀 (2026-10-11): 这里**不再**门控 halt_q_r, fetch_stall 同步去掉 halt_q_r。
+    //   原写法 `&& !halt_q_r` 的动机是"halt 后 fetch 冻结 ⇒ have_batch 常 1 ⇒ 同一批反复压入
+    //   rob/rs 死循环"; 但那个死循环的真正成因是 **fetch_stall 也含 halt_q_r** ⇒ stall 恒 1 ⇒
+    //   batch_taken 恒 0 ⇒ f2i_valid_r 永不清。两项同删后握手自洽: 停机时 f2i 里那**至多一条**
+    //   残余批照常发射、batch_taken 同拍清 f2i_valid_r ⇒ have_batch 落 0 ⇒ 不再发射, ROB 排空
+    //   ⇒ ret_sample 照常成立。残余批至多一条, 因为 fetch 的 .halt() 仍冻结 pc_r 与 cap_w
+    //   (cap_w 含 !halt) ⇒ 停机后不可能再交付新批; redirect 分支可改 pc, 但 cap_w 依旧把它挡在
+    //   接收之外。副作用: 这条残余指令会照常执行/提交 (它在停机 store 之后, 只能写 PRF/内存,
+    //   碰不到退出值 = prf_d1[0]/x0, 也碰不到 halt_q_r 的锁存)。
+    //   收益 (改动前实测): halt_q_r 是官方流程头名起点 `_157633_/QN` —— 5.8926 ns, 全设计
+    //   2546/3012 条 >3.333 ns 的路径都从它出发, 终点 fetch.v:209-212 (pc_r)。它是**一次性
+    //   0→1 电平**, 却因这两项被并进"发射资源/唤醒"那片深组合云 (netattr: `_029214_` 反锥
+    //   叶子含 cpu_top.v:936-948×2)。删掉后该锥整族消失 (下一名 = 4.5920 ns 的 axi_lite_master 读指针)。
     // lsq_free_w 已是"本拍可 push 数"(内部已含本拍失效腾出的槽), 此处不再另加本拍失效数
     // rs 项同样必须用"真空闲槽数": rs.v 的 push 分配器只认 !valid_r, 看不到本拍 clear,
     // 若把本拍选中数 sel_cnt 也算作可用, 会放行一次注定被 rs.v 丢弃的 push
@@ -495,7 +507,7 @@ module cpu_top #(
     // ⇒ 停机锁存永不置位。W=1 每批至多 1 条 ⇒ 该缺陷不可见。
     wire resources_ok = (rob_free_w >= n_valid) && (rs_free_w >= ISSUE_WIDTH)
                      && (fl_count >= n_wr) && (lsq_free_w >= n_mem);
-    wire issue_en = have_batch && !misp_valid && !flushing_r && !halt_q_r && resources_ok;
+    wire issue_en = have_batch && !misp_valid && !flushing_r && resources_ok;
 
     // ---- 误预测汇出 (B4) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] redirect_c;
@@ -553,6 +565,10 @@ module cpu_top #(
     assign div_rob_w = div_pl[O_DROB +: RW];
 
     // ---- 每槽胶水 ----
+    // ret_sample 打一拍的锁存 (Cut B, 语义见下面 "halt / ret_val 锁存" 一节):
+    // 声明必须在**使用它的槽 0 读口 mux 之前** —— iverilog 的 generate 作用域不做前向绑定
+    // (Verilator/Yosys 容忍, 但 tb_cpu_prog 这条 iverilog 路会直接编不过)。
+    reg ret_sample_q;
     generate
         for (s = 0; s < ISSUE_WIDTH; s = s + 1) begin : slt
             // ===== B2 发射: 每槽 push/rename 信号 =====
@@ -655,8 +671,14 @@ module cpu_top #(
             );
             // 槽 0 读口复用为 ret_val 采样 (rob 空 ⇒ rs 已排空 ⇒ Q 级 sel_valid_q[0]==0)
             // 判据必须是 Q 级 (rd1_preg 现在由 Q 级字段驱动), 用 D 级的 sel_valid[0] 会晚一拍判错
+            // ★ 频率刀 (2026-10-11, Cut B): 选择端用**打了一拍**的 ret_sample_q —— 原来的组合
+            //   ret_sample 让 rob 指针 (head/last/free) 经 rob_empty 直接落在这条读口地址通路上
+            //   (实测头名级 0~3 = 0.31 ns 全是 rob 指针 → rob_empty → ret_sample → 本 mux)。
+            //   与锁存的 ret_sample_q 同拍 ⇒ 读口地址与 ret_val_r 采样仍然是同一个 map_arch[10]
+            //   (停机后 fetch 冻结 ⇒ 无新 rename; 唯一可能的"残余批"必在 ROB 里才可能 rename ⇒
+            //   rob_empty 期间 map_r 恒定) ⇒ 语义逐位不变, 只晚一拍。
             if (s == 0) begin : rd1mux
-                assign rd1_preg[0 * PW +: PW] = sel_valid_q[0] ? slot_rd1 : (ret_sample ? map_arch[10 * PW +: PW] : {PW{1'b0}});
+                assign rd1_preg[0 * PW +: PW] = sel_valid_q[0] ? slot_rd1 : (ret_sample_q ? map_arch[10 * PW +: PW] : {PW{1'b0}});
             end else begin : rd1plain
                 assign rd1_preg[s * PW +: PW] = slot_rd1;
             end
@@ -933,14 +955,21 @@ module cpu_top #(
     // 手写程序走的 TERM marker 与本路径 OR 并存: 0x80000000 远超 TB 的 MEM_SIZE, 不会误命中。
     wire mmio_exit = sw_valid && sw_ready && (sw_addr == MMIO_EXIT_ADDR) && (sw_width == 2'b10);
     assign ret_sample = halt_q_r && rob_empty && !ret_latched_r;
+    // ★ 频率刀 (2026-10-11, Cut B): ret_sample 打一拍。它是头名 (rob 指针 → div 寄存器, 5.4051 ns)
+    //   的级 3~4 —— 组合的 ret_sample 直接把 rob 指针牵进读口地址 mux。打拍后 rob 指针只驱动
+    //   本寄存器的 D 脚, 读口地址选择端换成 FF 输出 ⇒ 头名级 0~3 整段拿掉。
+    //   同一拍喂两处 (本锁存 + cpu_top 的 rd1mux), 两处必须同用 ret_sample_q, 否则读到槽 0 的旧地址。
+    //   (声明在"每槽胶水"之前 —— 那里的读口 mux 先用它, 见其处注释。)
     always @(posedge clk) begin
         if (!rst_n) begin
             halt_q_r <= 1'b0;
             ret_latched_r <= 1'b0;
             ret_val_r <= 8'd0;
+            ret_sample_q <= 1'b0;
         end else begin
             if (marker_commit || mmio_exit) halt_q_r <= 1'b1;
-            if (ret_sample) begin
+            ret_sample_q <= ret_sample;
+            if (ret_sample_q) begin
                 ret_latched_r <= 1'b1;
                 ret_val_r <= prf_d1[0 * 32 +: 32] & 8'hFF;
             end
@@ -976,5 +1005,9 @@ module cpu_top #(
     assign branch_count = branch_count_r;
     assign rob_head = rob_head_w;
     assign rob_ready_head = rob_ready_w[rob_head_w];
-    assign fetch_stall = (have_batch && !issue_en) || flushing_r || halt_q_r;
+    // ★ 与 issue_en 同删 halt_q_r (锥 ② 频率刀, 见上文 issue_en 处的整段说明): 留着它反而制造
+    //   死循环 —— stall 恒 1 ⇒ fetch 的 batch_taken 恒 0 ⇒ f2i_valid_r 永不清 ⇒ have_batch 常 1
+    //   ⇒ 同一批被反复发射。halt 对取指的冻结已由 fetch 的 .halt() 单独承担 (cap_w/pc_next 都含它),
+    //   本项是冗余的。
+    assign fetch_stall = (have_batch && !issue_en) || flushing_r;
 endmodule

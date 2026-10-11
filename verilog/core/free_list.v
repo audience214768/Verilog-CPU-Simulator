@@ -1,5 +1,5 @@
 // 空闲物理寄存器池: LIFO 栈 (FREE_NUM 项 × PW 位真实存储)
-// 复位 sp=FREE_NUM, 栈顶 pool[FREE_NUM-1]=BASE → 首次分配得 preg 32, 依次递增
+// 复位 sp=FREE_NUM, 栈顶 pool[FREE_NUM-1]=BASE → 首次分配得 preg BASE, 依次递增
 // 只挡 preg 0 (x0 的恒等映射, 永不复用): 恒等映射区 1..31 在被架构 RAT 放弃 (提交改写) 时
 //   照常回池 —— 池是真实栈, 能表示任何 preg; 详见下方 push_ok 处的缺陷 8 说明
 // 存真实值而非"head+i 组合计算": 回收 (commit 的 old_pnum / walker 的 new_pnum) 不按分配序
@@ -22,7 +22,7 @@ module free_list #(
 );
     localparam PW  = $clog2(PRF_SIZE);
     localparam PCW = $clog2(PRF_SIZE + 1);
-    localparam BASE     = 32;                 // 恒等映射区上界 (preg 0..31 永不复用)
+    localparam BASE     = 1;                  // 池的下界: 只挡 preg 0 (x0, 永不复用)
     localparam FREE_NUM = PRF_SIZE - BASE;    // 池容量
 
     reg [PW - 1 : 0]  pool [0 : FREE_NUM - 1];
@@ -40,7 +40,9 @@ module free_list #(
     //   改法: 只挡 preg 0 (x0 的恒等映射, 永不复用) —— walker 侧 walked_valid 不排除
     //   new_pnum==0 的条目 (cpu_top 的 fl_push_valid 直接用 walked_valid), 必须留这一挡,
     //   否则 preg 0 进池后被分配出去, x0 不再恒为 0。其余 1..31 在架构映射放弃它时照常回池,
-    //   空机时池恒为 PRF_SIZE - 32 = 32 项 >= ISSUE_WIDTH ⇒ 结构性死锁消失。
+    //   空机时池恒为 PRF_SIZE - 1 = 63 项 >= ISSUE_WIDTH ⇒ 结构性死锁消失。
+    //   ★ BASE 32→1 (2026-10-10 净删): rat.v 复位不再用恒等映射 (全指向 preg 0, 见其头注释),
+    //     恒等映射区不复存在 ⇒ 1..63 从复位起就全在池里, 池容量 32→63。
     // push 端口按 ROLLBACK_WIDTH 定宽 (walker 与 commit 复用, 二者互斥), pop 仍是 ISSUE_WIDTH
     wire [ROLLBACK_WIDTH - 1 : 0] push_ok;
     wire [ISSUE_WIDTH * PCW - 1 : 0] pc_pre, pc_inc;   // pop 前缀 (发射宽度)

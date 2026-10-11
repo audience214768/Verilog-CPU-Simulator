@@ -224,13 +224,15 @@ module tb_cpu_prog;
     localparam PW_TB = $clog2(PRF_SIZE_TB);
     localparam RW_TB = $clog2(ROB_SIZE_TB);
     // 影子"持有集"初值 = 复位恒等映射占用的 0..31 (池初值 = 32..63); 此后 push 清、alloc 置。
+    // ★ 2026-10-10 (PRF 净删): 复位恒等映射已改成"全指向 preg 0"、free_list 下界 BASE 32→1
+    //   ⇒ 复位后**只有 preg 0 被持有** (架构初值 0), 1..63 全在池里。
     reg [PRF_SIZE_TB - 1 : 0] preg_held;
     integer pi, pj;
     always @(posedge clk) begin
-        if (!rst_n) preg_held <= {{(PRF_SIZE_TB - 32){1'b0}}, {32{1'b1}}};
+        if (!rst_n) preg_held <= {{(PRF_SIZE_TB - 1){1'b0}}, 1'b1};
         else begin
             // 先回收 (commit/walker 的 push), 再分配 —— 与本拍语义一致 (分配读的是旧池)
-            // 回收条件与 free_list.push_ok **逐字一致** (只挡 preg 0): 恒等映射区 1..31 被架构
+            // 回收条件与 free_list.push_ok **逐字一致** (只挡 preg 0): 1..63 被架构
             //   RAT 放弃时照常回池 (W=4 缺陷 8 的新策略), 旧影子模型在这里多挡了一道 `>= 32`。
             // ★ push 侧按 ROLLBACK_WIDTH_TB 扫 (walker 一拍归还多项), alloc 侧仍是 ISSUE_WIDTH_TB
             for (pi = 0; pi < ROLLBACK_WIDTH_TB; pi = pi + 1)
@@ -386,9 +388,9 @@ module tb_cpu_prog;
                      dut.halt_q_r, dut.rob_head_w, dut.rob_last_w,
                      dut.rob_ready_w[dut.rob_head_w],
                      dut.rob_raw_w[dut.rob_head_w * 32 +: 32]);
-            $display("   FCH arr=%b cap=%b rw=%b predok=%b pcwr=%b stall=%b rasops=%b",
+            $display("   FCH arr=%b cap=%b rw=%b predok=%b stall=%b rasops=%b",
                      dut.u_fetch.arr_ok_w, dut.u_fetch.cap_w, dut.u_fetch.rewind_w,
-                     dut.u_fetch.pred_ok_w, dut.u_fetch.pc_wr_w, dut.fetch_stall,
+                     dut.u_fetch.pred_ok_w, dut.fetch_stall,
                      dut.u_fetch.ras_ops_w);
             for (te = 0; te < 16; te = te + 1)
                 if (dut.u_rs.valid_r[te])
