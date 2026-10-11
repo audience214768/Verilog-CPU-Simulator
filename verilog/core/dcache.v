@@ -55,6 +55,13 @@
 //     store 载荷是 `rmw_pay_r` (整路合成结果), 两者都是寄存器。
 //   ★ **握手一律不动**: `st_absorb`/`st_bypass`/`sq_ticket_r` 取数拍全在原处 ⇒ AXI 可见性口径与
 //     第 4 节那张表不变, 变的只是"写何时落到 SRAM"与随之的 valid/dirty/污染。
+//   ③ **写口选择端交给寄存器 `rmw_v_r`** (刀 M, 2026-10-11): ②之后 we/addr/wmask/wdata 的**选择端**
+//      仍取自 `fill_wr_r` —— 而这根网同时还喂 `busy` (头名路径的起点), 又扛着 576 位载荷 mux 的 288 个
+//      选通脚。官方无缓冲流程下**一根网的负载数就是它的延迟** ⇒ 头名两级里 1.98 ns 的 ~86% 是这根网
+//      的负载税 (§3.21 逐脚统计)。做法: 写相改由 `rmw_v_r` 独占选择端, 并用 `rmw_pend_r` 让"安装落盘"
+//      与"RMW 写相"**结构上不同拍**。判据是恒等式 `fill_wr_r(t) ≡ fill_wr_w(t−1)` (同一拍就能算出的
+//      **预测**, 不是猜测): 合成载荷那一拍若 `fill_wr_w`=1 就不置 `rmw_v_r`, 改挂起, 等安装过完。
+//      代价 +1 flop、碰撞时写相晚一拍 (外部只见这一次写晚 1 拍, 语义不变)。
 //   ★ 配套三处守卫 (缺一条都是静默算错, 逐条论证见各点注释):
 //     ① `st_fill_same_w` 含落盘拍 (`fill_wr_r`): 漏了则同行 store 在落盘拍被判"旁路" —— 那一刻行还没
 //        valid ⇒ 判不命中 ⇒ 数据只进内存, 而行随即被标 valid (此后命中读到旧值);
@@ -324,7 +331,7 @@ module dcache #(
     wire                     vic_v_w, vic_dirty_w;       // 受害路此刻有效? 脏?
     wire                     wb_last_push_w, wb_done_w;
     // ---- 第 9 节: store 命中吸收 (整路写粒度 ⇒ **一律**读-改-写, 整字与部分字同一条路) ----
-    wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w;
+    wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w, rmw_pend_w;
     wire [WMASK_W - 1 : 0]   rmw_wmask_w;
     wire [WAY_W - 1 : 0]     rmw_pay_new_w;              // 回包整路 + 只替换命中的那个 word 槽
     wire [31 : 0]            rmw_merge_w;
@@ -387,7 +394,8 @@ module dcache #(
     reg  [31 : 0]            dpf_base_r;                 // 预取行基址
     // ---- store 读-改-写 (第 9 节): 读相 → 合成 → 写相 (整字与部分字同一条路) ----
     reg                      rmw_rd1_r;                  // 读相后一拍: rdata_w 上正是命中路的整路原文
-    reg                      rmw_v_r;                    // 整路已合成, 等写口空
+    reg                      rmw_v_r;                    // 整路已合成, 本拍落盘 (写口选择端 = 它)
+    reg                      rmw_pend_r;                 // 整路已合成但下一拍有安装落盘 ⇒ 挂起一拍
     reg  [DC_IW - 1 : 0]     rmw_set_r;
     reg  [WY_W - 1 : 0]      rmw_way_r;
     reg  [OFF_W - 1 : 0]     rmw_woff_r;
@@ -785,14 +793,16 @@ module dcache #(
             end
         end
     endgenerate
-    // SRAM 写口二选一: 安装 (最高 — 回包不可反压) > store 读-改-写落盘
+    // SRAM 写口二选一: 安装 > store 读-改-写落盘。★ 刀 M 之后**两支不可能同拍** (见第 9 节
+    //   `rmw_pend_r`), 故选择端一律取寄存器 `rmw_v_r` (安装那支就是它的补) —— 与旧写法逐位等价,
+    //   但把那 288 个载荷 mux 选通脚从 `fill_wr_r` (头名起点, 又挂在 `busy` 上) 整批搬走。
     // ★ **两组支路的 select 与载荷全部来自寄存器** (`fill_wr_r`/`fill_way_r`/`fill_set_r`/`fill_base_r`/
     //   `fill_buf_r` 与 `rmw_pay_r`/`rmw_way_r`/`rmw_set_r`) ⇒ 宏的 we/addr/wmask/wdata 四组脚全由 FF 驱动,
     //   §3.13 那两截 (40 脚 1.20 ns + 18 个宏脚 2.35 ns) 一起消失。唯一仍是活信号的 `rd_set_w` 只在无写时
     //   驱动读地址, 不进写口。
-    assign sram_we_w = fill_wr_r || rmw_wr_w;
-    assign wmask_w   = fill_wr_r ? fill_wmask_w : (rmw_wr_w ? rmw_wmask_w : {WMASK_W{1'b0}});
-    assign wdata_w   = {DC_WAYS{fill_wr_r ? fill_pay_w : rmw_pay_r}};   // 每 lane 同一载荷, 掩码选 lane
+    assign sram_we_w = fill_wr_r || rmw_v_r;
+    assign wmask_w   = rmw_v_r ? rmw_wmask_w : (fill_wr_r ? fill_wmask_w : {WMASK_W{1'b0}});
+    assign wdata_w   = {DC_WAYS{rmw_v_r ? rmw_pay_r : fill_pay_w}};   // 每 lane 同一载荷, 掩码选 lane
 
     sram_fakeram #(
         .DEPTH             (DC_SETS),
@@ -803,8 +813,8 @@ module dcache #(
         .en    (1'b1),
         .we    (sram_we_w),
         .wmask (wmask_w),
-        .addr  (fill_wr_r ? fill_set_r
-                          : (rmw_wr_w ? rmw_set_r : rd_set_w)),
+        .addr  (rmw_v_r ? rmw_set_r
+                        : (fill_wr_r ? fill_set_r : rd_set_w)),
         .wdata (wdata_w),
         .rdata (rdata_w)
     );
@@ -1105,7 +1115,8 @@ module dcache #(
             // ★ store 就地写 ⇒ 该行与内存不一致, 换出时必须写回。放最后: 与上面几项撞同一槽时
             //   以"置脏"为准 —— 吸收进去的字节是真实的, 丢掉它就是静默算错。
             // ★ 位置必须取**捕获的** `rmw_way_r`/`rmw_set_r`, 不能取本拍的 `st_way_w`/`st_set_w`:
-            //   吸收发生在读相之后第 2 拍 (锥 ①), 这窗口里 tag 锁存可能已被同组的一次安装 (`fill_vset_r`)
+            //   吸收发生在读相之后第 2 拍 (锥 ①; 刀 M 后碰撞时第 3 拍 —— 捕获的必要性只增不减),
+            //   这窗口里 tag 锁存可能已被同组的一次安装 (`fill_vset_r`)
             //   作废 ⇒ `st_tm_ok_w`=0 ⇒ `st_hit_g` 全 0 ⇒ `hitway_f` 给出**错的路号**, 脏位就落到
             //   另一条无关行上, 而真正被写的那条仍是干净 ⇒ 换出时静默丢弃 = 丢 store。
             //   (`st_absorb` 与 `rmw_wr_w` 同拍 ⇒ 这两个寄存器的值一定还是本笔读相锁下的那个。)
@@ -1162,10 +1173,15 @@ module dcache #(
     //   落进一条无效行了。★ rmw_hold_w **不含** rmw_rd_w, 否则 fill_go → fill_start → st_vic_now →
     //   rmw_rd 成组合环; 读相那一拍由 `!st_vic_now_w` 自己挡 (同拍起填驱逐本路 ⇒ 本次不发起)。
     assign rmw_rd_w     = st_valid && any_st_hit_w && st_cacheable_w
-                       && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
+                       && !rmw_rd1_r && !rmw_v_r && !rmw_pend_r && !fill_wr_r && !wb_cap_w
                        && !st_vic_now_w && !st_fill_same_w;
-    assign rmw_wr_w     = rmw_v_r && !fill_wr_r;          // 写相: 整路已在寄存器里, 等写口空
-    assign rmw_hold_w   = rmw_rd1_r || rmw_v_r;
+    // ★ 写相**不再让路** (刀 M): `rmw_v_r` 只会在"下一拍没有安装落盘"时置位 (见 always 块 —— 判据
+    //   `fill_wr_w`, 恒等式 `fill_wr_r(t) ≡ fill_wr_w(t−1)`), 故写相与安装**结构上不同拍**, 写口四组
+    //   选择端可以整个交给这根 FF。碰撞时这一次写晚一拍 (旧写法是让路到下一拍再写, 只差在判决点从
+    //   "写那一拍的 fill_wr_r" 挪到了"合成那一拍的 fill_wr_w")。
+    assign rmw_wr_w     = rmw_v_r;                        // 写相: 整路已在寄存器里, 本拍落盘
+    assign rmw_pend_w   = rmw_pend_r && !fill_wr_r && !fill_wr_w;   // 挂起结束: 本拍无安装, 下一拍也无
+    assign rmw_hold_w   = rmw_rd1_r || rmw_v_r || rmw_pend_r;
     assign st_absorb    = rmw_wr_w;
     // ★ 非缓存 / 未命中都走这一条。`!st_cacheable_w` 显式进门: 万一 MMIO 行被吸收, 终止 store
     //   就永远上不了总线 (从机等不到它) ⇒ 死机。让路项与吸收那边同款, 两条合起来恒有解。
@@ -1185,6 +1201,7 @@ module dcache #(
         if (!rst_n) begin
             rmw_rd1_r  <= 1'b0;
             rmw_v_r    <= 1'b0;
+            rmw_pend_r <= 1'b0;
             rmw_set_r  <= {DC_IW{1'b0}};
             rmw_way_r  <= {WY_W{1'b0}};
             rmw_woff_r <= {OFF_W{1'b0}};
@@ -1196,10 +1213,17 @@ module dcache #(
                 rmw_woff_r <= st_word_w;
             end else if (rmw_rd1_r) begin              // 整路在 rdata_w 上 ⇒ 本拍换掉命中的那个 word 槽
                 rmw_rd1_r  <= 1'b0;
-                rmw_v_r    <= 1'b1;
                 rmw_pay_r  <= rmw_pay_new_w;
+                // ★ 刀 M 的判决点: 下一拍**有没有安装落盘**用 `fill_wr_w` 现算 (`fill_wr_r(t) ≡
+                //   fill_wr_w(t−1)`) ⇒ 本拍就知道下一拍写口归谁, 不必等下一拍再让路。
+                rmw_v_r    <= ~fill_wr_w;              // 下一拍无安装 ⇒ 下一拍落盘 (选择端 = 它)
+                rmw_pend_r <=  fill_wr_w;              // 下一拍有安装 ⇒ 挂起, 安装过完再写
             end
             if (rmw_wr_w) rmw_v_r <= 1'b0;             // 已落盘 (同拍 st_absorb), 窗口结束
+            if (rmw_pend_w) begin                      // 挂起结束: 本拍无安装、下一拍也无 ⇒ 下一拍落盘
+                rmw_v_r    <= 1'b1;
+                rmw_pend_r <= 1'b0;
+            end
         end
     end
 
