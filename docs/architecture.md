@@ -48,8 +48,12 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
   W、div 完成槽 W+1）——写 `prf`、置 `ready_table` 与 `rob` 的 ready 位（ROB ready 的唯一写者）。
 - **提交**（`cpu_top` 提交组合块 + `rob`）：ROB head 起连续就绪的条目按序提交，每拍 ≤W 条且 store ≤1
   （第一个 store 之后截断）；回收 `free_list`、失效 `lsq` 条目、store 经 `sw_*` 直写存储、判定终止锁存 `halt`。
-- **回滚**（`cpu_top` walker FSM）：检出误预测当拍即重定向取指、截断 `rob`（`set_last`）、失效
+- **回滚**（`cpu_top` walker FSM）：检出误预测当拍即截断 `rob`（`set_last`）、失效
   `rs`/`lsq` 窗口、恢复 RAS head、抑制发射；之后每拍 `ROLLBACK_WIDTH` 条回滚 `rat`/`free_list`/`ready_table`。
+  **去 fetch 的重定向束晚一拍**（频率刀 §3.28）：`misp_valid`/`redirect_pc`/`misp_ras` 经 `rd_valid_r`/
+  `rd_pc_r`/`rd_ras_r` 打一拍后才送 fetch 的 `redirect_valid`/`redirect_pc`/`ras_restore_*`；其余
+  `misp_valid` 用法（`issue_en`、冲刷 FSM、失效掩码、`div_kill`、提交门、计数器）**仍是当拍组合**。
+  ⇒ "重定向取指"比"检出"晚一拍，冲刷窗口本身不变。
 
 ## 2. 参数表
 
@@ -111,7 +115,7 @@ RAS_SIZE)`；计数器宽 `CSW/RCW/LCW/PCW = $clog2(容量+1)`。**参数合法�
 | `f2i_valid/raw/pc/pred_taken/pred_target/ras_snap` | W / 32W / 32W / W / 32W / W×RA | 到 decode 的批（寄存器输出；stall 保持，redirect 清 0，批内首个预测跳转之后 valid 截断） |
 | `imem_addr` / `inst_data` / `imem_valid` / `imem_hit` / `imem_direct` | W×32 / W×32 / 1 / 1 / 1 | 存储口：批基址+4i / 数据 / "这拍数据属于上一拍地址" / "本拍地址整批可取" / "本拍到达是直通行交付" |
 | `bht_upd_req/idx/taken`、`ras_restore_valid/head` | W / W×BW / W；1 / RA | 执行槽的条件分支更新；误预测 RAS head 恢复 |
-| `stall` / `redirect_valid` / `redirect_pc` / `halt` | 1 / 1 / 32 / 1 | 后端背压 / 重定向 / 冻结 |
+| `stall` / `redirect_valid` / `redirect_pc` / `halt` | 1 / 1 / 32 / 1 | 后端背压 / 重定向 / 冻结。**重定向由 `cpu_top` 的 `rd_*_r` 打一拍后驱动**（§3.28 频率刀），契约不变：断言当拍必被吃下 |
 
 **取指握手契约（★ 改存储或改 fetch 前必读）**
 

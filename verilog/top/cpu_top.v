@@ -117,6 +117,11 @@ module cpu_top #(
     wire fetch_stall;
     wire misp_valid;
     wire [31 : 0] redirect_pc_w;
+    // ★ 频率刀 (类 2, 见"误预测汇出"处的整段说明): 送给 fetch 的重定向束打一拍。
+    //   声明必须在 fetch 例化**之前** (Icarus 拒绝先用后声明); 驱动它的 always 块在下方汇出处。
+    reg               rd_valid_r;
+    reg [31 : 0]      rd_pc_r;
+    reg [RA - 1 : 0]  rd_ras_r;
     wire [ISSUE_WIDTH - 1 : 0]    upd_req_w;
     wire [ISSUE_WIDTH * BW - 1 : 0] upd_idx_w;
     wire [ISSUE_WIDTH - 1 : 0]    upd_taken_w;
@@ -126,10 +131,10 @@ module cpu_top #(
         .f2i_pred_taken(f2i_pred_taken), .f2i_pred_target(f2i_pred_target),
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
-        .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
+        .ras_restore_valid(rd_valid_r), .ras_restore_head(rd_ras_r),
         .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
         .imem_direct(imem_direct), .stall(fetch_stall),
-        .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
+        .redirect_valid(rd_valid_r), .redirect_pc(rd_pc_r), .halt(halt_q_r)
     );
     wire [ISSUE_WIDTH * 7 - 1 : 0]  d_opcode, d_func7;
     wire [ISSUE_WIDTH * 3 - 1 : 0]  d_func3;
@@ -529,6 +534,39 @@ module cpu_top #(
     assign redirect_pc_w = redirect_c[(ISSUE_WIDTH - 1) * 32 +: 32];
     assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
     assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
+
+    // ---- ★ 频率刀 (类 2, 2026-10-11): 送给 fetch 的**重定向束**整体打一拍 ----
+    // 头名 (cutR) = sel_valid_q_r → [操作数/比较云] → [misp_det] → [前缀 OR] → fetch pc mux → pc_r,
+    // 51 级 / 4.4154 ns, 其中 L31-L33 (misp_det 与"最老优先前缀 OR"云) = 1.6257 ns (37%)。
+    // 归因 (docs/plan.md §3.27): 起点是真逻辑扇出 (RTL 里合法门控 9 处、下游全是宽 mux/enable),
+    // **类 1 (净删) 不适用**; 4 根胖网的负载引脚 100% 是 ABC 复合门 (无单一 RTL 拥有者) ⇒ 只能类 2。
+    //
+    // 口径: 只把 **fetch 面**的四个信号打拍 (valid / pc / ras_head), 其余所有 misp_valid 用法
+    // (issue_en / 冲刷 FSM / rs+lsq 失效掩码 / div_kill / 提交门 / 计数器 / flush_hit / fs_eff)
+    // **一律保持当拍组合** —— 故本刀不改变任何内部时序关系, 只把"取指侧改 PC 的时刻"整体推后一拍,
+    // 重启点与冲刷点之间的一拍关系原样保留。
+    //
+    // 为什么安全:
+    //   · fetch 对 redirect 的采样**不受 stall 门控** (fetch.v 的 pc_next/exp_pc_r/exp_next_w/
+    //     f2i_valid_r 四处 redirect 支都优先于 stall/cap) ⇒ 晚一拍到达照样被当场吃下, 不会丢重定向。
+    //   · 本拍 misp_valid 一抬, issue_en 即为 0 (含 !misp_valid); 下一拍起 flushing_r 继续挡
+    //     ⇒ 推后的这一拍里**不可能有错路指令进 ROB/RS**, 只是 pc/exp_pc 晚一拍改。
+    //   · 冲刷窗口内 fetch_stall 恒 1 (见本文件末 fetch_stall 定义) ⇒ 这一拍落在"本来就停着"的窗口里。
+    //   · misp_valid 连续多拍 (冲刷中更老的误预测, FSM 的 misp_older_w 支) 时, 本寄存器逐拍跟随,
+    //     形状与打拍前逐拍一致 —— 只整体平移一拍, 不产生"重复重定向"这类新形态。
+    // 代价 (须实测): 目标批的地址请求晚一拍发出 ⇒ 重启可能晚一拍 ⇒ IPC 风险。见 §3.28。
+    // (rd_valid_r/rd_pc_r/rd_ras_r 的**声明**在 fetch 例化之前, Icarus 拒绝先用后声明)
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            rd_valid_r <= 1'b0;
+            rd_pc_r    <= 32'd0;
+            rd_ras_r   <= {RA{1'b0}};
+        end else begin
+            rd_valid_r <= misp_valid;
+            rd_pc_r    <= redirect_pc_w;
+            rd_ras_r   <= misp_ras_w;
+        end
+    end
 
     // ---- div 发起仲裁 (**任意槽**可发起, 每拍至多收下一个: 最低请求槽优先) ----
     // "收下"与"放行"必须同拍且一一对应: execute_slot 的 q_freeze = ... && !div_accept, div_accept 是
