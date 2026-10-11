@@ -1,5 +1,5 @@
-// tb_div: 段 1 小规模+极端 (除零/溢出/四象限符号/边界/33 拍延迟/握手 H1-H4), 段 2 随机对照
-//   延迟契约: start_valid 被采样那拍起算, 第 33 拍 done_valid 抬起 (单拍脉冲)
+// tb_div: 段 1 小规模+极端 (除零/溢出/四象限符号/边界/34 拍延迟/握手 H1-H4), 段 2 随机对照
+//   延迟契约: start_valid 被采样那拍起算, 第 34 拍 done_valid 抬起 (单拍脉冲)
 //   握手契约: busy 期间 start_valid 被忽略; kill 只杀在飞的那发, 且空闲时不吞同拍的新 start
 //   参考模型: 无符号用 / %; 有符号用 $signed 的 / % (向零取整, 余数随被除数 ⇒ 与 RISC-V 一致),
 //             除零与 INT_MIN/-1 两个角例单独分支 (仿真器在这两处与 ISA 语义不同)
@@ -68,7 +68,7 @@ module tb_div;
         end
     endtask
 
-    // 等到 done_valid 抬起, lat = 采样沿 ⇒ done 拍的拍数 (契约值 33)
+    // 等到 done_valid 抬起, lat = 采样沿 ⇒ done 拍的拍数 (契约值 34)
     // 带看门狗: 死锁 (如 kill 误吞 start) 必须当场报失败, 不能挂住 make
     task await_done;
         begin
@@ -98,8 +98,8 @@ module tb_div;
                 $display("FAIL: op=%0d a=%h b=%h r=%h expect=%h", eop, ea, eb, done_result, expect_v);
                 errors = errors + 1;
             end
-            if (lat !== 33) begin
-                $display("FAIL: 延迟 %0d 拍 (期望 33), op=%0d a=%h b=%h", lat, eop, ea, eb);
+            if (lat !== 34) begin
+                $display("FAIL: 延迟 %0d 拍 (期望 34), op=%0d a=%h b=%h", lat, eop, ea, eb);
                 errors = errors + 1;
             end
             @(negedge clk);
@@ -255,7 +255,7 @@ module tb_div;
         // ---- H4: kill 恰落在最后一次迭代 ⇒ 优先级高于 done (不得漏出 done_valid) ----
         begin
             issue(2'd0, 32'd100, 32'd7, 6'd0, 5'd0);
-            repeat (31) @(negedge clk);      // 采样沿 +31 拍 = 产生 done 的那个沿
+            repeat (32) @(negedge clk);      // 采样沿 +32 拍 = 产生 done 的那个沿 (装载拍 +1)
             kill = 1'b1;
             @(negedge clk);
             kill = 1'b0;

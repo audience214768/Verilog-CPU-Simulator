@@ -1,14 +1,20 @@
-// 多周期除法器: radix-2 恢复余数迭代, 32 次迭代 + 1 拍输出 = **33 拍**延迟
+// 多周期除法器: radix-2 恢复余数迭代, 32 次迭代 + 2 拍装载/输出 = **34 拍**延迟
 // 支持 RV32M 的 DIV/DIVU/REM/REMU (start_op: 0=div 1=divu 2=rem 3=remu, 即 func3[1:0])
 //
 // 【为何多周期】32 级借位链叠在本已由华莱士树主导的执行级路径上会跌破 300MHz 硬性前提
 // (mul 自身 F2F 实测 2.0879 ns, 500MHz 档已超预算; 见 docs/plan.md §13.5)。迭代式把
 // 每拍深度压到"33 位比较 + 33 位加减 + 移位", 不进关键路径。
 //
+// 【为何取绝对值推迟一拍】(2026-10-11 刀 N1): 原实现把 |a|/|b| 的取反加一放在**发起拍**,
+//   于是 32 位增量器与上游"操作数选择云"串在同一拍里 —— 实测那是全芯片头名
+//   (sel_all_q → 增量器 → 本模块 D 脚, 50 级 / 4.9772 ns, 终点 D 网反锥含整块 PRF)。
+//   挪到 start 后第 1 拍后, 增量器吃的是**已寄存**的 a_r/b_r (register→mux→加法器→D),
+//   与发起拍的组合云彻底断开。代价: 1 位状态 + 1 拍延迟。
+//
 // 【握手】
 //   * start_valid && !busy 当拍被收下 (锁存 op/a/b/prd/rob_tag), busy 随即抬起
 //   * busy 期间 start_valid 被忽略 —— 上层靠"不释放 RS 条目"防重复发射 (见 cpu_top 的 rs_clear 门控)
-//   * 收下后**恰好**过 33 拍出 done_valid (1 拍脉冲), 同拍 done_prd/done_rob_tag/done_result 有效
+//   * 收下后**恰好**过 34 拍出 done_valid (1 拍脉冲), 同拍 done_prd/done_rob_tag/done_result 有效
 //   * kill 只作用于**在飞**的那一发: 当拍清 busy 且不产生 done_valid。
 //     ⚠ 空闲时 kill 不得压掉同拍的新 start —— 那条指令的 RS 条目已被上层清掉,
 //       漏收即永久不被执行 ⇒ 死锁。故判据写成 `kill && busy_r`。
@@ -52,6 +58,7 @@ module div #(
     localparam RW = $clog2(ROB_SIZE);
 
     reg               busy_r, done_r;
+    reg               abs_pend_r;                  // 取 |a|/|b| 待办 (start 后第 1 拍做, 该拍不迭代)
     reg  [5 : 0]      cnt_r;                       // 剩余迭代次数 (32 → 1)
     reg  [31 : 0]     a_r, b_r;                    // 原始操作数 (除零 mux 与符号修正用)
     reg  [31 : 0]     a_sh_r;                      // 被除数移位寄存器 (初值 |a|)
@@ -62,12 +69,13 @@ module div #(
     reg  [PW - 1 : 0] prd_r;
     reg  [RW - 1 : 0] rob_r;
 
-    // 发起拍: 由 op 决定是否按有符号取模 (divu/remu 的 op[0]=1)
+    // 发起拍: 由 op 决定是否按有符号取模 (divu/remu 的 op[0]=1) —— 只**登记**符号位
     wire          is_uns_w = start_op[0];
     wire          a_neg_w  = start_a[31] && !is_uns_w;
     wire          b_neg_w  = start_b[31] && !is_uns_w;
-    wire [31 : 0] a_abs_w  = a_neg_w ? (~start_a + 32'd1) : start_a;
-    wire [31 : 0] b_abs_w  = b_neg_w ? (~start_b + 32'd1) : start_b;
+    // 装载拍 (start 后第 1 拍): 取绝对值 —— 吃**已寄存**的 a_r/b_r (见文件头「为何取绝对值推迟一拍」)
+    wire [31 : 0] a_abs_r_w = a_neg_r ? (~a_r + 32'd1) : a_r;
+    wire [31 : 0] b_abs_r_w = b_neg_r ? (~b_r + 32'd1) : b_r;
 
     // 一次迭代的组合部分: Rs = {R, A[31]}, 够减则减并置商位
     // 取 33 位是教科书形式 (R<<1 后可达 2|b|), 不依赖任何附加不变量; 面积代价仅 1 位。
@@ -81,7 +89,7 @@ module div #(
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            busy_r <= 1'b0;  done_r <= 1'b0;  cnt_r <= 6'd0;
+            busy_r <= 1'b0;  done_r <= 1'b0;  cnt_r <= 6'd0;  abs_pend_r <= 1'b0;
             a_r <= 32'd0;    b_r <= 32'd0;    a_sh_r <= 32'd0;  b_abs_r <= 32'd0;
             q_r <= 32'd0;    r_r <= 32'd0;    op_r <= 2'd0;
             a_neg_r <= 1'b0; b_neg_r <= 1'b0;
@@ -89,15 +97,15 @@ module div #(
         end else begin
             done_r <= 1'b0;                        // 1 拍脉冲: 默认落
             if (kill && busy_r) begin               // 只杀在飞的那发 (空闲时不得吞掉新 start)
-                busy_r <= 1'b0;
+                busy_r     <= 1'b0;
+                abs_pend_r <= 1'b0;                 // 装载拍也在飞 ⇒ 同清, 免得下一发吃到半套状态
             end else if (!busy_r) begin
                 if (start_valid) begin
-                    busy_r  <= 1'b1;
-                    cnt_r   <= 6'd32;
+                    busy_r     <= 1'b1;
+                    abs_pend_r <= 1'b1;             // 下一拍装载 |a|/|b| (不迭代, cnt 不动)
+                    cnt_r      <= 6'd32;
                     a_r     <= start_a;
                     b_r     <= start_b;
-                    a_sh_r  <= a_abs_w;
-                    b_abs_r <= b_abs_w;
                     q_r     <= 32'd0;
                     r_r     <= 32'd0;
                     op_r    <= start_op;
@@ -106,6 +114,10 @@ module div #(
                     prd_r   <= start_prd;
                     rob_r   <= start_rob_tag;
                 end
+            end else if (abs_pend_r) begin          // 装载拍: 只装载, 不消耗迭代次数
+                a_sh_r     <= a_abs_r_w;
+                b_abs_r    <= b_abs_r_w;
+                abs_pend_r <= 1'b0;
             end else begin
                 a_sh_r <= {a_sh_r[30 : 0], 1'b0};
                 q_r    <= q_nx_w;

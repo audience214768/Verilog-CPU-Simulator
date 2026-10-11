@@ -4,7 +4,7 @@
 // misp 汇出链 (最老优先 = 跨槽拓扑) 在 cpu_top: 本模块只输出 misp_det (=smisp)
 // 与 smisp 级 payload (misp_red/misp_fs/misp_ras), cpu_top 侧 1-bit 前缀 OR 链汇出
 // 槽 0 的 ret_sample 读口复用由 cpu_top override (rd1_preg mux; 判据是本模块的 sel_valid_q)
-// div: 本槽只**发起** (div_start_req + op/a/b/prd/rob_tag); 33 拍后由 div.v 经 CDB 槽 W+1 回来,
+// div: 本槽只**发起** (div_start_req + op/a/b/prd/rob_tag); 34 拍后由 div.v 经 CDB 槽 W+1 回来,
 //      故 exec_valid 对它置 0 —— 否则会立刻广播一个垃圾 alu_result 并把 ROB 置就绪
 //
 // ---- 流水切点与三条不变量 (§15.10.13) ----
@@ -75,8 +75,7 @@ module execute_slot #(
     input                          flush_hit,   // 本槽 Q 级本条该被误预测销毁 (cpu_top **逐槽按年龄**算,
                                                  // 不是全局 misp_valid —— 理由见文件头不变量 3)
     input                          div_accept,  // 本槽的 div 发起被收下 (cpu_top 的 div_go_w)
-    // ---- 操作数 (B1: CDB 旁路 + ready_table→PRF 索引读) ----
-    input  [PRF_SIZE - 1 : 0]                 rt_ready,
+    // ---- 操作数 (B1: CDB 旁路 + PRF 索引读) ----
     input  [31 : 0]                           prf_d1, prf_d2,        // 本槽 PRF 读口
     input  [ISSUE_WIDTH : 0]                  cdb_slot_valid,        // 槽 0..W-1 执行, 槽 W load
     input  [(ISSUE_WIDTH + 1) * $clog2(PRF_SIZE) - 1 : 0] cdb_tag,
@@ -92,7 +91,7 @@ module execute_slot #(
     output [$clog2(PRF_SIZE) - 1 : 0]         exec_prd,
     output [31 : 0]                           exec_result,
     output [$clog2(ROB_SIZE) - 1 : 0]         exec_rob_tag,
-    // ---- 输出: 多周期除法发起 (结果不经本槽 ALU, 由 div.v 33 拍后经 CDB 槽 W+1 回) ----
+    // ---- 输出: 多周期除法发起 (结果不经本槽 ALU, 由 div.v 34 拍后经 CDB 槽 W+1 回) ----
     output                                    div_start_req,
     output [1 : 0]                            div_op,
     output [31 : 0]                           div_a, div_b,
@@ -265,9 +264,13 @@ module execute_slot #(
     endgenerate
     wire [31 : 0] byp1 = byp1_c[ISSUE_WIDTH * 32 +: 32];
     wire [31 : 0] byp2 = byp2_c[ISSUE_WIDTH * 32 +: 32];
-    // 注: prs==0 短路 0; 旁路优先; 否则 ready_table 命中读 PRF (索引读)
-    wire [31 : 0] op1 = (prs1 == 0) ? 32'd0 : (m1_any ? byp1 : (rt_ready[prs1] ? prf_d1 : 32'd0));
-    wire [31 : 0] op2 = (prs2 == 0) ? 32'd0 : (m2_any ? byp2 : (rt_ready[prs2] ? prf_d2 : 32'd0));
+    // 注: prs==0 短路 0; 旁路优先; 否则直接读 PRF —— **rt_ready 掩码已净删** (2026-10-11)
+    //   理由: rs.v 的就绪判据是入选的**必要条件** (ready_e_w = prs==0 || CDB 命中 || rt_ready),
+    //   故选中条目若 prs!=0 且无 CDB 命中 ⇒ 入选那一刻 rt_ready[prs] 必为 1; 而 prs 的产出者
+    //   要到**本条退休**才被释放重分配 ⇒ rt_ready[prs] 在此前恒 1, 掩码是恒通门。
+    //   若掩码原本要挡的"未写过 preg 的 X"真的发生, 它会直接可见于 make test (不静默算错值)。
+    wire [31 : 0] op1 = (prs1 == 0) ? 32'd0 : (m1_any ? byp1 : prf_d1);
+    wire [31 : 0] op2 = (prs2 == 0) ? 32'd0 : (m2_any ? byp2 : prf_d2);
     assign rd1_preg = prs1;
     assign rd2_preg = prs2;
 

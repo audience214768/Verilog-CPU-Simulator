@@ -44,7 +44,7 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
   至多 W 条就绪条目；D 级按 one-hot 索引取字段，Q 级取操作数（`prs==0→0` / CDB 当拍旁路 / `ready_table`
   就绪则读 `prf`）并组合执行 alu 或 branch，W 级把结果登记 CDB 槽、地址/数据写进 `lsq`。
 - **执行/写回**（`exec/` + `cdb`）：`alu`（内含 2 位 Booth + Wallace 树的 `mul`）与 `branch` 全组合一拍
-  出结果，`div` 由任意槽发起、33 拍后经 CDB 槽 W+1 回来；`cdb` 纯组合合成三源写回（执行槽、load 完成槽
+  出结果，`div` 由任意槽发起、34 拍后经 CDB 槽 W+1 回来；`cdb` 纯组合合成三源写回（执行槽、load 完成槽
   W、div 完成槽 W+1）——写 `prf`、置 `ready_table` 与 `rob` 的 ready 位（ROB ready 的唯一写者）。
 - **提交**（`cpu_top` 提交组合块 + `rob`）：ROB head 起连续就绪的条目按序提交，每拍 ≤W 条且 store ≤1
   （第一个 store 之后截断）；回收 `free_list`、失效 `lsq` 条目、store 经 `sw_*` 直写存储、判定终止锁存 `halt`。
@@ -336,7 +336,7 @@ rd_ok_r && valid[q_line] && (条目 tag == rd_addr_q 的 tag)`（tag 与数据�
 | `exec/adder32.v` | 参数化宽度加法器，单条连续赋值：`{cout,sum} = a + b + cin` |
 | `exec/mul.v` | 32×32：radix-4（**2 位 Booth**）编码出 17 个部分积 + 1 行校正位 → **6 层 Wallace 列压缩**（18→12→8→6→4→3→2）→ 64 位 `adder32`；`a_signed`/`b_signed` 选符号模式（MUL/MULH/MULHSU/MULHU） |
 | `exec/branch.v` | 纯组合无参数；`mode` 0=branch / 1=jal / 2=jalr；`br_op` 0=beq 1=bne 4=blt 5=bge 6=bltu 7=bgeu。输出 `taken`（mode=1/2 恒 1）、`target`（branch/jal = pc+imm；jalr = `(rs1+imm)&~1`）、`link`=pc+4；内部 4 个 `adder32` |
-| `exec/div.v` | radix-2 **恢复余数**：32 次 + 1 拍输出 = **恰好 33 拍**。取 `|a|/|b|` 迭代后按符号修正；恢复式 `R ∈ [0,|b|)` ⇒ `Rs={R,A[31]}` 33 位无符号足够、无末尾修正步；除零（商全 1 / 余 = 被除数）与 `INT_MIN/−1` 显式 mux。`kill` 只作废**在飞**那一发（判据 `kill && busy_r`，空闲时不得吞掉同拍新 start——那条指令的 RS 条目已被上层清掉，漏收即死锁） |
+| `exec/div.v` | radix-2 **恢复余数**：32 次迭代 + 1 拍装载 + 1 拍输出 = **恰好 34 拍**（刀 N1 把取 `\|a\|/\|b\|` 从发起拍挪到装载拍，吃已寄存的 `a_r`/`b_r`，与上游操作数选择云断开）。取 `|a|/|b|` 迭代后按符号修正；恢复式 `R ∈ [0,|b|)` ⇒ `Rs={R,A[31]}` 33 位无符号足够、无末尾修正步；除零（商全 1 / 余 = 被除数）与 `INT_MIN/−1` 显式 mux。`kill` 只作废**在飞**那一发（判据 `kill && busy_r`，空闲时不得吞掉同拍新 start——那条指令的 RS 条目已被上层清掉，漏收即死锁） |
 | `exec/execute_slot.v` | 每槽一份、**三级流水**：D 级按 `sel_idx` one-hot + AND-OR 取字段（144 位切点）；Q 级取操作数 + `alu`/`branch` + 误预测检测；W 级登记消费者侧产物（CDB/访存，114 位切点）；div 只**发起**（`exec_valid` 置 0） |
 
 `exec/alu.v`（纯组合，内部例化 `adder32` + `mul`）op 编码：

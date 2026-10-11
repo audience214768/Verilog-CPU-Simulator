@@ -20,7 +20,7 @@ module cdb #(
     input  [31 : 0]       load_result,
     input  [$clog2(ROB_SIZE) - 1 : 0]     load_rob_tag,
     input               load_rob_wr,
-    // 生产者 C: div 完成 (每周期 ≤1, 发起后 33 拍)。div 必写 rd (恒置 ROB ready),
+    // 生产者 C: div 完成 (每周期 ≤1, 发起后 34 拍)。div 必写 rd (恒置 ROB ready),
     // 故无 rob_wr 开关; rd==x0 时 prd==0 由 prd_nz 门控不写 PRF
     input               div_valid,
     input  [$clog2(PRF_SIZE) - 1 : 0]     div_prd,

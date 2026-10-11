@@ -6,7 +6,7 @@
 // 组合块: B2 发射(全批 or 不批) B5 walker 回滚(组合部分) B6 提交(连续就绪, store≤1)
 //         B1 操作数获取(CDB 旁路)/B3 执行分发/B4 误预测检测 → verilog/exec/execute_slot.v (Q 级)
 //         误预测汇出链(最老优先)与 fetch 重定向/rob 截断/ras 恢复在此
-// 多周期除法: div 槽只发起 (载荷取槽 0), 33 拍后由 div.v 经 CDB 槽 W+1 写回; 在飞条目靠
+// 多周期除法: div 槽只发起 (载荷取槽 0), 34 拍后由 div.v 经 CDB 槽 W+1 写回; 在飞条目靠
 //         pipe_stall 扣住流水寄存器 (没被收下就不能清条目), 错路靠 div_kill 作废 —— 两者都是死锁/写坏
 //         空闲 preg 的关口, 见各自 assign 处注释
 module cpu_top #(
@@ -334,7 +334,7 @@ module cpu_top #(
         .rt_set_req(rt_set_req_w), .rob_ready_req(rob_ready_set_w)
     );
 
-    // ---- div: 多周期除法器 (33 拍), 完成经 CDB 槽 W+1 ----
+    // ---- div: 多周期除法器 (34 拍), 完成经 CDB 槽 W+1 ----
     // 发起仲裁与授权槽的载荷选取都在下方 "div 发起仲裁" 处 (用 generate, 须排在 genvar 声明之后)。
     div #(.PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_div (
         .clk(clk), .rst_n(rst_n),
@@ -650,7 +650,7 @@ module cpu_top #(
                 .rs_entry_lsq_tag(rs_entry_lsq_tag), .rs_entry_rob_tag(rs_entry_rob_tag),
                 .rs_entry_pred_taken(rs_entry_pred_taken), .rs_entry_pred_target(rs_entry_pred_target),
                 .rs_entry_ras_snap(rs_entry_ras_snap),
-                .rt_ready(rt_ready_w), .prf_d1(prf_d1[s * 32 +: 32]), .prf_d2(prf_d2[s * 32 +: 32]),
+                .prf_d1(prf_d1[s * 32 +: 32]), .prf_d2(prf_d2[s * 32 +: 32]),
                 .cdb_slot_valid(cdb_slot_valid_w), .cdb_tag(cdb_tag_w),
                 .cdb_exec_result(cdb_exec_result), .load_cdb_result(load_cdb_result),
                 .div_start_req(div_req_w[s]), .div_op(div_op_all[s * 2 +: 2]),
