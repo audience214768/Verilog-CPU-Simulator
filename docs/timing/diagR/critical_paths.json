@@ -1,0 +1,6128 @@
+{"checks": [
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_cpu/slt[0].u_slot/_3124_/QN",
+  "endpoint": "u_cpu/u_div/_2671_/D",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/CLK",
+      "net": "u_cpu/slt[0].u_slot/clk",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/QN",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "capacitance": 4.168e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/A",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/Y",
+      "net": "u_cpu/slt[0].u_slot/sel_valid_q",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/sel_valid_q"
+      ],
+      "arrival": 1.174e-10,
+      "capacitance": 4.585e-15,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/A3",
+      "net": "u_cpu/sel_valid_q[0]",
+      "arrival": 1.174e-10,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/Y",
+      "net": "u_cpu/rd1_preg[2]",
+      "arrival": 2.612e-10,
+      "capacitance": 1.096e-14,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/A",
+      "net": "u_cpu/u_prf/rd1_preg[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/rd1_preg[2]"
+      ],
+      "arrival": 2.612e-10,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/Y",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "capacitance": 4.000e-15,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/B",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/Y",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "capacitance": 3.090e-14,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/A2",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/Y",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "capacitance": 5.672e-16,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/D",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/Y",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "capacitance": 4.843e-16,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/E",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/Y",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "capacitance": 5.163e-16,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/A",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/Y",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "capacitance": 5.547e-16,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/A1",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/Y",
+      "net": "u_cpu/u_prf/data_out1[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/data_out1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "capacitance": 6.196e-16,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/A",
+      "net": "u_cpu/slt[0].u_slot/prf_d1[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/prf_d1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "capacitance": 3.977e-16,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/A1",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/Y",
+      "net": "u_cpu/slt[0].u_slot/div_a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "capacitance": 3.701e-15,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+        "u_cpu/slt[0].u_slot/u_br/rs1[2]",
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "capacitance": 1.430e-15,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/C",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "capacitance": 1.374e-15,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "capacitance": 9.583e-16,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "capacitance": 1.826e-15,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "capacitance": 1.022e-15,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "capacitance": 1.022e-15,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "capacitance": 1.426e-15,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "capacitance": 9.524e-16,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "capacitance": 1.745e-15,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "capacitance": 1.925e-15,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "capacitance": 8.778e-16,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "capacitance": 1.826e-15,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "capacitance": 1.283e-15,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "capacitance": 1.283e-15,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "capacitance": 7.782e-16,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "capacitance": 1.927e-15,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]"
+      ],
+      "arrival": 1.641e-09,
+      "capacitance": 1.177e-15,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/diff[31]",
+      "arrival": 1.641e-09,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "capacitance": 1.064e-15,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "capacitance": 6.102e-16,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/D",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "capacitance": 3.515e-14,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "capacitance": 5.560e-16,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/A1",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/target[23]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/target[23]"
+      ],
+      "arrival": 2.269e-09,
+      "capacitance": 1.362e-15,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/B",
+      "net": "u_cpu/slt[0].u_slot/br_target[23]",
+      "arrival": 2.269e-09,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "capacitance": 5.162e-16,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/A",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "capacitance": 4.675e-16,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/E",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "capacitance": 4.596e-16,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/B",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "capacitance": 5.357e-16,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/A2",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "capacitance": 7.891e-14,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/B",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_fs[1]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_fs[1]"
+      ],
+      "arrival": 3.441e-09,
+      "capacitance": 4.990e-15,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/B",
+      "net": "u_cpu/misp_fs_pay_w[1]",
+      "arrival": 3.441e-09,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/Y",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "capacitance": 1.662e-15,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/B",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/Y",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "capacitance": 1.013e-15,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/A2",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/Y",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "capacitance": 9.665e-16,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/A",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/Y",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "capacitance": 2.269e-15,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/A1",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/Y",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "capacitance": 2.780e-15,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/B",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/Y",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "capacitance": 4.496e-16,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/A3",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/Y",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "capacitance": 3.349e-15,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/B",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/Y",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "capacitance": 2.350e-15,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/C",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/Y",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "capacitance": 1.366e-15,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/A1",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/Y",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "capacitance": 9.665e-16,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/A",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/Y",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "capacitance": 2.165e-15,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/A1",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/Y",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "capacitance": 5.441e-16,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/C",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/Y",
+      "net": "u_cpu/div_kill",
+      "arrival": 3.977e-09,
+      "capacitance": 1.200e-15,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/B",
+      "net": "u_cpu/u_div/kill",
+      "hier_pins": [
+        "u_cpu/u_div/kill"
+      ],
+      "arrival": 3.977e-09,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/Y",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "capacitance": 1.572e-14,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/B",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/Y",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "capacitance": 4.169e-14,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/B",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/Y",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "capacitance": 2.631e-14,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2105_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2105_/A2",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2105_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2105_/Y",
+      "net": "u_cpu/u_div/_0285_",
+      "arrival": 5.450e-09,
+      "capacitance": 5.617e-16,
+      "slew": 1.348e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2671_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2671_/D",
+      "net": "u_cpu/u_div/_0285_",
+      "arrival": 5.450e-09,
+      "slew": 1.348e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/u_div/_2671_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2671_/CLK",
+      "net": "u_cpu/u_div/clk",
+      "hier_pins": [
+        "u_cpu/u_div/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 5.450e-09,
+  "crpr": 0.000e+00,
+  "margin": 2.355e-11,
+  "required_time": 1.926e-09,
+  "slack": -3.523e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_cpu/slt[0].u_slot/_3124_/QN",
+  "endpoint": "u_cpu/u_div/_2733_/D",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/CLK",
+      "net": "u_cpu/slt[0].u_slot/clk",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/QN",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "capacitance": 4.168e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/A",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/Y",
+      "net": "u_cpu/slt[0].u_slot/sel_valid_q",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/sel_valid_q"
+      ],
+      "arrival": 1.174e-10,
+      "capacitance": 4.585e-15,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/A3",
+      "net": "u_cpu/sel_valid_q[0]",
+      "arrival": 1.174e-10,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/Y",
+      "net": "u_cpu/rd1_preg[2]",
+      "arrival": 2.612e-10,
+      "capacitance": 1.096e-14,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/A",
+      "net": "u_cpu/u_prf/rd1_preg[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/rd1_preg[2]"
+      ],
+      "arrival": 2.612e-10,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/Y",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "capacitance": 4.000e-15,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/B",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/Y",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "capacitance": 3.090e-14,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/A2",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/Y",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "capacitance": 5.672e-16,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/D",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/Y",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "capacitance": 4.843e-16,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/E",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/Y",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "capacitance": 5.163e-16,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/A",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/Y",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "capacitance": 5.547e-16,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/A1",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/Y",
+      "net": "u_cpu/u_prf/data_out1[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/data_out1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "capacitance": 6.196e-16,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/A",
+      "net": "u_cpu/slt[0].u_slot/prf_d1[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/prf_d1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "capacitance": 3.977e-16,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/A1",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/Y",
+      "net": "u_cpu/slt[0].u_slot/div_a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "capacitance": 3.701e-15,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+        "u_cpu/slt[0].u_slot/u_br/rs1[2]",
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "capacitance": 1.430e-15,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/C",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "capacitance": 1.374e-15,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "capacitance": 9.583e-16,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "capacitance": 1.826e-15,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "capacitance": 1.022e-15,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "capacitance": 1.022e-15,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "capacitance": 1.426e-15,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "capacitance": 9.524e-16,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "capacitance": 1.745e-15,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "capacitance": 1.925e-15,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "capacitance": 8.778e-16,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "capacitance": 1.826e-15,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "capacitance": 1.283e-15,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "capacitance": 1.283e-15,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "capacitance": 7.782e-16,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "capacitance": 1.927e-15,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]"
+      ],
+      "arrival": 1.641e-09,
+      "capacitance": 1.177e-15,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/diff[31]",
+      "arrival": 1.641e-09,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "capacitance": 1.064e-15,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "capacitance": 6.102e-16,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/D",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "capacitance": 3.515e-14,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "capacitance": 5.560e-16,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/A1",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/target[23]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/target[23]"
+      ],
+      "arrival": 2.269e-09,
+      "capacitance": 1.362e-15,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/B",
+      "net": "u_cpu/slt[0].u_slot/br_target[23]",
+      "arrival": 2.269e-09,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "capacitance": 5.162e-16,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/A",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "capacitance": 4.675e-16,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/E",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "capacitance": 4.596e-16,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/B",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "capacitance": 5.357e-16,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/A2",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "capacitance": 7.891e-14,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/B",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_fs[1]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_fs[1]"
+      ],
+      "arrival": 3.441e-09,
+      "capacitance": 4.990e-15,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/B",
+      "net": "u_cpu/misp_fs_pay_w[1]",
+      "arrival": 3.441e-09,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/Y",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "capacitance": 1.662e-15,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/B",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/Y",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "capacitance": 1.013e-15,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/A2",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/Y",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "capacitance": 9.665e-16,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/A",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/Y",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "capacitance": 2.269e-15,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/A1",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/Y",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "capacitance": 2.780e-15,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/B",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/Y",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "capacitance": 4.496e-16,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/A3",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/Y",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "capacitance": 3.349e-15,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/B",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/Y",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "capacitance": 2.350e-15,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/C",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/Y",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "capacitance": 1.366e-15,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/A1",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/Y",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "capacitance": 9.665e-16,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/A",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/Y",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "capacitance": 2.165e-15,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/A1",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/Y",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "capacitance": 5.441e-16,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/C",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/Y",
+      "net": "u_cpu/div_kill",
+      "arrival": 3.977e-09,
+      "capacitance": 1.200e-15,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/B",
+      "net": "u_cpu/u_div/kill",
+      "hier_pins": [
+        "u_cpu/u_div/kill"
+      ],
+      "arrival": 3.977e-09,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/Y",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "capacitance": 1.572e-14,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/B",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/Y",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "capacitance": 4.169e-14,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/B",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/Y",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "capacitance": 2.631e-14,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1939_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1939_/A2",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1939_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1939_/Y",
+      "net": "u_cpu/u_div/_0224_",
+      "arrival": 5.450e-09,
+      "capacitance": 5.617e-16,
+      "slew": 1.348e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2733_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2733_/D",
+      "net": "u_cpu/u_div/_0224_",
+      "arrival": 5.450e-09,
+      "slew": 1.348e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/u_div/_2733_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2733_/CLK",
+      "net": "u_cpu/u_div/clk",
+      "hier_pins": [
+        "u_cpu/u_div/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 5.450e-09,
+  "crpr": 0.000e+00,
+  "margin": 2.355e-11,
+  "required_time": 1.926e-09,
+  "slack": -3.523e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_cpu/slt[0].u_slot/_3124_/QN",
+  "endpoint": "u_cpu/u_div/_2704_/D",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/CLK",
+      "net": "u_cpu/slt[0].u_slot/clk",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/QN",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "capacitance": 4.168e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/A",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/Y",
+      "net": "u_cpu/slt[0].u_slot/sel_valid_q",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/sel_valid_q"
+      ],
+      "arrival": 1.174e-10,
+      "capacitance": 4.585e-15,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/A3",
+      "net": "u_cpu/sel_valid_q[0]",
+      "arrival": 1.174e-10,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/Y",
+      "net": "u_cpu/rd1_preg[2]",
+      "arrival": 2.612e-10,
+      "capacitance": 1.096e-14,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/A",
+      "net": "u_cpu/u_prf/rd1_preg[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/rd1_preg[2]"
+      ],
+      "arrival": 2.612e-10,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/Y",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "capacitance": 4.000e-15,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/B",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/Y",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "capacitance": 3.090e-14,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/A2",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/Y",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "capacitance": 5.672e-16,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/D",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/Y",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "capacitance": 4.843e-16,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/E",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/Y",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "capacitance": 5.163e-16,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/A",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/Y",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "capacitance": 5.547e-16,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/A1",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/Y",
+      "net": "u_cpu/u_prf/data_out1[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/data_out1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "capacitance": 6.196e-16,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/A",
+      "net": "u_cpu/slt[0].u_slot/prf_d1[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/prf_d1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "capacitance": 3.977e-16,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/A1",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/Y",
+      "net": "u_cpu/slt[0].u_slot/div_a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "capacitance": 3.701e-15,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+        "u_cpu/slt[0].u_slot/u_br/rs1[2]",
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "capacitance": 1.430e-15,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/C",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "capacitance": 1.374e-15,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "capacitance": 9.583e-16,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "capacitance": 1.826e-15,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "capacitance": 1.022e-15,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "capacitance": 1.022e-15,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "capacitance": 1.426e-15,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "capacitance": 9.524e-16,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "capacitance": 1.745e-15,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "capacitance": 1.925e-15,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "capacitance": 8.778e-16,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "capacitance": 1.826e-15,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "capacitance": 1.283e-15,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "capacitance": 1.283e-15,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "capacitance": 7.782e-16,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "capacitance": 1.927e-15,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]"
+      ],
+      "arrival": 1.641e-09,
+      "capacitance": 1.177e-15,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/diff[31]",
+      "arrival": 1.641e-09,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "capacitance": 1.064e-15,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "capacitance": 6.102e-16,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/D",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "capacitance": 3.515e-14,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "capacitance": 5.560e-16,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/A1",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/target[23]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/target[23]"
+      ],
+      "arrival": 2.269e-09,
+      "capacitance": 1.362e-15,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/B",
+      "net": "u_cpu/slt[0].u_slot/br_target[23]",
+      "arrival": 2.269e-09,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "capacitance": 5.162e-16,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/A",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "capacitance": 4.675e-16,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/E",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "capacitance": 4.596e-16,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/B",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "capacitance": 5.357e-16,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/A2",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "capacitance": 7.891e-14,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/B",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_fs[1]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_fs[1]"
+      ],
+      "arrival": 3.441e-09,
+      "capacitance": 4.990e-15,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/B",
+      "net": "u_cpu/misp_fs_pay_w[1]",
+      "arrival": 3.441e-09,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/Y",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "capacitance": 1.662e-15,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/B",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/Y",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "capacitance": 1.013e-15,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/A2",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/Y",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "capacitance": 9.665e-16,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/A",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/Y",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "capacitance": 2.269e-15,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/A1",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/Y",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "capacitance": 2.780e-15,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/B",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/Y",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "capacitance": 4.496e-16,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/A3",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/Y",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "capacitance": 3.349e-15,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/B",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/Y",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "capacitance": 2.350e-15,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/C",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/Y",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "capacitance": 1.366e-15,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/A1",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/Y",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "capacitance": 9.665e-16,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/A",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/Y",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "capacitance": 2.165e-15,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/A1",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/Y",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "capacitance": 5.441e-16,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/C",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/Y",
+      "net": "u_cpu/div_kill",
+      "arrival": 3.977e-09,
+      "capacitance": 1.200e-15,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/B",
+      "net": "u_cpu/u_div/kill",
+      "hier_pins": [
+        "u_cpu/u_div/kill"
+      ],
+      "arrival": 3.977e-09,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/Y",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "capacitance": 1.572e-14,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/B",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/Y",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "capacitance": 4.169e-14,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/B",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/Y",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "capacitance": 2.631e-14,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2071_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2071_/A2",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2071_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2071_/Y",
+      "net": "u_cpu/u_div/_0253_",
+      "arrival": 5.450e-09,
+      "capacitance": 5.617e-16,
+      "slew": 1.135e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2704_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2704_/D",
+      "net": "u_cpu/u_div/_0253_",
+      "arrival": 5.450e-09,
+      "slew": 1.135e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/u_div/_2704_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2704_/CLK",
+      "net": "u_cpu/u_div/clk",
+      "hier_pins": [
+        "u_cpu/u_div/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 5.450e-09,
+  "crpr": 0.000e+00,
+  "margin": 2.126e-11,
+  "required_time": 1.929e-09,
+  "slack": -3.521e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_cpu/slt[0].u_slot/_3124_/QN",
+  "endpoint": "u_cpu/u_div/_2705_/D",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/CLK",
+      "net": "u_cpu/slt[0].u_slot/clk",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/QN",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "capacitance": 4.168e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/A",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/Y",
+      "net": "u_cpu/slt[0].u_slot/sel_valid_q",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/sel_valid_q"
+      ],
+      "arrival": 1.174e-10,
+      "capacitance": 4.585e-15,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/A3",
+      "net": "u_cpu/sel_valid_q[0]",
+      "arrival": 1.174e-10,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/Y",
+      "net": "u_cpu/rd1_preg[2]",
+      "arrival": 2.612e-10,
+      "capacitance": 1.096e-14,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/A",
+      "net": "u_cpu/u_prf/rd1_preg[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/rd1_preg[2]"
+      ],
+      "arrival": 2.612e-10,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/Y",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "capacitance": 4.000e-15,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/B",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/Y",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "capacitance": 3.090e-14,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/A2",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/Y",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "capacitance": 5.672e-16,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/D",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/Y",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "capacitance": 4.843e-16,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/E",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/Y",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "capacitance": 5.163e-16,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/A",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/Y",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "capacitance": 5.547e-16,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/A1",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/Y",
+      "net": "u_cpu/u_prf/data_out1[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/data_out1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "capacitance": 6.196e-16,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/A",
+      "net": "u_cpu/slt[0].u_slot/prf_d1[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/prf_d1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "capacitance": 3.977e-16,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/A1",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/Y",
+      "net": "u_cpu/slt[0].u_slot/div_a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "capacitance": 3.701e-15,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+        "u_cpu/slt[0].u_slot/u_br/rs1[2]",
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "capacitance": 1.430e-15,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/C",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "capacitance": 1.374e-15,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "capacitance": 9.583e-16,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "capacitance": 1.826e-15,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "capacitance": 1.022e-15,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "capacitance": 1.022e-15,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "capacitance": 1.426e-15,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "capacitance": 9.524e-16,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "capacitance": 1.745e-15,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "capacitance": 1.925e-15,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "capacitance": 8.778e-16,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "capacitance": 1.826e-15,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "capacitance": 1.283e-15,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "capacitance": 1.283e-15,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "capacitance": 7.782e-16,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "capacitance": 1.927e-15,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]"
+      ],
+      "arrival": 1.641e-09,
+      "capacitance": 1.177e-15,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/diff[31]",
+      "arrival": 1.641e-09,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "capacitance": 1.064e-15,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "capacitance": 6.102e-16,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/D",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "capacitance": 3.515e-14,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "capacitance": 5.560e-16,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/A1",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/target[23]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/target[23]"
+      ],
+      "arrival": 2.269e-09,
+      "capacitance": 1.362e-15,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/B",
+      "net": "u_cpu/slt[0].u_slot/br_target[23]",
+      "arrival": 2.269e-09,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "capacitance": 5.162e-16,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/A",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "capacitance": 4.675e-16,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/E",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "capacitance": 4.596e-16,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/B",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "capacitance": 5.357e-16,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/A2",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "capacitance": 7.891e-14,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/B",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_fs[1]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_fs[1]"
+      ],
+      "arrival": 3.441e-09,
+      "capacitance": 4.990e-15,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/B",
+      "net": "u_cpu/misp_fs_pay_w[1]",
+      "arrival": 3.441e-09,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/Y",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "capacitance": 1.662e-15,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/B",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/Y",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "capacitance": 1.013e-15,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/A2",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/Y",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "capacitance": 9.665e-16,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/A",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/Y",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "capacitance": 2.269e-15,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/A1",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/Y",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "capacitance": 2.780e-15,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/B",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/Y",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "capacitance": 4.496e-16,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/A3",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/Y",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "capacitance": 3.349e-15,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/B",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/Y",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "capacitance": 2.350e-15,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/C",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/Y",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "capacitance": 1.366e-15,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/A1",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/Y",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "capacitance": 9.665e-16,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/A",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/Y",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "capacitance": 2.165e-15,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/A1",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/Y",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "capacitance": 5.441e-16,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/C",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/Y",
+      "net": "u_cpu/div_kill",
+      "arrival": 3.977e-09,
+      "capacitance": 1.200e-15,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/B",
+      "net": "u_cpu/u_div/kill",
+      "hier_pins": [
+        "u_cpu/u_div/kill"
+      ],
+      "arrival": 3.977e-09,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/Y",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "capacitance": 1.572e-14,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/B",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/Y",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "capacitance": 4.169e-14,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/B",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/Y",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "capacitance": 2.631e-14,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2067_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2067_/A2",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2067_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2067_/Y",
+      "net": "u_cpu/u_div/_0252_",
+      "arrival": 5.450e-09,
+      "capacitance": 5.617e-16,
+      "slew": 1.135e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2705_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2705_/D",
+      "net": "u_cpu/u_div/_0252_",
+      "arrival": 5.450e-09,
+      "slew": 1.135e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/u_div/_2705_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2705_/CLK",
+      "net": "u_cpu/u_div/clk",
+      "hier_pins": [
+        "u_cpu/u_div/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 5.450e-09,
+  "crpr": 0.000e+00,
+  "margin": 2.126e-11,
+  "required_time": 1.929e-09,
+  "slack": -3.521e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_cpu/slt[0].u_slot/_3124_/QN",
+  "endpoint": "u_cpu/u_div/_2706_/D",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/CLK",
+      "net": "u_cpu/slt[0].u_slot/clk",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_cpu/slt[0].u_slot/_3124_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_3124_/QN",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "capacitance": 4.168e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/A",
+      "net": "u_cpu/slt[0].u_slot/_0003_",
+      "arrival": 8.395e-11,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1502_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1502_/Y",
+      "net": "u_cpu/slt[0].u_slot/sel_valid_q",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/sel_valid_q"
+      ],
+      "arrival": 1.174e-10,
+      "capacitance": 4.585e-15,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/A3",
+      "net": "u_cpu/sel_valid_q[0]",
+      "arrival": 1.174e-10,
+      "slew": 4.025e-11
+    },
+    {
+      "instance": "u_cpu/_6517_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6517_/Y",
+      "net": "u_cpu/rd1_preg[2]",
+      "arrival": 2.612e-10,
+      "capacitance": 1.096e-14,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/A",
+      "net": "u_cpu/u_prf/rd1_preg[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/rd1_preg[2]"
+      ],
+      "arrival": 2.612e-10,
+      "slew": 2.822e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_13751_",
+      "cell": "NOR3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13751_/Y",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "capacitance": 4.000e-15,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/B",
+      "net": "u_cpu/u_prf/_08734_",
+      "arrival": 3.451e-10,
+      "slew": 9.799e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_13753_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_13753_/Y",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "capacitance": 3.090e-14,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/A2",
+      "net": "u_cpu/u_prf/_08736_",
+      "arrival": 7.505e-10,
+      "slew": 8.070e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15065_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15065_/Y",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "capacitance": 5.672e-16,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/D",
+      "net": "u_cpu/u_prf/_10020_",
+      "arrival": 8.275e-10,
+      "slew": 1.198e-10
+    },
+    {
+      "instance": "u_cpu/u_prf/_15066_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15066_/Y",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "capacitance": 4.843e-16,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/E",
+      "net": "u_cpu/u_prf/_10021_",
+      "arrival": 8.774e-10,
+      "slew": 1.385e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15067_",
+      "cell": "NOR5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15067_/Y",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "capacitance": 5.163e-16,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/A",
+      "net": "u_cpu/u_prf/_10022_",
+      "arrival": 9.116e-10,
+      "slew": 5.601e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15070_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15070_/Y",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "capacitance": 5.547e-16,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/A1",
+      "net": "u_cpu/u_prf/_10025_",
+      "arrival": 9.332e-10,
+      "slew": 2.729e-11
+    },
+    {
+      "instance": "u_cpu/u_prf/_15076_",
+      "cell": "OA21x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_prf/_15076_/Y",
+      "net": "u_cpu/u_prf/data_out1[2]",
+      "hier_pins": [
+        "u_cpu/u_prf/data_out1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "capacitance": 6.196e-16,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/A",
+      "net": "u_cpu/slt[0].u_slot/prf_d1[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/prf_d1[2]"
+      ],
+      "arrival": 9.605e-10,
+      "slew": 2.078e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1738_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1738_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "capacitance": 3.977e-16,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/A1",
+      "net": "u_cpu/slt[0].u_slot/_0545_",
+      "arrival": 9.706e-10,
+      "slew": 1.046e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_1846_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_1846_/Y",
+      "net": "u_cpu/slt[0].u_slot/div_a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "capacitance": 3.701e-15,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/a[2]",
+        "u_cpu/slt[0].u_slot/u_br/rs1[2]",
+        "u_cpu/slt[0].u_slot/div_a[2]"
+      ],
+      "arrival": 1.010e-09,
+      "slew": 1.026e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_",
+      "cell": "XOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_180_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "capacitance": 1.430e-15,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/C",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_048_",
+      "arrival": 1.050e-09,
+      "slew": 4.855e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_181_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "capacitance": 1.374e-15,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_049_",
+      "arrival": 1.083e-09,
+      "slew": 4.133e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_186_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "capacitance": 9.583e-16,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_054_",
+      "arrival": 1.114e-09,
+      "slew": 4.697e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_190_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "capacitance": 1.826e-15,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_058_",
+      "arrival": 1.142e-09,
+      "slew": 5.914e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_192_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "capacitance": 1.022e-15,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_060_",
+      "arrival": 1.188e-09,
+      "slew": 1.417e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_195_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_063_",
+      "arrival": 1.219e-09,
+      "slew": 5.515e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_198_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "capacitance": 1.022e-15,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_066_",
+      "arrival": 1.246e-09,
+      "slew": 3.938e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_201_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "capacitance": 1.426e-15,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_069_",
+      "arrival": 1.283e-09,
+      "slew": 5.840e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_204_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "capacitance": 9.524e-16,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_072_",
+      "arrival": 1.309e-09,
+      "slew": 3.602e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_",
+      "cell": "OAI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_206_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "capacitance": 1.745e-15,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_074_",
+      "arrival": 1.346e-09,
+      "slew": 5.935e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_208_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "capacitance": 1.925e-15,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_076_",
+      "arrival": 1.385e-09,
+      "slew": 5.206e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_210_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "capacitance": 8.778e-16,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_078_",
+      "arrival": 1.416e-09,
+      "slew": 4.045e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_265_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "capacitance": 1.826e-15,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_111_",
+      "arrival": 1.444e-09,
+      "slew": 3.508e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_267_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "capacitance": 1.283e-15,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_113_",
+      "arrival": 1.485e-09,
+      "slew": 1.507e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_270_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "capacitance": 1.280e-15,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_116_",
+      "arrival": 1.516e-09,
+      "slew": 5.476e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_",
+      "cell": "AOI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_273_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "capacitance": 1.283e-15,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_119_",
+      "arrival": 1.545e-09,
+      "slew": 4.359e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_",
+      "cell": "OAI311xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_276_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "capacitance": 7.782e-16,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/A3",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_122_",
+      "arrival": 1.575e-09,
+      "slew": 4.370e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_278_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "capacitance": 1.927e-15,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/A",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/_124_",
+      "arrival": 1.605e-09,
+      "slew": 4.678e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/ucmp/_281_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/ucmp/sum[31]"
+      ],
+      "arrival": 1.641e-09,
+      "capacitance": 1.177e-15,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/B",
+      "net": "u_cpu/slt[0].u_slot/u_br/diff[31]",
+      "arrival": 1.641e-09,
+      "slew": 2.882e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_311_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_311_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "capacitance": 1.064e-15,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_053_",
+      "arrival": 1.668e-09,
+      "slew": 6.052e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_316_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_316_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "capacitance": 6.102e-16,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/D",
+      "net": "u_cpu/slt[0].u_slot/u_br/_058_",
+      "arrival": 1.694e-09,
+      "slew": 3.498e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_317_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_317_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "capacitance": 3.515e-14,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/A2",
+      "net": "u_cpu/slt[0].u_slot/u_br/_059_",
+      "arrival": 2.123e-09,
+      "slew": 8.887e-10
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_350_",
+      "cell": "AO211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_350_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "capacitance": 5.560e-16,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/A1",
+      "net": "u_cpu/slt[0].u_slot/u_br/_085_",
+      "arrival": 2.246e-09,
+      "slew": 2.398e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/u_br/_353_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/u_br/_353_/Y",
+      "net": "u_cpu/slt[0].u_slot/u_br/target[23]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/u_br/target[23]"
+      ],
+      "arrival": 2.269e-09,
+      "capacitance": 1.362e-15,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/B",
+      "net": "u_cpu/slt[0].u_slot/br_target[23]",
+      "arrival": 2.269e-09,
+      "slew": 1.816e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2094_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2094_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "capacitance": 5.162e-16,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/A",
+      "net": "u_cpu/slt[0].u_slot/_0769_",
+      "arrival": 2.289e-09,
+      "slew": 2.130e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2126_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2126_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "capacitance": 4.675e-16,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/E",
+      "net": "u_cpu/slt[0].u_slot/_0801_",
+      "arrival": 2.302e-09,
+      "slew": 1.702e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2127_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2127_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "capacitance": 4.596e-16,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/B",
+      "net": "u_cpu/slt[0].u_slot/_0802_",
+      "arrival": 2.319e-09,
+      "slew": 1.965e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2135_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2135_/Y",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "capacitance": 5.357e-16,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/A2",
+      "net": "u_cpu/slt[0].u_slot/_0810_",
+      "arrival": 2.332e-09,
+      "slew": 1.530e-11
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2136_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2136_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "capacitance": 7.891e-14,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/B",
+      "net": "u_cpu/slt[0].u_slot/misp_det",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_det"
+      ],
+      "arrival": 3.257e-09,
+      "slew": 1.966e-09
+    },
+    {
+      "instance": "u_cpu/slt[0].u_slot/_2169_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/slt[0].u_slot/_2169_/Y",
+      "net": "u_cpu/slt[0].u_slot/misp_fs[1]",
+      "hier_pins": [
+        "u_cpu/slt[0].u_slot/misp_fs[1]"
+      ],
+      "arrival": 3.441e-09,
+      "capacitance": 4.990e-15,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/B",
+      "net": "u_cpu/misp_fs_pay_w[1]",
+      "arrival": 3.441e-09,
+      "slew": 6.354e-11
+    },
+    {
+      "instance": "u_cpu/_4510_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_4510_/Y",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "capacitance": 1.662e-15,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/B",
+      "net": "u_cpu/_0755_",
+      "arrival": 3.477e-09,
+      "slew": 2.955e-10
+    },
+    {
+      "instance": "u_cpu/_5349_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5349_/Y",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "capacitance": 1.013e-15,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/A2",
+      "net": "u_cpu/_1528_",
+      "arrival": 3.554e-09,
+      "slew": 8.704e-11
+    },
+    {
+      "instance": "u_cpu/_5354_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5354_/Y",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "capacitance": 9.665e-16,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/A",
+      "net": "u_cpu/_1533_",
+      "arrival": 3.588e-09,
+      "slew": 4.319e-11
+    },
+    {
+      "instance": "u_cpu/_5356_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5356_/Y",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "capacitance": 2.269e-15,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/A1",
+      "net": "u_cpu/_1535_",
+      "arrival": 3.629e-09,
+      "slew": 4.175e-11
+    },
+    {
+      "instance": "u_cpu/_5377_",
+      "cell": "OA221x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5377_/Y",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "capacitance": 2.780e-15,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/B",
+      "net": "u_cpu/_1556_",
+      "arrival": 3.678e-09,
+      "slew": 2.075e-11
+    },
+    {
+      "instance": "u_cpu/_5393_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5393_/Y",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "capacitance": 4.496e-16,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/A3",
+      "net": "u_cpu/_1572_",
+      "arrival": 3.708e-09,
+      "slew": 1.094e-11
+    },
+    {
+      "instance": "u_cpu/_5395_",
+      "cell": "AOI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_5395_/Y",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "capacitance": 3.349e-15,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/B",
+      "net": "u_cpu/_1574_",
+      "arrival": 3.763e-09,
+      "slew": 1.158e-10
+    },
+    {
+      "instance": "u_cpu/_6819_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6819_/Y",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "capacitance": 2.350e-15,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/C",
+      "net": "u_cpu/_2742_",
+      "arrival": 3.817e-09,
+      "slew": 7.528e-11
+    },
+    {
+      "instance": "u_cpu/_6820_",
+      "cell": "MAJIxp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6820_/Y",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "capacitance": 1.366e-15,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/A1",
+      "net": "u_cpu/_2743_",
+      "arrival": 3.854e-09,
+      "slew": 6.288e-11
+    },
+    {
+      "instance": "u_cpu/_6823_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6823_/Y",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "capacitance": 9.665e-16,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/A",
+      "net": "u_cpu/_2746_",
+      "arrival": 3.884e-09,
+      "slew": 3.542e-11
+    },
+    {
+      "instance": "u_cpu/_6825_",
+      "cell": "XNOR2xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_6825_/Y",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "capacitance": 2.165e-15,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/A1",
+      "net": "u_cpu/_2748_",
+      "arrival": 3.923e-09,
+      "slew": 3.646e-11
+    },
+    {
+      "instance": "u_cpu/_7101_",
+      "cell": "AO21x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7101_/Y",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "capacitance": 5.441e-16,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/C",
+      "net": "u_cpu/_3009_",
+      "arrival": 3.951e-09,
+      "slew": 1.553e-11
+    },
+    {
+      "instance": "u_cpu/_7102_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/_7102_/Y",
+      "net": "u_cpu/div_kill",
+      "arrival": 3.977e-09,
+      "capacitance": 1.200e-15,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/B",
+      "net": "u_cpu/u_div/kill",
+      "hier_pins": [
+        "u_cpu/u_div/kill"
+      ],
+      "arrival": 3.977e-09,
+      "slew": 4.411e-11
+    },
+    {
+      "instance": "u_cpu/u_div/_1793_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1793_/Y",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "capacitance": 1.572e-14,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/B",
+      "net": "u_cpu/u_div/_1130_",
+      "arrival": 4.149e-09,
+      "slew": 3.174e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_1795_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1795_/Y",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "capacitance": 4.169e-14,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/B",
+      "net": "u_cpu/u_div/_1132_",
+      "arrival": 4.764e-09,
+      "slew": 1.087e-09
+    },
+    {
+      "instance": "u_cpu/u_div/_1796_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_1796_/Y",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "capacitance": 2.631e-14,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2063_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2063_/A2",
+      "net": "u_cpu/u_div/_1133_",
+      "arrival": 5.365e-09,
+      "slew": 6.159e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2063_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2063_/Y",
+      "net": "u_cpu/u_div/_0251_",
+      "arrival": 5.450e-09,
+      "capacitance": 5.617e-16,
+      "slew": 1.135e-10
+    },
+    {
+      "instance": "u_cpu/u_div/_2706_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2706_/D",
+      "net": "u_cpu/u_div/_0251_",
+      "arrival": 5.450e-09,
+      "slew": 1.135e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_cpu/u_div/_2706_",
+      "cell": "DFFASRHQNx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "u_cpu/u_div/_2706_/CLK",
+      "net": "u_cpu/u_div/clk",
+      "hier_pins": [
+        "u_cpu/u_div/clk",
+        "u_cpu/clk"
+      ],
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 5.450e-09,
+  "crpr": 0.000e+00,
+  "margin": 2.126e-11,
+  "required_time": 1.929e-09,
+  "slack": -3.521e-09
+}
+]
+}

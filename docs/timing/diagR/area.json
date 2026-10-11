@@ -1,0 +1,869 @@
+{
+  "mode": "diagnose",
+  "logic_area_um2": 8877.820320000292,
+  "sequential_area_um2": 3045.84948,
+  "combinational_area_um2": 5831.970840000294,
+  "sram_area_um2": 967.458817,
+  "area_um2": 9845.279137000292,
+  "module_tree": {
+    "instance": "student_top",
+    "module": "student_top",
+    "source_module": "student_top",
+    "direct_area_um2": 0.13122,
+    "direct": {
+      "logic_area_um2": 0.13122,
+      "sequential_area_um2": 0.0,
+      "combinational_area_um2": 0.13122,
+      "sram_area_um2": 0.0,
+      "area_um2": 0.13122
+    },
+    "logic_area_um2": 8877.820320000292,
+    "sequential_area_um2": 3045.84948,
+    "combinational_area_um2": 5831.970840000294,
+    "sram_area_um2": 967.458817,
+    "area_um2": 9845.279137000292,
+    "children": [
+      {
+        "instance": "student_top/u_cpu",
+        "module": "$paramod$07b57152bc4ce4cb229cd521ade281193abeddc1\\cpu_top",
+        "source_module": "cpu_top",
+        "direct_area_um2": 366.33708000001707,
+        "direct": {
+          "logic_area_um2": 366.33708000001707,
+          "sequential_area_um2": 39.511799999999766,
+          "combinational_area_um2": 326.8252800000173,
+          "sram_area_um2": 0.0,
+          "area_um2": 366.33708000001707
+        },
+        "logic_area_um2": 5784.2942400001775,
+        "sequential_area_um2": 1894.72932,
+        "combinational_area_um2": 3889.5649200001776,
+        "sram_area_um2": 0.0,
+        "area_um2": 5784.2942400001775,
+        "children": [
+          {
+            "instance": "student_top/u_cpu/u_prf",
+            "module": "$paramod$153364c28ddbaedc453413e98691d628bb8de75b\\prf",
+            "source_module": "prf",
+            "direct_area_um2": 1520.154540000114,
+            "direct": {
+              "logic_area_um2": 1520.154540000114,
+              "sequential_area_um2": 597.1968,
+              "combinational_area_um2": 922.9577400001139,
+              "sram_area_um2": 0.0,
+              "area_um2": 1520.154540000114
+            },
+            "logic_area_um2": 1520.154540000114,
+            "sequential_area_um2": 597.1968,
+            "combinational_area_um2": 922.9577400001139,
+            "sram_area_um2": 0.0,
+            "area_um2": 1520.154540000114,
+            "children": [],
+            "percent_of_total": 15.44044123936624
+          },
+          {
+            "instance": "student_top/u_cpu/u_lsq",
+            "module": "$paramod$89086435d8f337cfab0965dbab85070bb5c6495f\\lsq",
+            "source_module": "lsq",
+            "direct_area_um2": 984.3103800000749,
+            "direct": {
+              "logic_area_um2": 984.3103800000749,
+              "sequential_area_um2": 195.372,
+              "combinational_area_um2": 788.9383800000749,
+              "sram_area_um2": 0.0,
+              "area_um2": 984.3103800000749
+            },
+            "logic_area_um2": 984.3103800000749,
+            "sequential_area_um2": 195.372,
+            "combinational_area_um2": 788.9383800000749,
+            "sram_area_um2": 0.0,
+            "area_um2": 984.3103800000749,
+            "children": [],
+            "percent_of_total": 9.997790477071018
+          },
+          {
+            "instance": "student_top/u_cpu/slt[0].u_slot",
+            "module": "$paramod$cec263f3d2e18f0e409329da2ffcb7b0340f4299\\execute_slot",
+            "source_module": "execute_slot",
+            "direct_area_um2": 218.7729000000006,
+            "direct": {
+              "logic_area_um2": 218.7729000000006,
+              "sequential_area_um2": 96.28632,
+              "combinational_area_um2": 122.48658000000059,
+              "sram_area_um2": 0.0,
+              "area_um2": 218.7729000000006
+            },
+            "logic_area_um2": 860.4970200000107,
+            "sequential_area_um2": 96.28632,
+            "combinational_area_um2": 764.2107000000107,
+            "sram_area_um2": 0.0,
+            "area_um2": 860.4970200000107,
+            "children": [
+              {
+                "instance": "student_top/u_cpu/slt[0].u_slot/u_alu",
+                "module": "alu",
+                "source_module": "alu",
+                "direct_area_um2": 66.16403999999962,
+                "direct": {
+                  "logic_area_um2": 66.16403999999962,
+                  "sequential_area_um2": 0.0,
+                  "combinational_area_um2": 66.16403999999962,
+                  "sram_area_um2": 0.0,
+                  "area_um2": 66.16403999999962
+                },
+                "logic_area_um2": 562.1902200000101,
+                "sequential_area_um2": 0.0,
+                "combinational_area_um2": 562.1902200000101,
+                "sram_area_um2": 0.0,
+                "area_um2": 562.1902200000101,
+                "children": [
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul",
+                    "module": "mul",
+                    "source_module": "mul",
+                    "direct_area_um2": 168.95304000001215,
+                    "direct": {
+                      "logic_area_um2": 168.95304000001215,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 168.95304000001215,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 168.95304000001215
+                    },
+                    "logic_area_um2": 466.3121400000104,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 466.3121400000104,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 466.3121400000104,
+                    "children": [
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t1",
+                        "module": "$paramod$0ffec8211257d430d1369f8b6d28c88463650063\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 75.64103999999917,
+                        "direct": {
+                          "logic_area_um2": 75.64103999999917,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 75.64103999999917,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 75.64103999999917
+                        },
+                        "logic_area_um2": 75.64103999999917,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 75.64103999999917,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 75.64103999999917,
+                        "children": [],
+                        "percent_of_total": 0.7682975662490545
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t2",
+                        "module": "$paramod$b6ba56c9a7c5682730434e5dbe4ad9804234cbb0\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 58.34915999999948,
+                        "direct": {
+                          "logic_area_um2": 58.34915999999948,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 58.34915999999948,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 58.34915999999948
+                        },
+                        "logic_area_um2": 58.34915999999948,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 58.34915999999948,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 58.34915999999948,
+                        "children": [],
+                        "percent_of_total": 0.5926613068868009
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t3",
+                        "module": "$paramod$cc9c1706f659aa76c73479e3c621b72d861e3439\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 44.527319999999875,
+                        "direct": {
+                          "logic_area_um2": 44.527319999999875,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 44.527319999999875,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 44.527319999999875
+                        },
+                        "logic_area_um2": 44.527319999999875,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 44.527319999999875,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 44.527319999999875,
+                        "children": [],
+                        "percent_of_total": 0.45227077242186425
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t4",
+                        "module": "$paramod$c1cb5f54f2c6fc6c5881cc03b77afee3c3e11a23\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 43.53587999999979,
+                        "direct": {
+                          "logic_area_um2": 43.53587999999979,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 43.53587999999979,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 43.53587999999979
+                        },
+                        "logic_area_um2": 43.53587999999979,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 43.53587999999979,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 43.53587999999979,
+                        "children": [],
+                        "percent_of_total": 0.44220056530834456
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/fin",
+                        "module": "$paramod\\adder32\\WIDTH=s32'00000000000000000000000001000000",
+                        "source_module": "adder32",
+                        "direct_area_um2": 28.678859999999894,
+                        "direct": {
+                          "logic_area_um2": 28.678859999999894,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 28.678859999999894,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 28.678859999999894
+                        },
+                        "logic_area_um2": 28.678859999999894,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 28.678859999999894,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 28.678859999999894,
+                        "children": [],
+                        "percent_of_total": 0.2912955498866425
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t5",
+                        "module": "$paramod$4bb94319dceed593a0a688f91f954b659255a873\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 24.888059999999975,
+                        "direct": {
+                          "logic_area_um2": 24.888059999999975,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 24.888059999999975,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 24.888059999999975
+                        },
+                        "logic_area_um2": 24.888059999999975,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 24.888059999999975,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 24.888059999999975,
+                        "children": [],
+                        "percent_of_total": 0.25279181680554147
+                      },
+                      {
+                        "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/umul/t6",
+                        "module": "$paramod$aa8d2dde3de2e750fa72fbabec69656cf408c96a\\tree_level",
+                        "source_module": "tree_level",
+                        "direct_area_um2": 21.738780000000066,
+                        "direct": {
+                          "logic_area_um2": 21.738780000000066,
+                          "sequential_area_um2": 0.0,
+                          "combinational_area_um2": 21.738780000000066,
+                          "sram_area_um2": 0.0,
+                          "area_um2": 21.738780000000066
+                        },
+                        "logic_area_um2": 21.738780000000066,
+                        "sequential_area_um2": 0.0,
+                        "combinational_area_um2": 21.738780000000066,
+                        "sram_area_um2": 0.0,
+                        "area_um2": 21.738780000000066,
+                        "children": [],
+                        "percent_of_total": 0.22080410009201165
+                      }
+                    ],
+                    "percent_of_total": 4.736403442818876
+                  },
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/uadd",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  },
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_alu/usub",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  }
+                ],
+                "percent_of_total": 5.710251707208587
+              },
+              {
+                "instance": "student_top/u_cpu/slt[0].u_slot/u_br",
+                "module": "branch",
+                "source_module": "branch",
+                "direct_area_um2": 20.10581999999996,
+                "direct": {
+                  "logic_area_um2": 20.10581999999996,
+                  "sequential_area_um2": 0.0,
+                  "combinational_area_um2": 20.10581999999996,
+                  "sram_area_um2": 0.0,
+                  "area_um2": 20.10581999999996
+                },
+                "logic_area_um2": 79.53390000000005,
+                "sequential_area_um2": 0.0,
+                "combinational_area_um2": 79.53390000000005,
+                "sram_area_um2": 0.0,
+                "area_um2": 79.53390000000005,
+                "children": [
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_br/ucmp",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  },
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_br/ujal",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  },
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_br/ulnk",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  },
+                  {
+                    "instance": "student_top/u_cpu/slt[0].u_slot/u_br/utgt",
+                    "module": "adder32",
+                    "source_module": "adder32",
+                    "direct_area_um2": 14.857020000000022,
+                    "direct": {
+                      "logic_area_um2": 14.857020000000022,
+                      "sequential_area_um2": 0.0,
+                      "combinational_area_um2": 14.857020000000022,
+                      "sram_area_um2": 0.0,
+                      "area_um2": 14.857020000000022
+                    },
+                    "logic_area_um2": 14.857020000000022,
+                    "sequential_area_um2": 0.0,
+                    "combinational_area_um2": 14.857020000000022,
+                    "sram_area_um2": 0.0,
+                    "area_um2": 14.857020000000022,
+                    "children": [],
+                    "percent_of_total": 0.15090501542170323
+                  }
+                ],
+                "percent_of_total": 0.8078379382977334
+              }
+            ],
+            "percent_of_total": 8.740199318129147
+          },
+          {
+            "instance": "student_top/u_cpu/u_rob",
+            "module": "$paramod$3a1227035a255afdb9566cdfc558eeccc93ff67e\\rob",
+            "source_module": "rob",
+            "direct_area_um2": 593.5955399999563,
+            "direct": {
+              "logic_area_um2": 593.5955399999563,
+              "sequential_area_um2": 368.84484,
+              "combinational_area_um2": 224.75069999995628,
+              "sram_area_um2": 0.0,
+              "area_um2": 593.5955399999563
+            },
+            "logic_area_um2": 593.5955399999563,
+            "sequential_area_um2": 368.84484,
+            "combinational_area_um2": 224.75069999995628,
+            "sram_area_um2": 0.0,
+            "area_um2": 593.5955399999563,
+            "children": [],
+            "percent_of_total": 6.029240326656861
+          },
+          {
+            "instance": "student_top/u_cpu/u_rs",
+            "module": "$paramod$ecff43bd5a9293ab7992809958f4b49198f81820\\rs",
+            "source_module": "rs",
+            "direct_area_um2": 412.8181200000043,
+            "direct": {
+              "logic_area_um2": 412.8181200000043,
+              "sequential_area_um2": 215.31744,
+              "combinational_area_um2": 197.50068000000428,
+              "sram_area_um2": 0.0,
+              "area_um2": 412.8181200000043
+            },
+            "logic_area_um2": 412.8181200000043,
+            "sequential_area_um2": 215.31744,
+            "combinational_area_um2": 197.50068000000428,
+            "sram_area_um2": 0.0,
+            "area_um2": 412.8181200000043,
+            "children": [],
+            "percent_of_total": 4.193056532532035
+          },
+          {
+            "instance": "student_top/u_cpu/u_fl",
+            "module": "$paramod$88d120d234ed51bfdfbeb0de9bdab0c91f0a0ad5\\free_list",
+            "source_module": "free_list",
+            "direct_area_um2": 309.5771399999999,
+            "direct": {
+              "logic_area_um2": 309.5771399999999,
+              "sequential_area_um2": 114.0156,
+              "combinational_area_um2": 195.56153999999987,
+              "sram_area_um2": 0.0,
+              "area_um2": 309.5771399999999
+            },
+            "logic_area_um2": 309.5771399999999,
+            "sequential_area_um2": 114.0156,
+            "combinational_area_um2": 195.56153999999987,
+            "sram_area_um2": 0.0,
+            "area_um2": 309.5771399999999,
+            "children": [],
+            "percent_of_total": 3.1444221711962888
+          },
+          {
+            "instance": "student_top/u_cpu/u_rat",
+            "module": "$paramod$88d120d234ed51bfdfbeb0de9bdab0c91f0a0ad5\\rat",
+            "source_module": "rat",
+            "direct_area_um2": 247.71420000000114,
+            "direct": {
+              "logic_area_um2": 247.71420000000114,
+              "sequential_area_um2": 72.78336,
+              "combinational_area_um2": 174.93084000000113,
+              "sram_area_um2": 0.0,
+              "area_um2": 247.71420000000114
+            },
+            "logic_area_um2": 247.71420000000114,
+            "sequential_area_um2": 72.78336,
+            "combinational_area_um2": 174.93084000000113,
+            "sram_area_um2": 0.0,
+            "area_um2": 247.71420000000114,
+            "children": [],
+            "percent_of_total": 2.516070865568936
+          },
+          {
+            "instance": "student_top/u_cpu/u_fetch",
+            "module": "$paramod$09fc5b89c0c63c59f9e67c5a01a72c77c6aa3d2e\\fetch",
+            "source_module": "fetch",
+            "direct_area_um2": 182.512439999998,
+            "direct": {
+              "logic_area_um2": 182.512439999998,
+              "sequential_area_um2": 57.153600000000004,
+              "combinational_area_um2": 125.358839999998,
+              "sram_area_um2": 0.0,
+              "area_um2": 182.512439999998
+            },
+            "logic_area_um2": 239.81183999999803,
+            "sequential_area_um2": 90.396,
+            "combinational_area_um2": 149.41583999999804,
+            "sram_area_um2": 0.0,
+            "area_um2": 239.81183999999803,
+            "children": [
+              {
+                "instance": "student_top/u_cpu/u_fetch/u_ras",
+                "module": "$paramod$9ce212d9848b6ddac087043c47bddb392b95e8e6\\ras",
+                "source_module": "ras",
+                "direct_area_um2": 46.918440000000025,
+                "direct": {
+                  "logic_area_um2": 46.918440000000025,
+                  "sequential_area_um2": 28.5768,
+                  "combinational_area_um2": 18.341640000000027,
+                  "sram_area_um2": 0.0,
+                  "area_um2": 46.918440000000025
+                },
+                "logic_area_um2": 46.918440000000025,
+                "sequential_area_um2": 28.5768,
+                "combinational_area_um2": 18.341640000000027,
+                "sram_area_um2": 0.0,
+                "area_um2": 46.918440000000025,
+                "children": [],
+                "percent_of_total": 0.4765577425191762
+              },
+              {
+                "instance": "student_top/u_cpu/u_fetch/u_bht",
+                "module": "$paramod$24b4c9079821c1ab13d633489878f9410f4b481a\\bht",
+                "source_module": "bht",
+                "direct_area_um2": 10.380960000000007,
+                "direct": {
+                  "logic_area_um2": 10.380960000000007,
+                  "sequential_area_um2": 4.6656,
+                  "combinational_area_um2": 5.715360000000007,
+                  "sram_area_um2": 0.0,
+                  "area_um2": 10.380960000000007
+                },
+                "logic_area_um2": 10.380960000000007,
+                "sequential_area_um2": 4.6656,
+                "combinational_area_um2": 5.715360000000007,
+                "sram_area_um2": 0.0,
+                "area_um2": 10.380960000000007,
+                "children": [],
+                "percent_of_total": 0.10544099212978666
+              }
+            ],
+            "percent_of_total": 2.4358053912229156
+          },
+          {
+            "instance": "student_top/u_cpu/u_div",
+            "module": "$paramod$fcfa1294267b3e52cc193fbfcc456762a764b2f2\\div",
+            "source_module": "div",
+            "direct_area_um2": 176.5346400000015,
+            "direct": {
+              "logic_area_um2": 176.5346400000015,
+              "sequential_area_um2": 81.12312,
+              "combinational_area_um2": 95.4115200000015,
+              "sram_area_um2": 0.0,
+              "area_um2": 176.5346400000015
+            },
+            "logic_area_um2": 176.5346400000015,
+            "sequential_area_um2": 81.12312,
+            "combinational_area_um2": 95.4115200000015,
+            "sram_area_um2": 0.0,
+            "area_um2": 176.5346400000015,
+            "children": [],
+            "percent_of_total": 1.7930892313307119
+          },
+          {
+            "instance": "student_top/u_cpu/u_rt",
+            "module": "$paramod\\ready_table\\PRF_SIZE=s32'00000000000000000000000001000000",
+            "source_module": "ready_table",
+            "direct_area_um2": 37.703879999999906,
+            "direct": {
+              "logic_area_um2": 37.703879999999906,
+              "sequential_area_um2": 23.88204,
+              "combinational_area_um2": 13.821839999999906,
+              "sram_area_um2": 0.0,
+              "area_um2": 37.703879999999906
+            },
+            "logic_area_um2": 37.703879999999906,
+            "sequential_area_um2": 23.88204,
+            "combinational_area_um2": 13.821839999999906,
+            "sram_area_um2": 0.0,
+            "area_um2": 37.703879999999906,
+            "children": [],
+            "percent_of_total": 0.38296405287588126
+          },
+          {
+            "instance": "student_top/u_cpu/u_cdb",
+            "module": "$paramod$c4a0ed676791db619139634d75fd4ce922d944e0\\cdb",
+            "source_module": "cdb",
+            "direct_area_um2": 23.532120000000045,
+            "direct": {
+              "logic_area_um2": 23.532120000000045,
+              "sequential_area_um2": 0.0,
+              "combinational_area_um2": 23.532120000000045,
+              "sram_area_um2": 0.0,
+              "area_um2": 23.532120000000045
+            },
+            "logic_area_um2": 23.532120000000045,
+            "sequential_area_um2": 0.0,
+            "combinational_area_um2": 23.532120000000045,
+            "sram_area_um2": 0.0,
+            "area_um2": 23.532120000000045,
+            "children": [],
+            "percent_of_total": 0.23901932766499423
+          },
+          {
+            "instance": "student_top/u_cpu/u_decode",
+            "module": "$paramod\\decode\\ISSUE_WIDTH=s32'00000000000000000000000000000001",
+            "source_module": "decode",
+            "direct_area_um2": 11.707740000000006,
+            "direct": {
+              "logic_area_um2": 11.707740000000006,
+              "sequential_area_um2": 0.0,
+              "combinational_area_um2": 11.707740000000006,
+              "sram_area_um2": 0.0,
+              "area_um2": 11.707740000000006
+            },
+            "logic_area_um2": 11.707740000000006,
+            "sequential_area_um2": 0.0,
+            "combinational_area_um2": 11.707740000000006,
+            "sram_area_um2": 0.0,
+            "area_um2": 11.707740000000006,
+            "children": [],
+            "percent_of_total": 0.1189172987081723
+          }
+        ],
+        "percent_of_total": 58.75195776076863
+      },
+      {
+        "instance": "student_top/u_mem",
+        "module": "$paramod$46567e6a358bb1f9eb19bab7713008ff4bddf332\\mem_subsystem",
+        "source_module": "mem_subsystem",
+        "direct_area_um2": 1133.36172000006,
+        "direct": {
+          "logic_area_um2": 1133.36172000006,
+          "sequential_area_um2": 282.99779999999987,
+          "combinational_area_um2": 850.36392000006,
+          "sram_area_um2": 0.0,
+          "area_um2": 1133.36172000006
+        },
+        "logic_area_um2": 3093.3948600001154,
+        "sequential_area_um2": 1151.12016,
+        "combinational_area_um2": 1942.2747000001157,
+        "sram_area_um2": 967.458817,
+        "area_um2": 4060.8536770001156,
+        "children": [
+          {
+            "instance": "student_top/u_mem/u_dc",
+            "module": "$paramod$769df96e2f3ed52fcec6e2dab7fb98763cde8a13\\dcache",
+            "source_module": "dcache",
+            "direct_area_um2": 1007.9591400000376,
+            "direct": {
+              "logic_area_um2": 1007.9591400000376,
+              "sequential_area_um2": 349.39512,
+              "combinational_area_um2": 658.5640200000375,
+              "sram_area_um2": 0.0,
+              "area_um2": 1007.9591400000376
+            },
+            "logic_area_um2": 1008.1632600000376,
+            "sequential_area_um2": 349.39512,
+            "combinational_area_um2": 658.7681400000375,
+            "sram_area_um2": 773.967052,
+            "area_um2": 1782.1303120000375,
+            "children": [
+              {
+                "instance": "student_top/u_mem/u_dc/u_arr",
+                "module": "sram_fakeram_32x576_m288",
+                "source_module": "sram_fakeram_32x576_m288",
+                "direct_area_um2": 774.171172,
+                "direct": {
+                  "logic_area_um2": 0.20411999999999997,
+                  "sequential_area_um2": 0.0,
+                  "combinational_area_um2": 0.20411999999999997,
+                  "sram_area_um2": 773.967052,
+                  "area_um2": 774.171172
+                },
+                "logic_area_um2": 0.20411999999999997,
+                "sequential_area_um2": 0.0,
+                "combinational_area_um2": 0.20411999999999997,
+                "sram_area_um2": 773.967052,
+                "area_um2": 774.171172,
+                "children": [],
+                "percent_of_total": 7.863374529326735
+              }
+            ],
+            "percent_of_total": 18.101369064311015
+          },
+          {
+            "instance": "student_top/u_mem/u_axi",
+            "module": "$paramod$134694da76acaa17aead7d0bee212b34bf4626d5\\axi_lite_master",
+            "source_module": "axi_lite_master",
+            "direct_area_um2": 856.5895800000184,
+            "direct": {
+              "logic_area_um2": 856.5895800000184,
+              "sequential_area_um2": 487.2636,
+              "combinational_area_um2": 369.3259800000184,
+              "sram_area_um2": 0.0,
+              "area_um2": 856.5895800000184
+            },
+            "logic_area_um2": 856.5895800000184,
+            "sequential_area_um2": 487.2636,
+            "combinational_area_um2": 369.3259800000184,
+            "sram_area_um2": 0.0,
+            "area_um2": 856.5895800000184,
+            "children": [],
+            "percent_of_total": 8.700510854799473
+          },
+          {
+            "instance": "student_top/u_mem/u_ic",
+            "module": "$paramod$857dd3ae1fab4c15211f0882ce64598fcb7f2ba7\\icache",
+            "source_module": "icache",
+            "direct_area_um2": 94.02641999999967,
+            "direct": {
+              "logic_area_um2": 94.02641999999967,
+              "sequential_area_um2": 31.46364,
+              "combinational_area_um2": 62.56277999999968,
+              "sram_area_um2": 0.0,
+              "area_um2": 94.02641999999967
+            },
+            "logic_area_um2": 95.28029999999967,
+            "sequential_area_um2": 31.46364,
+            "combinational_area_um2": 63.81665999999968,
+            "sram_area_um2": 193.49176500000004,
+            "area_um2": 288.7720649999997,
+            "children": [
+              {
+                "instance": "student_top/u_mem/u_ic/u_arr",
+                "module": "sram_fakeram_16x288_m32",
+                "source_module": "sram_fakeram_16x288_m32",
+                "direct_area_um2": 194.74564500000005,
+                "direct": {
+                  "logic_area_um2": 1.2538800000000005,
+                  "sequential_area_um2": 0.0,
+                  "combinational_area_um2": 1.2538800000000005,
+                  "sram_area_um2": 193.49176500000004,
+                  "area_um2": 194.74564500000005
+                },
+                "logic_area_um2": 1.2538800000000005,
+                "sequential_area_um2": 0.0,
+                "combinational_area_um2": 1.2538800000000005,
+                "sram_area_um2": 193.49176500000004,
+                "area_um2": 194.74564500000005,
+                "children": [],
+                "percent_of_total": 1.9780611833351847
+              }
+            ],
+            "percent_of_total": 2.9331018550275885
+          }
+        ],
+        "percent_of_total": 41.24670941770165
+      }
+    ],
+    "percent_of_total": 100.0
+  },
+  "sram_instances": [
+    {
+      "instance": "student_top/u_mem/u_dc/u_arr/lane_0",
+      "module": "fakeram_asap7_32x288",
+      "depth": 32,
+      "width": 288,
+      "area_um2": 386.983526
+    },
+    {
+      "instance": "student_top/u_mem/u_dc/u_arr/lane_1",
+      "module": "fakeram_asap7_32x288",
+      "depth": 32,
+      "width": 288,
+      "area_um2": 386.983526
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_0",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_1",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_2",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_3",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_4",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_5",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_6",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_7",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem/u_ic/u_arr/lane_8",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    }
+  ],
+  "sram_model": {
+    "name": "fakeram-asap7-v1",
+    "upstream": "ABKGroup/FakeRAM2.0",
+    "commit": "49dad15badc28a55363813e105c830c7776fc588",
+    "estimated": true,
+    "area_per_bit_um2": 0.0419904,
+    "clock_to_q_formula_ns": "0.071262 + 0.0000167155 * depth + 0.001243254 * width",
+    "setup_ns": 0.05,
+    "hold_ns": 0.05,
+    "min_period_ns": 0.157
+  },
+  "timing_analyzed": true
+}
