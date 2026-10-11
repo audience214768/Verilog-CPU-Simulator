@@ -97,8 +97,6 @@ module cpu_top #(
     wire [ISSUE_WIDTH * PW - 1 : 0]   div_prd_all;
     wire [ISSUE_WIDTH * RW - 1 : 0]   div_rob_all;
     wire                              div_go_w, div_kill;
-    // ★ 频率刀 (类 2, cutT): 送给 div 的 kill 打一拍 (见"在飞 div 的作废判据"处的整段说明)
-    reg                               div_kill_r;
     wire                              div_busy, div_done_valid;
     wire [RW - 1 : 0]                 div_fly_rob_tag;   // 在飞那发的 rob_tag (div.v 内部锁存)
     wire [PW - 1 : 0]                 div_done_prd;
@@ -119,11 +117,6 @@ module cpu_top #(
     wire fetch_stall;
     wire misp_valid;
     wire [31 : 0] redirect_pc_w;
-    // ★ 频率刀 (类 2, 见"误预测汇出"处的整段说明): 送给 fetch 的重定向束打一拍。
-    //   声明必须在 fetch 例化**之前** (Icarus 拒绝先用后声明); 驱动它的 always 块在下方汇出处。
-    reg               rd_valid_r;
-    reg [31 : 0]      rd_pc_r;
-    reg [RA - 1 : 0]  rd_ras_r;
     wire [ISSUE_WIDTH - 1 : 0]    upd_req_w;
     wire [ISSUE_WIDTH * BW - 1 : 0] upd_idx_w;
     wire [ISSUE_WIDTH - 1 : 0]    upd_taken_w;
@@ -133,10 +126,10 @@ module cpu_top #(
         .f2i_pred_taken(f2i_pred_taken), .f2i_pred_target(f2i_pred_target),
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
-        .ras_restore_valid(rd_valid_r), .ras_restore_head(rd_ras_r),
+        .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
         .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
         .imem_direct(imem_direct), .stall(fetch_stall),
-        .redirect_valid(rd_valid_r), .redirect_pc(rd_pc_r), .halt(halt_q_r)
+        .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
     );
     wire [ISSUE_WIDTH * 7 - 1 : 0]  d_opcode, d_func7;
     wire [ISSUE_WIDTH * 3 - 1 : 0]  d_func3;
@@ -348,7 +341,7 @@ module cpu_top #(
         .start_valid(div_go_w), .start_op(div_op_w),
         .start_a(div_a_w), .start_b(div_b_w),
         .start_prd(div_prd_w), .start_rob_tag(div_rob_w),
-        .kill(div_kill_r),
+        .kill(div_kill),
         .busy(div_busy), .busy_rob_tag(div_fly_rob_tag),
         .done_valid(div_done_valid), .done_prd(div_done_prd),
         .done_rob_tag(div_done_rob_tag), .done_result(div_done_result)
@@ -536,39 +529,6 @@ module cpu_top #(
     assign redirect_pc_w = redirect_c[(ISSUE_WIDTH - 1) * 32 +: 32];
     assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
     assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
-
-    // ---- ★ 频率刀 (类 2, 2026-10-11): 送给 fetch 的**重定向束**整体打一拍 ----
-    // 头名 (cutR) = sel_valid_q_r → [操作数/比较云] → [misp_det] → [前缀 OR] → fetch pc mux → pc_r,
-    // 51 级 / 4.4154 ns, 其中 L31-L33 (misp_det 与"最老优先前缀 OR"云) = 1.6257 ns (37%)。
-    // 归因 (docs/plan.md §3.27): 起点是真逻辑扇出 (RTL 里合法门控 9 处、下游全是宽 mux/enable),
-    // **类 1 (净删) 不适用**; 4 根胖网的负载引脚 100% 是 ABC 复合门 (无单一 RTL 拥有者) ⇒ 只能类 2。
-    //
-    // 口径: 只把 **fetch 面**的四个信号打拍 (valid / pc / ras_head), 其余所有 misp_valid 用法
-    // (issue_en / 冲刷 FSM / rs+lsq 失效掩码 / div_kill / 提交门 / 计数器 / flush_hit / fs_eff)
-    // **一律保持当拍组合** —— 故本刀不改变任何内部时序关系, 只把"取指侧改 PC 的时刻"整体推后一拍,
-    // 重启点与冲刷点之间的一拍关系原样保留。
-    //
-    // 为什么安全:
-    //   · fetch 对 redirect 的采样**不受 stall 门控** (fetch.v 的 pc_next/exp_pc_r/exp_next_w/
-    //     f2i_valid_r 四处 redirect 支都优先于 stall/cap) ⇒ 晚一拍到达照样被当场吃下, 不会丢重定向。
-    //   · 本拍 misp_valid 一抬, issue_en 即为 0 (含 !misp_valid); 下一拍起 flushing_r 继续挡
-    //     ⇒ 推后的这一拍里**不可能有错路指令进 ROB/RS**, 只是 pc/exp_pc 晚一拍改。
-    //   · 冲刷窗口内 fetch_stall 恒 1 (见本文件末 fetch_stall 定义) ⇒ 这一拍落在"本来就停着"的窗口里。
-    //   · misp_valid 连续多拍 (冲刷中更老的误预测, FSM 的 misp_older_w 支) 时, 本寄存器逐拍跟随,
-    //     形状与打拍前逐拍一致 —— 只整体平移一拍, 不产生"重复重定向"这类新形态。
-    // 代价 (须实测): 目标批的地址请求晚一拍发出 ⇒ 重启可能晚一拍 ⇒ IPC 风险。见 §3.28。
-    // (rd_valid_r/rd_pc_r/rd_ras_r 的**声明**在 fetch 例化之前, Icarus 拒绝先用后声明)
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            rd_valid_r <= 1'b0;
-            rd_pc_r    <= 32'd0;
-            rd_ras_r   <= {RA{1'b0}};
-        end else begin
-            rd_valid_r <= misp_valid;
-            rd_pc_r    <= redirect_pc_w;
-            rd_ras_r   <= misp_ras_w;
-        end
-    end
 
     // ---- div 发起仲裁 (**任意槽**可发起, 每拍至多收下一个: 最低请求槽优先) ----
     // "收下"与"放行"必须同拍且一一对应: execute_slot 的 q_freeze = ... && !div_accept, div_accept 是
@@ -830,27 +790,6 @@ module cpu_top #(
     // 被杀的 div 不产生 done_valid, 也永远不会写 PRF/置 ready ⇒ 年龄比较不会越界。
     assign div_kill = (misp_valid || flushing_r)
                    && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
-
-    // ★ 频率刀 (类 2, cutT, 2026-10-11): 上面这个 div_kill **打一拍**再送进 div。
-    //   靶 = cutS 头名族 (4.5731 ns / 51 级) 的尾段, 逐级清单 (runs/cutS 的 timing.rpt, 本地可查):
-    //     锥 1.68 → 广播 `_088003_`(FO=166) 0.92 → 年龄比较器 0.65 → **本网**(FO=103) 0.59 → div 状态组 D 脚。
-    //   打拍后这条链在比较器处断开: 剩下的路径 = FF → 0.59 广播 → D (≈0.8 ns), 与刀 S (重定向束打拍) 同型。
-    //   为何不能只把 `misp_valid` 打拍 (刀 S 那种改法): 比较器要 fs_eff_w/rob_head/tag 三方, 打拍后
-    //   仍要串在 FF → 比较器 → div 上, 只砍掉前 1.68 —— 本刀砍掉的是 1.68+0.92+0.65 整段。
-    //
-    //   安全性 (逐条, 写法与 div.v 头注释的"kill 只杀在飞的那发"配套):
-    //     ① 空闲时不吃新 start —— div.v 的判据本就是 `kill && busy_r`; 且新 start 还要求 `!flushing_r`
-    //        (div_go_w)。kill_r 只可能在 misp_valid/flushing_r 当拍为 1 之后拉高, 而那两拍 issue_en=0;
-    //        冲刷窗结束后的第一拍 kill_r 必已回 0 (它 = 上一拍的 misp_valid||flushing_r) ⇒ 二者永不同拍。
-    //     ② 错路那发晚 1~2 拍被杀 —— 它本就要作废, 且冲刷窗内不发新指令 ⇒ **不产生 IPC 代价**。
-    //     ③ "恰在误预测当拍完成"的那发: done_r 在沿上置起、下一拍才发 done_valid。改前该窗**同样存在**
-    //        (当拍 fs_eff_w 还是上一次的冲刷点, 年龄比较可能为假 ⇒ 改前当拍也不杀) ⇒ 暴露面与改前等价,
-    //        本刀不新增也不收窄; 若日后要收窄, 用 `div_done_valid && !(misp_valid||rd_valid_r)` 在 CDB 槽上兜
-    //        (该窗内的 div 完成必属错路: 在飞 div 必然晚于已提交的误预测分支)。
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) div_kill_r <= 1'b0;
-        else        div_kill_r <= div_kill;
-    end
 
     // ==================== 5. 提交 (B6) ====================
     // ---- 提交级读口: **one-hot + AND-OR** (原为 `rob_xxx_w[eidx * W +: W]`) ----
