@@ -97,6 +97,8 @@ module cpu_top #(
     wire [ISSUE_WIDTH * PW - 1 : 0]   div_prd_all;
     wire [ISSUE_WIDTH * RW - 1 : 0]   div_rob_all;
     wire                              div_go_w, div_kill;
+    // ★ 频率刀 (类 2, cutT): 送给 div 的 kill 打一拍 (见"在飞 div 的作废判据"处的整段说明)
+    reg                               div_kill_r;
     wire                              div_busy, div_done_valid;
     wire [RW - 1 : 0]                 div_fly_rob_tag;   // 在飞那发的 rob_tag (div.v 内部锁存)
     wire [PW - 1 : 0]                 div_done_prd;
@@ -346,7 +348,7 @@ module cpu_top #(
         .start_valid(div_go_w), .start_op(div_op_w),
         .start_a(div_a_w), .start_b(div_b_w),
         .start_prd(div_prd_w), .start_rob_tag(div_rob_w),
-        .kill(div_kill),
+        .kill(div_kill_r),
         .busy(div_busy), .busy_rob_tag(div_fly_rob_tag),
         .done_valid(div_done_valid), .done_prd(div_done_prd),
         .done_rob_tag(div_done_rob_tag), .done_result(div_done_result)
@@ -828,6 +830,27 @@ module cpu_top #(
     // 被杀的 div 不产生 done_valid, 也永远不会写 PRF/置 ready ⇒ 年龄比较不会越界。
     assign div_kill = (misp_valid || flushing_r)
                    && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
+
+    // ★ 频率刀 (类 2, cutT, 2026-10-11): 上面这个 div_kill **打一拍**再送进 div。
+    //   靶 = cutS 头名族 (4.5731 ns / 51 级) 的尾段, 逐级清单 (runs/cutS 的 timing.rpt, 本地可查):
+    //     锥 1.68 → 广播 `_088003_`(FO=166) 0.92 → 年龄比较器 0.65 → **本网**(FO=103) 0.59 → div 状态组 D 脚。
+    //   打拍后这条链在比较器处断开: 剩下的路径 = FF → 0.59 广播 → D (≈0.8 ns), 与刀 S (重定向束打拍) 同型。
+    //   为何不能只把 `misp_valid` 打拍 (刀 S 那种改法): 比较器要 fs_eff_w/rob_head/tag 三方, 打拍后
+    //   仍要串在 FF → 比较器 → div 上, 只砍掉前 1.68 —— 本刀砍掉的是 1.68+0.92+0.65 整段。
+    //
+    //   安全性 (逐条, 写法与 div.v 头注释的"kill 只杀在飞的那发"配套):
+    //     ① 空闲时不吃新 start —— div.v 的判据本就是 `kill && busy_r`; 且新 start 还要求 `!flushing_r`
+    //        (div_go_w)。kill_r 只可能在 misp_valid/flushing_r 当拍为 1 之后拉高, 而那两拍 issue_en=0;
+    //        冲刷窗结束后的第一拍 kill_r 必已回 0 (它 = 上一拍的 misp_valid||flushing_r) ⇒ 二者永不同拍。
+    //     ② 错路那发晚 1~2 拍被杀 —— 它本就要作废, 且冲刷窗内不发新指令 ⇒ **不产生 IPC 代价**。
+    //     ③ "恰在误预测当拍完成"的那发: done_r 在沿上置起、下一拍才发 done_valid。改前该窗**同样存在**
+    //        (当拍 fs_eff_w 还是上一次的冲刷点, 年龄比较可能为假 ⇒ 改前当拍也不杀) ⇒ 暴露面与改前等价,
+    //        本刀不新增也不收窄; 若日后要收窄, 用 `div_done_valid && !(misp_valid||rd_valid_r)` 在 CDB 槽上兜
+    //        (该窗内的 div 完成必属错路: 在飞 div 必然晚于已提交的误预测分支)。
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) div_kill_r <= 1'b0;
+        else        div_kill_r <= div_kill;
+    end
 
     // ==================== 5. 提交 (B6) ====================
     // ---- 提交级读口: **one-hot + AND-OR** (原为 `rob_xxx_w[eidx * W +: W]`) ----
