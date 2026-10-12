@@ -1,0 +1,25 @@
+# cutY pre-ABC 网表校验读数 (2026-10-12) —— plan §3.39 §6 ④ / 填写清单第 ⑥ 项
+#
+# 生成: yosys 0.63 (容器 cpu2026:local), 模板 tools/preabc_official.ys.tpl
+#   __OPT__ = /work/build/synth_cutY/opt    __OUT__ = /t/preabc_cutY.v
+# 产物 16 MB (raw), **未入库** —— 与 runs/ 同边界 (见 .gitignore:39); 重生成命令见模板头注释。
+#
+# 目的: 只记录"哪些 RTL 名字在 pre-ABC 网表里"这一事实本身。
+#   ★ 前提订正 (plan §3.39 §6 ④): 被综合的那一版 RTL = 远端归档树
+#     ~/cpu2026/runs/cutY/verilog/core/dcache.v (md5 01a69e17e5b47bb8c0959b6af75c2030),
+#     里面 st_way_lat_w / st_vic_lat_now_w 两条 assign **仍在** (第 1217 / 1218 行,
+#     声明在第 365 / 366 行), 只是刀 W 之后已零负载。
+#     ⇒ 下表的 0 行只反映 synth 内部 opt_clean 的剪枝, **不能**用来判
+#       "送进去的是哪一版 RTL" (能判的只有归档树 diff)。
+
+## 计数命令: grep -c "\b<name>\b" ⇒ 下表 "行" = **命中行数** (非出现次数)
+
+## ④ 刀 W 之后已无读者的两条线网
+  st_vic_lat_now_w:  0 行
+  st_way_lat_w:      0 行
+
+## ⑤ 反证 —— 刀 W 保留下来的线网应仍在 (排除"整张网表是空的"这种空证明)
+  fill_blk_w:    3 行
+  rmw_rd_w:     47 行
+  fill_pend_w:   3 行
+  fill_busy_r:   4 行

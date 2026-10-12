@@ -67,18 +67,28 @@
 //      `rmw_tag_r` (32 位, 非复位) ⇒ 两支载荷逐位等价于
 //      `{rmw_v_r ? rmw_pay_r : fill_pay_w}` ≡ `{rmw_v_r ? rmw_tag_r : fill_pay_w[287:256], fill_buf_r}`,
 //      但 mux 只剩 32 位。**删** `rmw_pay_r` (288 FF) 与 `rmw_pend_r` (1 FF) 及整套挂起逻辑。
-//      ★ 前提是**窗口互斥**(否则回包与合成同拍抢 `fill_buf_r`): `rmw_rd_w` 加
-//      `&& !fill_busy_r && !fill_start_w` —— 读相到落盘这 3 拍里不许有任何在飞填充 (下一拍就可能回包)
-//      也不许有起填。三个起填源都含 `!rmw_hold_w`, 而窗口内 `rmw_hold_w` (= rd1_r || v_r) 恒 1 ⇒
-//      窗口内既无在飞回包也无新起填, 与存储延迟无关 (LATENCY=1 的 TB 也成立) ⇒ `fill_wr_w` 在窗口内
-//      恒 0, 旧刀 M 的判决点 `~fill_wr_w` 退化成 `1'b1`。
-//      代价: 命中行的 store 吸收从此要等**在飞填充收尾** (≤ ~22 拍); 收益: 净删 ~256 FF + 288→32 位 mux。
+//      ★ 前提是**窗口互斥**(否则回包与合成同拍抢 `fill_buf_r`): 读相到落盘这 3 拍里不许有任何在飞
+//      填充 (下一拍就可能回包) 也不许有起填 ⇒ `rmw_rd_w` 含 `!fill_busy_r`, 读相那一拍的"不许起填"
+//      由起填侧让路承担 (刀 W 之后在 `fill_blk_w` 的第三项, 见第 6 节)。三个起填源都含
+//      `!rmw_hold_w`, 而窗口内 `rmw_hold_w` (= rd1_r || v_r) 恒 1 ⇒ 窗口内既无在飞回包也无新起填,
+//      与存储延迟无关 (LATENCY=1 的 TB 也成立) ⇒ `fill_wr_w` 在窗口内恒 0, 旧刀 M 的判决点
+//      `~fill_wr_w` 退化成 `1'b1`。
+//      代价: 命中行的 store 吸收仍要等**在飞填充收尾** (≤ ~22 拍, `!fill_busy_r`); 收益: 净删
+//      ~256 FF + 288→32 位 mux。★ 刀 W 取消的是**同拍起填**那一档代价 (旧写法命中吸收还要被
+//      "同一拍起填"整笔挡到填充收尾) —— 换成起填让路一拍。
 //   ⑤ **刀 V (2026-10-11): 读相判决改吃锁存 ⇒ 断掉宏自己的一拍闭环**。旧 `rmw_rd_w` 的判决吃了本拍
-//      `rdata_w` 上的比较结果 (`any_st_hit_w` / `st_vic_now_w`), 而它又去选 `rd_addr_w` 的 `st_addr` 支
+//      `rdata_w` 上的比较结果 (`any_st_hit_w`), 而它又去选 `rd_addr_w` 的 `st_addr` 支
 //      ⇒ "读出 tag → 命中判定 → 占读口 → 地址" 是**同一拍**的环 (census 头名族 4.5588, plan §3.30)。
 //      做法: `st_tm_lat_w` 从 `st_tm_ok_w` 单立; `st_hit_lat_g`/`st_hit_lat_w`/`st_way_lat_w`/
-//      `st_vic_lat_now_w` = 它的锁存版 (整组只含寄存器, 无 rdata); 读相判决改吃锁存版 + `!st_tm_live_w`
-//      ⇒ 环在结构上不存在。代价: 回包那拍不再发起读 ⇒ **命中吸收 3 拍 → 4 拍** (队首多挡一拍)。
+//      `st_vic_lat_now_w` = 它的锁存版 (整组只含寄存器, 无 rdata); 读相判决改吃锁存版 + `!st_tm_live_w`。
+//      代价: 回包那拍不再发起读 ⇒ **命中吸收 3 拍 → 4 拍** (队首多挡一拍)。
+//      ★★ **刀 W 订正 (2026-10-12)**: V 声称"改后 `rdata_w` 到 `rd_addr_w` 之间不再有组合通路" ——
+//      **不成立**。判决里留着 `!fill_start_w` (刀 O 项) 与 `!st_vic_lat_now_w`, 后者定义含
+//      `fill_start_w` ⇒ **恒冗余** (真正的守卫是前者), 而 `fill_start_w` 锥里有 `rdata_w`
+//      (`miss_pending_w → dc_demand_w → fill_go_w`) ⇒ 环只从 4.5588 缩到 **4.0481** (plan §3.38:
+//      4000 条普查里 636 条超门起自 `u_arr.lane_0/rd_out[270]`, 终点 `addr_in[4]`)。
+//      刀 W = 把这两项整删 + 互锁方向对调 (起填侧让路), 见第 6 节 `fill_blk_w`;
+//      `st_way_lat_w`/`st_vic_lat_now_w` 随之删除 (只喂过 `rmw_rd_w`, 改动后无人读)。
 //      ★ **别顺手把"合成"也搬到回包那拍** (刀 U 的反例, plan §3.31): 那会把 `fill_buf_r` 的 256+ 个
 //      enable 交给活判决 (单网 FO=308 / 1.4705 ns) ⇒ 官方 218.66 → 199.11 MHz。读相那一拍同时是
 //      "rdata 锥"与"288 位写寄存器"之间的**寄存边界** —— 删读相就是删掉这层边界, 净账为负。
@@ -353,8 +363,8 @@ module dcache #(
     // ---- 第 9 节: store 命中吸收 (整路写粒度 ⇒ **一律**读-改-写, 整字与部分字同一条路) ----
     wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w;
     // ★ 刀 V (2026-10-11): 读相判决只用**锁存**状态的命中判定 (整组无 rdata) —— 见第 9 节末尾
-    wire                     st_tm_lat_w, st_hit_lat_w, st_vic_lat_now_w;
-    wire [WY_W - 1 : 0]      st_way_lat_w;
+    //   (刀 W 删了同组的 `st_way_lat_w`/`st_vic_lat_now_w`: 它们原来只喂 `rmw_rd_w`, 判决改完之后无人读)
+    wire                     st_tm_lat_w, st_hit_lat_w;
     wire [DC_WAYS - 1 : 0]   st_hit_lat_g;
     wire [WMASK_W - 1 : 0]   rmw_wmask_w;
     wire [32 * DC_LINE_WORDS - 1 : 0] rmw_data_new_w;    // 回包八字的**数据**+ 只替换命中的那个 word 槽
@@ -721,9 +731,21 @@ module dcache #(
     //   被挡住的 miss 落进 fill_pend_w ⇒ 排队等窗口结束, 不丢。
     //   ★ 同行比较同样带 tag 未知窗口 (保守 = 只多挡): 起填若撞上未知窗口, 同组一律当同行, 推迟一拍
     //     —— 那一拍过后 tag 就到了 (受害行 tag 由捕获读回包给出)。
+    // ④ 读-改-写**读相那一拍**的互锁 (刀 W, 2026-10-12): 同拍不许起填 —— 这一项原来写在 `rmw_rd_w`
+    //   里 (`!fill_start_w`), 但 `fill_start_w` 吃本拍 `rdata_w` 上的 tag 比较 (`miss_pending_w` →
+    //   `dc_demand_w` → `fill_go_w`), 而它又去选 `rd_addr_w` 的 `st_addr` 支 ⇒ 宏的**一拍闭环**其实
+    //   还在 ("读出 tag → 判定缺失 → 起填 → 驱逐本路 → 读口让路", census 4.0481 / plan §3.38)。
+    //   ⇒ 把互锁**方向对调**: 读相判决只吃寄存器 (`rmw_rd_w`), 让路改由起填侧承担 (本项)。
+    //   等价性: 读相窗口 `rmw_hold_w` 只在 T+1/T+2 抬 (不含读相那拍) ⇒ "窗口内引擎恒空 + `fill_buf_r`
+    //   独占"这个 ④ 的不变量, 原来靠"T 拍不起填"、现在靠"T 拍被本项挡住" ⇒ **同一条**, 逐拍不变。
+    //   代价: 起填推迟一拍 (需求 miss 落进 `fill_pend_w` 排队重试, 不丢 AR; 预取可能少发一次)。
+    //   收益: 旧写法下"同拍起填"不只是挡那一拍 —— 起填后 `fill_busy_r` 抬 ≤ ~22 拍, 而 `rmw_rd_w`
+    //   里的 `!fill_busy_r` 会把 store 吸收一直挡到这次填充收尾; 现在那一拍由起填自己让路
+    //   (本项把起填挡在窗口外), 吸收照常走。且"读出 tag → 起填 → 驱逐本路 → 读口让路"的环消失。
     assign fill_blk_w  = (wb_line_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT])
                                                         : (wb_base_r[TAGHI - 1 : SPLIT] == fill_base_new_w[TAGHI - 1 : SPLIT])))
-                      || (wb_buf_busy_w && vic_v_w && vic_dirty_w);
+                      || (wb_buf_busy_w && vic_v_w && vic_dirty_w)
+                      || rmw_rd_w;
     // ★ 落盘拍不许起的两种新填充 (`fill_vic_hit_w`) —— 都是"这一拍才装进去的行/槽, 检查看不见":
     //   ① 同 (组,路): 同拍 `fill_vset_r` 会把该槽 valid 置 1, 而 always 块里"起填清受害路"在前、
     //      "vset 置位"在后 ⇒ vset 赢 ⇒ 新填充往一条刚标 valid 的行里灌 tag/数据 (命中读到半行)。
@@ -1169,7 +1191,6 @@ module dcache #(
     //   · 未命中 ⇒ st_bypass: 本缓存没有该行, 数据照原样走 SQ→AXI 写通道 (DC_WA=0 不分配)。
     // 让路 (都不抬 ⇒ 队首多等一拍; 条目还在 SQ 里 ⇒ 合并链仍覆盖, 正确性不受影响):
     //   · 安装写占着 SRAM 口 (fill_wr_r —— 落盘拍, 见头注释锥 ①); · WB 捕获读占着读口 (wb_cap_w);
-    //   · 本拍该路正被驱逐 (st_vic_lat_now_w): 行马上就要没了, 写进去也是白写 ⇒ 下拍自然走旁路;
     //   · 同一行的写回还没推完 (st_wb_same_w): 写通道按序, 必须排在旧行那 8 笔之后, 否则被反超。
     assign st_set_w  = ONE_SET ? {DC_IW{1'b0}} : st_addr[TAGHI - 1 : SPLIT];
     assign st_tag_w  = st_addr[TAGHI +: TAG_W];
@@ -1187,16 +1208,16 @@ module dcache #(
     assign st_way_w     = hitway_f(st_hit_g);
     assign any_st_hit_w = |st_hit_g;
     // ★ 刀 V (2026-10-11): 上面那一组的**锁存版** —— 把 `st_tm_ok_w`/`st_tm_sel_w` 里的"本拍回包"项
-    //   去掉, 整组只含寄存器 (`st_tm_v_r`/`st_tm_r`/`st_set_r`/`st_tag_r`/`valid_r`)。读相判决与它的
-    //   驱逐检查用它 ⇒ `rdata_w` 到 `rd_addr_w` 之间再无组合通路 (census 头名族 4.5588, plan §3.30)。
+    //   去掉, 整组只含寄存器 (`st_tm_v_r`/`st_tm_r`/`st_set_r`/`st_tag_r`/`valid_r`)。读相判决用它。
+    //   ~~⇒ `rdata_w` 到 `rd_addr_w` 之间再无组合通路~~ —— ★★ **刀 W 订正**: 不成立 (见头注释 ⑤ 与
+    //   第 9 节末尾): 判决里还留着刀 O 的 `!fill_start_w`, 那一项自己就吃 `rdata_w`。
+    //   ★ 同组的 `st_way_lat_w` / `st_vic_lat_now_w` 随刀 W 一并删除 (判决改完后无人读)。
     generate
         for (gj = 0; gj < DC_WAYS; gj = gj + 1) begin : sthitlat
             assign st_hit_lat_g[gj] = st_tm_lat_w && valid_r[gj * DC_SETS + st_set_w] && st_tm_r[gj];
         end
     endgenerate
     assign st_hit_lat_w     = |st_hit_lat_g;
-    assign st_way_lat_w     = hitway_f(st_hit_lat_g);
-    assign st_vic_lat_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_lat_w == victim_way_w);
     // tag 未知窗口内只比组号 (保守: 只多让路一拍, 队首原地重试) —— 见 lk_wb_wait_w 同款论证。
     wire   st_wb_same_w = wb_buf_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT])
                                                       : (wb_base_r[TAGHI - 1 : SPLIT] == st_addr[TAGHI - 1 : SPLIT]));
@@ -1215,30 +1236,38 @@ module dcache #(
     //   收尾 (miss 仍在 ⇒ 队列里的条目下拍重试; 也会自然走旁路)。实际对 hit 而言这一项恒真无约束 ——
     //   填充在飞时本行 valid 已清 ⇒ any_st_hit_w=0。
     // 窗口内禁起填 (rmw_hold_w, 第 5 节): 起填把受害路清 valid —— 万一正是本路, 已合成的整路就
-    //   落进一条无效行了。★ rmw_hold_w **不含** rmw_rd_w, 否则 fill_go → fill_start → st_vic_lat_now →
-    //   rmw_rd 成组合环; 读相那一拍由 `!st_vic_lat_now_w` 自己挡 (同拍起填驱逐本路 ⇒ 本次不发起)。
-    // ★ 刀 O 新增 `!fill_busy_r && !fill_start_w`: 读相到落盘这 3 拍里 `fill_buf_r` 归 RMW 独占
-    //   (合成的 256 位要写回它) ⇒ 窗口内不许有在飞填充 (下一拍就可能回包写它) 也不许有起填。
+    //   落进一条无效行了。★ rmw_hold_w **不含** rmw_rd_w, 否则 fill_go → fill_start → (起填让路项)
+    //   → rmw_rd 成组合环; 读相那一拍由起填侧的 `fill_blk_w ⊇ rmw_rd_w` 挡 (刀 W, 见第 6 节)。
+    // ★ 刀 O 新增 `!fill_busy_r && !fill_start_w` (刀 W 改形): 读相到落盘这 3 拍里 `fill_buf_r` 归
+    //   RMW 独占 (合成的 256 位要写回它) ⇒ 窗口内不许有在飞填充 (下一拍就可能回包写它) 也不许有起填。
     //   三个起填源全含 `!rmw_hold_w`, 而窗口内 `rmw_hold_w` 恒 1 ⇒ 起填只在**读相那一拍**是唯一
-    //   空隙 ⇒ 用 `!fill_start_w` 堵上 (与 `!st_vic_lat_now_w` 同一个理由: 同拍起填会驱逐本路)。
-    // ★ 刀 V (2026-10-11): 判决**改吃锁存版** (`st_hit_lat_w`/`st_vic_lat_now_w`, 只含寄存器) + 显式
-    //   `!st_tm_live_w`。旧写法用 `any_st_hit_w`/`st_vic_now_w` (吃本拍 `rdata_w` 上的比较结果), 而它
-    //   又去选 `rd_addr_w` 的 `st_addr` 支 ⇒ 宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 → 地址"
-    //   (census 头名族 4.5588, plan §3.30)。改后 `rdata_w` 到 `rd_addr_w` 之间**不存在**组合通路。
+    //   空隙 ⇒ 刀 O 用 `!fill_start_w` 堵、刀 W 改由起填侧让路 (`fill_blk_w` 第三项), 逐拍等价。
+    // ★ 刀 V (2026-10-11): 判决**改吃锁存版** (`st_hit_lat_w`, 只含寄存器) + 显式 `!st_tm_live_w`。
+    //   旧写法用 `any_st_hit_w` (吃本拍 `rdata_w` 上的比较结果), 而它又去选 `rd_addr_w` 的 `st_addr`
+    //   支 ⇒ 宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 → 地址" (census 头名族 4.5588, §3.30)。
     //   代价: 回包那拍不再发起读 ⇒ 命中吸收 3 拍 → **4 拍** (队首多挡一拍)。
     //   ★ 锁存支一定接得上: 回包那拍 (`st_tm_live_w`) always 块**无条件**置 `st_tm_v_r`/`st_tm_r`,
     //   地址没换 ⇒ 下一拍 `st_tm_lat_w`=1 ⇒ 读相照发 (队首原地多等一拍, 不丢条目)。
     //   ★ 为什么**不**顺手把"合成"也搬到回包那拍 (刀 U 的反例, plan §3.31): 那会让 `fill_buf_r`
     //   256+ 个 enable 由活判决驱动 —— 单网 FO=308 / 1.4705 ns, 官方 218.66 → 199.11 MHz。
+    //   ★★ **刀 W 订正**: V 的"改后 `rdata_w` 到 `rd_addr_w` 之间不存在组合通路"不成立 —— `!fill_start_w`
+    //   与 `!st_vic_lat_now_w` 两项里, 后者的定义含 `fill_start_w` (`st_vic_lat_now_w = fill_start_w && …`)
+    //   ⇒ 那一项**恒冗余** (真正的守卫是前者), 而 `fill_start_w` 的锥里有 `rdata_w` (`miss_pending_w →
+    //   dc_demand_w → fill_go_w`, 以及 `new_set_w/victim_way_w`) ⇒ 环只从 4.5588 缩到 **4.0481**
+    //   (plan §3.38 普查: 1301 条超门里 636 条起自 `u_arr.lane_0/rd_out[270]`, 终点 `addr_in[4]`)。
+    //   刀 W 把这两项**整删** (后一项本就冗余; 前一项搬到起填侧), 判决从此只含寄存器 + `st_addr`
+    //   ⇒ `rdata_w` 到 `rd_addr_w` 的组合通路**这次才真的不存在** (同组的 `st_way_lat_w`/
+    //   `st_vic_lat_now_w` 因为没有别的读者, 一并删除)。
     assign rmw_rd_w     = st_valid && st_hit_lat_w && st_cacheable_w && !st_tm_live_w
                        && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
-                       && !fill_busy_r && !fill_start_w
-                       && !st_vic_lat_now_w && !st_fill_same_w;
+                       && !fill_busy_r && !st_fill_same_w;
     // ★ 写相**不再让路** (刀 M): `rmw_v_r` 只会在"下一拍没有安装落盘"时置位, 故写相与安装
     //   **结构上不同拍**, 写口四组选择端可以整个交给这根 FF。
-    //   ★ 刀 O 之后连"下一拍有没有安装"都不必现算了: 读相被 `!fill_busy_r && !fill_start_w` 挡住
+    //   ★ 刀 O 之后连"下一拍有没有安装"都不必现算了: 读相被 `!fill_busy_r` + 起填侧让路挡住
     //   ⇒ 窗口内 `fill_busy_r` 恒 0 (起填源全含 `!rmw_hold_w`, 窗口内 hold 恒 1) ⇒ 回包不可能到达
     //   ⇒ `fill_wr_w` 在窗口内恒 0 ⇒ 旧刀 M 的判决点 `~fill_wr_w` 退化成 `1'b1`, `rmw_pend_r` 整支删掉。
+    //   (刀 W 把"读相那拍不许起填"从 `rmw_rd_w` 的 `!fill_start_w` 挪到 `fill_blk_w` 的第三项,
+    //    "窗口内 `fill_busy_r` 恒 0" 这一步**逐拍不变** ⇒ 本行结论照旧成立。)
     assign rmw_wr_w     = rmw_v_r;                        // 写相: 整路已在寄存器里, 本拍落盘
     assign rmw_hold_w   = rmw_rd1_r || rmw_v_r;
     assign st_absorb    = rmw_wr_w;

@@ -1,0 +1,265 @@
+# 门 A 取证（cutX 树，r28/远端）—— §3.39 §4 的原始读数留档
+
+生成时间: 2026-10-12（会话内抄录）；树上: runs/cutX/build/synth_cutX/opt（官方 opt 网表 + design.json）
+
+为什么留档: §3.39 §4 的结论（④ 类在门 A 无对象）依赖下面三份读数，此前只活在 /tmp。
+
+
+## A. 正向组合锥 (tools/cone.py --cone _155863_)
+
+```
+网表: 82093 个实例
+
+_155863_ (DFFASRHQNx1_ASAP7_75t_R)  src=/work/verilog/exec/execute_slot.v:191.5-205.8
+正向组合锥: 17624 个组合 cell, 到达 3708 个触发器
+
+     触发器      最短到达级数  模块
+     973          15  core/rob.v
+     568          15  core/rs.v
+     555          19  core/mem_subsystem.v
+     496          12  ?（无 src）
+     238           6  exec/execute_slot.v
+     196          12  front/fetch.v
+     186          19  core/rat.v
+     169           6  exec/div.v
+     155          15  core/lsq.v
+      82          13  core/icache.v
+      63          16  core/ready_table.v
+      18          14  top/cpu_top.v
+       7          16  core/free_list.v
+       2          14  front/ras.v
+
+交叉验证: 用官方 timing.rpt 的终点直方图对一遍 (tools/census.tcl 放大路径数, 见 tools/README.md)。
+```
+
+
+## B. 锥里几个扇出跳的反向锥 (tools/netattr.py，一次查询五个实例)
+
+```
+scp ok
+OpenSTA 3.1.0 f89887b596 Copyright (c) 2026, Parallax Software, Inc.
+License GPLv3: GNU GPL version 3 <http://gnu.org/licenses/gpl.html>
+
+This is free software, and you are free to change and redistribute it
+under certain conditions; type `show_copying' for details. 
+This program comes with ABSOLUTELY NO WARRANTY; for details type `show_warranty'.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13178, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13211, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13244, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13277, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13310, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13343, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13376, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14772, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14805, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14838, timing group from output port.
+@@@FROM _155863_/QN N=1
+Startpoint: _155863_ (rising edge-triggered flip-flop clocked by core_clock)
+Endpoint: _151015_ (rising edge-triggered flip-flop clocked by core_clock)
+Path Group: core_clock
+Path Type: max
+
+Fanout     Delay      Time   Description
+-------------------------------------------------------------------
+          0.0000    0.0000   clock core_clock (rise edge)
+          0.0000    0.0000   clock network delay (ideal)
+          0.0000    0.0000 ^ _155863_/CLK (DFFASRHQNx1_ASAP7_75t_R)
+    25    0.1178    0.1178 v _155863_/QN (DFFASRHQNx1_ASAP7_75t_R)
+    20    0.0764    0.1941 ^ _082279_/Y (INVx1_ASAP7_75t_R)
+     1    0.0287    0.2228 v _086677_/Y (OAI211xp5_ASAP7_75t_R)
+    61    0.3726    0.5954 ^ _086681_/Y (NOR3xp33_ASAP7_75t_R)
+     7    0.2012    0.7967 v _089201_/Y (AOI211xp5_ASAP7_75t_R)
+     1    0.0537    0.8504 v _089203_/Y (XNOR2xp5_ASAP7_75t_R)
+     3    0.0339    0.8842 ^ _089204_/Y (AOI211xp5_ASAP7_75t_R)
+     2    0.0255    0.9098 v _089386_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     3    0.0382    0.9480 ^ _089490_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     3    0.0352    0.9832 v _089492_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     2    0.0413    1.0245 ^ _089494_/Y (OAI211xp5_ASAP7_75t_R)
+     2    0.0300    1.0545 v _089498_/Y (NAND4xp25_ASAP7_75t_R)
+     4    0.0437    1.0982 ^ _089504_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     2    0.0273    1.1255 ^ _089513_/Y (AO21x1_ASAP7_75t_R)
+     1    0.0160    1.1414 v _089517_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     3    0.0422    1.1836 ^ _089522_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     4    0.0389    1.2225 v _089524_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     6    0.0563    1.2788 ^ _089529_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     2    0.0329    1.3117 v _089534_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     4    0.0364    1.3481 v _089539_/Y (OA31x2_ASAP7_75t_R)
+     2    0.0248    1.3730 v _089630_/Y (XOR2xp5_ASAP7_75t_R)
+     2    0.0299    1.4029 v _089685_/Y (OA31x2_ASAP7_75t_R)
+    20    0.1272    1.5301 ^ _089695_/Y (OAI31xp33_ASAP7_75t_R)
+    13    0.1511    1.6812 v _089699_/Y (NOR2xp33_ASAP7_75t_R)
+     2    0.0524    1.7336 ^ _090013_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     1    0.0319    1.7655 ^ _090211_/Y (XOR2xp5_ASAP7_75t_R)
+     1    0.0412    1.8067 ^ _090228_/Y (AND5x1_ASAP7_75t_R)
+     2    0.0244    1.8311 v _090231_/Y (NAND4xp25_ASAP7_75t_R)
+     3    0.0471    1.8782 v _090241_/Y (OR4x1_ASAP7_75t_R)
+    12    0.0823    1.9605 ^ _090244_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+    26    0.1708    2.1312 v _091722_/Y (AOI21xp33_ASAP7_75t_R)
+    11    0.0872    2.2184 ^ _091723_/Y (INVx1_ASAP7_75t_R)
+   171    0.6597    2.8782 v _092182_/Y (NAND3xp33_ASAP7_75t_R)
+     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)
+     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     4    0.0424    3.1239 v _092185_/Y (AOI21xp33_ASAP7_75t_R)
+     4    0.0250    3.1489 ^ _092186_/Y (INVx1_ASAP7_75t_R)
+     3    0.0414    3.1902 v _099181_/Y (NAND5xp2_ASAP7_75t_R)
+     6    0.0965    3.2867 ^ _099183_/Y (NOR5xp2_ASAP7_75t_R)
+     2    0.0498    3.3365 v _099186_/Y (NAND5xp2_ASAP7_75t_R)
+     4    0.0517    3.3882 ^ _099187_/Y (NOR3xp33_ASAP7_75t_R)
+     4    0.0422    3.4304 ^ _099188_/Y (AND3x1_ASAP7_75t_R)
+     3    0.0264    3.4568 v _099189_/Y (NAND3xp33_ASAP7_75t_R)
+####################################################################################################
+_092182_/Y (NAND3xp33_ASAP7_75t_R)\n     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)\n     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)\n     4    0.0424    3.1239 v _092185_/Y (AO
+_092182_/Y (NAND3xp33_ASAP7_75t_R)\n     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)\n     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)\n     4    0.0424    3.1239 v _092185_/Y (AO
+_092182_/Y` (fanout **171**, 0.6597 ns!), `_089695_/Y` (fanout 20, 0.1272), `_089699_/Y` (13, 0.1511), `_091722_/Y` (26, 0.1708), `_090244_/Y` (12, 0.0823).\n\nSo the A door = a **45-level chain with a handfu
+_092182_/Y` with **fanout 171** = 0.6597 ns — a single net costing 18% of the path. That's exactly the 刀 R / ④-class target shape (a broadcast net) — but the net is *inside* the cone (ABC-created, `_092182_`)
+_092182_` and the other big hops (`_086681_` FO=61) to find their RTL sources.\n\nAlso, the 45-level depth itself: 45 levels is a *lot* — that's the flush network's logic. Hmm.\n\nSo the plan for the A door b
+_092182_`, `_086681_`, `_091722_`, `_089699_`, `_089695_`.\n\nWait — interesting: `_092182_/Y` (NAND3xp33, FO=171) has delay 0.6597 but **the next gate `_092183_/Y` also has 0.1746** — hmm, that's the wire+ga
+_092182_`, `_086681_`, `_091722_`, `_089699_`, `_089695_` — 5 cells. netattr prints ~15 lines each; let me just get ② and ③ (the head of each).\n\nHmm, netattr's output for each includes the reverse cone (lea
+_092182_` = FO **171** / 0.66 ns). Those are ④-class targets. Identifying them:
+_092182_ _086681_ _091722_ _089699_ _089695_; do echo \
+_092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及
+_092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及
+_092182_` (NAND3, FO=171, 0.66 ns) and `_091722_` (AOI21, FO=26, 0.17) and `_089699_`/`_089695_` (3.2k-gate reverse cones, 2110 leaf FFs, **2048 with \
+_092182_` and see what the 171 loads are. If they're e.g. all the \
+_092182_` (FO=171, 0.66 ns)** — attacking *one* net (even if it requires finding its RTL correspondence) is a \
+_092182_`, FO=171) sits on top of a 4,308-gate reverse cone with 2,444 leaf FFs. There is no source register to copy. §3.38's \
+_092182_` (I got ② but not ③) and also `cone.py`-style module attribution of the *loads*.\n\nActually, more valuable: **fwd.py <opt_dir> <跳数> <网名>** gives the full downstream consumer list ✓ — for `_032202_` 
+_092182_/Y` hop: 0.6597 ns (FO=171). If split into 3 copies → maybe −0.35 ns of it (the tax portion).\n- `_086681_/Y` hop: 0.3726 (FO=61) → −0.15?\n- `_091722_` 0.1708 (FO=26), `_089699_` 0.1511, `_089695_` 0
+_092182_`: reverse cone 4308 gates, 2444 leaves ⇒ a cloud.\n\nHmm, so `_092182_`'s cone is huge (it's probably the OR of many mispredict/ready conditions). Hmm.\n\nHmm, wait. Hold on: `_092182_` is a NAND3 wi
+_092182_` at 2.13-2.88). So the path goes ... `_091722_` → `_091723_` → `_092182_` → ... Both have huge reverse cones ⇒ **the path is riding on a \
+_092182_` ≈ part of the ROB's flush/ready logic (a NAND3 of big ORs), and it broadcasts to 171 loads (the front-end flush + the ready_table clearing + ...).\n\n**Conclusion**: the A door is the **ROB-flush br
+####################################################################################################
+7
+{"parentUuid": "f7e1e4db-7e3f-4a10-865c-b283c286f8b2", "isSidechain": false, "promptId": "d46c5a5e-a09a-43d4-9f31-3e4bfa4c0ce4", "type": "user", "message": {"role": "user", "content": [{"tool_use_id": "call_00_smcXjAEIBepEOqk5BXzY0557", "type": "tool_result", "content": "########## _092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及 6775 个网 / 叶子触发器 2444\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _086681_\n[注] _086681_ 是**实例名**(NOR3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _026754_\n① 网 _026754_  ← _086681_ (NOR3xp33_ASAP7_75t_R) .Y\n     .A(_026750_)\n     .B(_026751_)\n     .C(_026753_)\n\n② 反向锥: 13 个组合门 / 触及 26 个网 / 叶子触发器 13\n        7  top/cpu_top.v:318.5-332.8\n        6  exec/execute_slot.v:191.5-205.8\n   叶子名: (无名)×7, (无名)×6\n\n③ 负载 62: AOI211xp5_ASAP7_75t_R×26, NOR5xp2_ASAP7_75t_R×19, NOR3xp33_ASAP7_75t_R×4, OR5x1_ASAP7_75t_R×4, AOI21xp33_ASAP7_75t_R×2, NAND2xp33_ASAP7_75t_R×2\n########## _091722_\n[注] _091722_ 是**实例名**(AOI21xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _031742_\n① 网 _031742_  ← _091722_ (AOI21xp33_ASAP7_75t_R) .Y\n     .A1(_030317_)\n     .A2(_030442_)\n     .B(_000252_)\n\n② 反向锥: 4136 个组合门 / 触及 6471 个网 / 叶子触发器 2335\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _089699_\n[注] _089699_ 是**实例名**(NOR2xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029772_\n① 网 _029772_  ← _089699_ (NOR2xp33_ASAP7_75t_R) .Y\n     .A(_029768_)\n     .B(_029771_)\n\n② 反向锥: 3202 个组合门 / 触及 5312 个网 / 叶子触发器 2110\n     2048  (无 src)\n       39  top/cpu_top.v:318.5-332.8\n       16  exec/execute_slot.v:191.5-205.8\n        6  core/rat.v:38.5-50.8\n        1  top/cpu_top.v:984.5-998.8\n\n########## _089695_\n[注] _089695_ 是**实例名**(OAI31xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029768_\n① 网 _029768_  ← _089695_ (OAI31xp33_ASAP7_75t_R) .Y\n     .A1(_026590_)\n     .A2(_029758_)\n     .A3(_029760_)\n     .B(_029766_)\n\n② 反向锥: 3192 个组合门 / 触及 5302 个网 / 叶子触发器 2110\n     2048  (无 src)\n       39  top/cpu_top.v:318.5-332.8\n       16  exec/execute_slot.v:191.5-205.8\n        6  core/rat.v:38.5-50.8", "is_error": false}]}, "uuid": "3416afb3-cabb-482f-80e0-58be969bd8e6", "timestamp": "2026-10-12T15:15:03.298Z", "toolUseResult": {"stdout": "########## _092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及 6775 个网 / 叶子触发器 2444\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _086681_\n[注] _086681_ 是**实例名**(NOR3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _026754_\n① 网 _026754_  ← _086681_ (NOR3xp33_ASAP7_75t_R) .Y\n     .A(_026750_)\n     .B(_026751_)\n     .C(_026753_)\n\n② 反向锥: 13 个组合门 / 触及 26 个网 / 叶子触发器 13\n        7  top/cpu_top.v:318.5-332.8\n        6  exec/execute_slot.v:191.5-205.8\n   叶子名: (无名)×7, (无名)×6\n\n③ 负载 62: AOI211xp5_ASAP7_75t_R×26, NOR5xp2_ASAP7_75t_R×19, NOR3xp33_ASAP7_75t_R×4, OR5x1_ASAP7_75t_R×4, AOI21xp33_ASAP7_75t_R×2, NAND2xp33_ASAP7_75t_R×2\n########## _091722_\n[注] _091722_ 是**实例名**(AOI21xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _031742_\n① 网 _031742_  ← _091722_ (AOI21xp33_ASAP7_75t_R) .Y\n     .A1(_030317_)\n     .A2(_030442_)\n     .B(_000252_)\n\n② 反向锥: 4136 个组合门 / 触及 6471 个网 / 叶子触发器 2335\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _089699_\n[注] _089699_ 是**实例名**(NOR2xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029772_\n① 网 _029772_  ← _089699_ (NOR2xp33_ASAP7_75
+================================================================================
+{"parentUuid": "97d17169-3088-49f6-a0df-83f0bfd8285a", "isSidechain": false, "promptId": "d46c5a5e-a09a-43d4-9f31-3e4bfa4c0ce4", "type": "user", "message": {"role": "user", "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n\n   **Standing inherited instructions (still in force, verbatim-critical):**\n   - `docs/description.md` 是唯一口径来源，**只能由用户手动修改**；计划/架构/分析文档随其更新。\n   - **动 RTL 必须先取得用户批准**；\"找原因\"只授权只读动作；降 fmax 的改动默认不做。\n   - `test`/`perf` 必须带 `CONFIG=config.local.mk`（MAX_CYCLES 1e8；裸 make test 会假失败 pi/qsort/tak）。\n   - 综合一律走 `tools/remote_synth.py pc <id>`（一次 18 min）；ASAP7 r27（宿主）与 r28（远端/容器）数字**不可混用**。\n   - **插桩不得进 verilog/**（OJ stdout 精确比对）；每阶段一次提交（阶段内别连续 commit；收尾时 snap.py 归档 + 一起提交）；路径证据只能是级清单；被证伪的读法要划线留痕不静默改写；不为文档数字新跑实验；单发射 IPC 目标 ≈0.8；回滚以远端归档树为权威源；commit 结尾 `Co-Authored-By: Claude Code <noreply@anthropic.com>`。\n   - 口径标签：census 列 = `3.3330 − slack` ≈ 官方最小周期 − 0.0005；rc = census − 0.1；官方 `timing.rpt` 路径 Time = rc 值。\n   - IPC 门 0.6000（现 0.6156）；面积门 ≤12000（现 9647.326）。\n   - 用户本轮唯一实质指令：**\"按照你的计划做\"** = 批准执行两步计划（第一步 门 B 的 ①②；第二步 对 `_155863_` 做 ④ 类二次分裂）。\n\n2. Key Technical Concepts:\n   - **官方流物理**：ABC 不带 `-constr` ⇒ 不缓冲不 upsize ⇒ 扇出直接变延时；健康段 ~50 ps/级，热段是扇出税；**组合网复制会被 `&fraig` 的 SAT 等价类并掉**，只有**寄存器**复制才存活（两颗触发器是两个不同 PI）。\n   - **①（刀 W）的机理**：`rd_addr_w` 的 `st_addr` 支由 `rmw_rd_w` 选通，而 `rmw_rd_w` 吃了活信号 `!fill_start_w`（锥含 `rdata_w`：`any_hit_w → miss_pending_w → dc_demand_w → fill_go_w`；以及 `new_set_w/victim_way_w`）⇒ 宏一拍闭环 `rd_out[270] → addr_in[4]` 4.0481。`!st_vic_lat_now_w` 因 `st_vic_lat_now_w = fill_start_w && X` 而**恒冗余**（真正的守卫是 `!fill_start_w`）⇒ 刀 V 注释\"改后 rdata_w 到 rd_addr_w 之间不存在组合通路\"**被证伪**。修法 = 互锁方向对调：读相判决只含寄存器，起填侧让路。\n   - **① 的等价性论证**：读相窗口内 `fill_busy_r` 恒 0 / `fill_buf_r` 独占，原来靠\"T 拍不起填\"、现在靠\"T 拍被 `fill_blk_w ⊇ rm
+####################################################################################################
+```
+
+
+## C. 逐级清单 `@@@FROM _155863_/QN` (tools/arrive.tcl, AR_FROM/_AR_N=1; 官方 STA)
+
+说明: 报告被工具输出上限截断在第 42 级（表列约定: 起点 QN 记 0）。
+
+```
+scp ok
+OpenSTA 3.1.0 f89887b596 Copyright (c) 2026, Parallax Software, Inc.
+License GPLv3: GNU GPL version 3 <http://gnu.org/licenses/gpl.html>
+
+This is free software, and you are free to change and redistribute it
+under certain conditions; type `show_copying' for details. 
+This program comes with ABSOLUTELY NO WARRANTY; for details type `show_warranty'.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13178, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13211, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13244, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13277, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13310, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13343, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 13376, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14772, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14805, timing group from output port.
+Warning 1212: /opt/asap7/lib/asap7sc7p5t_SIMPLE_RVT_TT_nldm_211120.lib line 14838, timing group from output port.
+@@@FROM _155863_/QN N=1
+Startpoint: _155863_ (rising edge-triggered flip-flop clocked by core_clock)
+Endpoint: _151015_ (rising edge-triggered flip-flop clocked by core_clock)
+Path Group: core_clock
+Path Type: max
+
+Fanout     Delay      Time   Description
+-------------------------------------------------------------------
+          0.0000    0.0000   clock core_clock (rise edge)
+          0.0000    0.0000   clock network delay (ideal)
+          0.0000    0.0000 ^ _155863_/CLK (DFFASRHQNx1_ASAP7_75t_R)
+    25    0.1178    0.1178 v _155863_/QN (DFFASRHQNx1_ASAP7_75t_R)
+    20    0.0764    0.1941 ^ _082279_/Y (INVx1_ASAP7_75t_R)
+     1    0.0287    0.2228 v _086677_/Y (OAI211xp5_ASAP7_75t_R)
+    61    0.3726    0.5954 ^ _086681_/Y (NOR3xp33_ASAP7_75t_R)
+     7    0.2012    0.7967 v _089201_/Y (AOI211xp5_ASAP7_75t_R)
+     1    0.0537    0.8504 v _089203_/Y (XNOR2xp5_ASAP7_75t_R)
+     3    0.0339    0.8842 ^ _089204_/Y (AOI211xp5_ASAP7_75t_R)
+     2    0.0255    0.9098 v _089386_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     3    0.0382    0.9480 ^ _089490_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     3    0.0352    0.9832 v _089492_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     2    0.0413    1.0245 ^ _089494_/Y (OAI211xp5_ASAP7_75t_R)
+     2    0.0300    1.0545 v _089498_/Y (NAND4xp25_ASAP7_75t_R)
+     4    0.0437    1.0982 ^ _089504_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     2    0.0273    1.1255 ^ _089513_/Y (AO21x1_ASAP7_75t_R)
+     1    0.0160    1.1414 v _089517_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     3    0.0422    1.1836 ^ _089522_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     4    0.0389    1.2225 v _089524_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+     6    0.0563    1.2788 ^ _089529_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     2    0.0329    1.3117 v _089534_/Y (A2O1A1Ixp33_ASAP7_75t_R)
+     4    0.0364    1.3481 v _089539_/Y (OA31x2_ASAP7_75t_R)
+     2    0.0248    1.3730 v _089630_/Y (XOR2xp5_ASAP7_75t_R)
+     2    0.0299    1.4029 v _089685_/Y (OA31x2_ASAP7_75t_R)
+    20    0.1272    1.5301 ^ _089695_/Y (OAI31xp33_ASAP7_75t_R)
+    13    0.1511    1.6812 v _089699_/Y (NOR2xp33_ASAP7_75t_R)
+     2    0.0524    1.7336 ^ _090013_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     1    0.0319    1.7655 ^ _090211_/Y (XOR2xp5_ASAP7_75t_R)
+     1    0.0412    1.8067 ^ _090228_/Y (AND5x1_ASAP7_75t_R)
+     2    0.0244    1.8311 v _090231_/Y (NAND4xp25_ASAP7_75t_R)
+     3    0.0471    1.8782 v _090241_/Y (OR4x1_ASAP7_75t_R)
+    12    0.0823    1.9605 ^ _090244_/Y (A2O1A1O1Ixp25_ASAP7_75t_R)
+    26    0.1708    2.1312 v _091722_/Y (AOI21xp33_ASAP7_75t_R)
+    11    0.0872    2.2184 ^ _091723_/Y (INVx1_ASAP7_75t_R)
+   171    0.6597    2.8782 v _092182_/Y (NAND3xp33_ASAP7_75t_R)
+     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)
+     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)
+     4    0.0424    3.1239 v _092185_/Y (AOI21xp33_ASAP7_75t_R)
+     4    0.0250    3.1489 ^ _092186_/Y (INVx1_ASAP7_75t_R)
+     3    0.0414    3.1902 v _099181_/Y (NAND5xp2_ASAP7_75t_R)
+     6    0.0965    3.2867 ^ _099183_/Y (NOR5xp2_ASAP7_75t_R)
+     2    0.0498    3.3365 v _099186_/Y (NAND5xp2_ASAP7_75t_R)
+     4    0.0517    3.3882 ^ _099187_/Y (NOR3xp33_ASAP7_75t_R)
+     4    0.0422    3.4304 ^ _099188_/Y (AND3x1_ASAP7_75t_R)
+     3    0.0264    3.4568 v _099189_/Y (NAND3xp33_ASAP7_75t_R)
+####################################################################################################
+_092182_/Y (NAND3xp33_ASAP7_75t_R)\n     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)\n     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)\n     4    0.0424    3.1239 v _092185_/Y (AO
+_092182_/Y (NAND3xp33_ASAP7_75t_R)\n     2    0.1746    3.0528 v _092183_/Y (OA21x2_ASAP7_75t_R)\n     2    0.0287    3.0815 ^ _092184_/Y (O2A1O1Ixp33_ASAP7_75t_R)\n     4    0.0424    3.1239 v _092185_/Y (AO
+_092182_/Y` (fanout **171**, 0.6597 ns!), `_089695_/Y` (fanout 20, 0.1272), `_089699_/Y` (13, 0.1511), `_091722_/Y` (26, 0.1708), `_090244_/Y` (12, 0.0823).\n\nSo the A door = a **45-level chain with a handfu
+_092182_/Y` with **fanout 171** = 0.6597 ns — a single net costing 18% of the path. That's exactly the 刀 R / ④-class target shape (a broadcast net) — but the net is *inside* the cone (ABC-created, `_092182_`)
+_092182_` and the other big hops (`_086681_` FO=61) to find their RTL sources.\n\nAlso, the 45-level depth itself: 45 levels is a *lot* — that's the flush network's logic. Hmm.\n\nSo the plan for the A door b
+_092182_`, `_086681_`, `_091722_`, `_089699_`, `_089695_`.\n\nWait — interesting: `_092182_/Y` (NAND3xp33, FO=171) has delay 0.6597 but **the next gate `_092183_/Y` also has 0.1746** — hmm, that's the wire+ga
+_092182_`, `_086681_`, `_091722_`, `_089699_`, `_089695_` — 5 cells. netattr prints ~15 lines each; let me just get ② and ③ (the head of each).\n\nHmm, netattr's output for each includes the reverse cone (lea
+_092182_` = FO **171** / 0.66 ns). Those are ④-class targets. Identifying them:
+_092182_ _086681_ _091722_ _089699_ _089695_; do echo \
+_092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及
+_092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及
+_092182_` (NAND3, FO=171, 0.66 ns) and `_091722_` (AOI21, FO=26, 0.17) and `_089699_`/`_089695_` (3.2k-gate reverse cones, 2110 leaf FFs, **2048 with \
+_092182_` and see what the 171 loads are. If they're e.g. all the \
+_092182_` (FO=171, 0.66 ns)** — attacking *one* net (even if it requires finding its RTL correspondence) is a \
+_092182_`, FO=171) sits on top of a 4,308-gate reverse cone with 2,444 leaf FFs. There is no source register to copy. §3.38's \
+_092182_` (I got ② but not ③) and also `cone.py`-style module attribution of the *loads*.\n\nActually, more valuable: **fwd.py <opt_dir> <跳数> <网名>** gives the full downstream consumer list ✓ — for `_032202_` 
+_092182_/Y` hop: 0.6597 ns (FO=171). If split into 3 copies → maybe −0.35 ns of it (the tax portion).\n- `_086681_/Y` hop: 0.3726 (FO=61) → −0.15?\n- `_091722_` 0.1708 (FO=26), `_089699_` 0.1511, `_089695_` 0
+_092182_`: reverse cone 4308 gates, 2444 leaves ⇒ a cloud.\n\nHmm, so `_092182_`'s cone is huge (it's probably the OR of many mispredict/ready conditions). Hmm.\n\nHmm, wait. Hold on: `_092182_` is a NAND3 wi
+_092182_` at 2.13-2.88). So the path goes ... `_091722_` → `_091723_` → `_092182_` → ... Both have huge reverse cones ⇒ **the path is riding on a \
+_092182_` ≈ part of the ROB's flush/ready logic (a NAND3 of big ORs), and it broadcasts to 171 loads (the front-end flush + the ready_table clearing + ...).\n\n**Conclusion**: the A door is the **ROB-flush br
+####################################################################################################
+7
+{"parentUuid": "f7e1e4db-7e3f-4a10-865c-b283c286f8b2", "isSidechain": false, "promptId": "d46c5a5e-a09a-43d4-9f31-3e4bfa4c0ce4", "type": "user", "message": {"role": "user", "content": [{"tool_use_id": "call_00_smcXjAEIBepEOqk5BXzY0557", "type": "tool_result", "content": "########## _092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及 6775 个网 / 叶子触发器 2444\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _086681_\n[注] _086681_ 是**实例名**(NOR3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _026754_\n① 网 _026754_  ← _086681_ (NOR3xp33_ASAP7_75t_R) .Y\n     .A(_026750_)\n     .B(_026751_)\n     .C(_026753_)\n\n② 反向锥: 13 个组合门 / 触及 26 个网 / 叶子触发器 13\n        7  top/cpu_top.v:318.5-332.8\n        6  exec/execute_slot.v:191.5-205.8\n   叶子名: (无名)×7, (无名)×6\n\n③ 负载 62: AOI211xp5_ASAP7_75t_R×26, NOR5xp2_ASAP7_75t_R×19, NOR3xp33_ASAP7_75t_R×4, OR5x1_ASAP7_75t_R×4, AOI21xp33_ASAP7_75t_R×2, NAND2xp33_ASAP7_75t_R×2\n########## _091722_\n[注] _091722_ 是**实例名**(AOI21xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _031742_\n① 网 _031742_  ← _091722_ (AOI21xp33_ASAP7_75t_R) .Y\n     .A1(_030317_)\n     .A2(_030442_)\n     .B(_000252_)\n\n② 反向锥: 4136 个组合门 / 触及 6471 个网 / 叶子触发器 2335\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _089699_\n[注] _089699_ 是**实例名**(NOR2xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029772_\n① 网 _029772_  ← _089699_ (NOR2xp33_ASAP7_75t_R) .Y\n     .A(_029768_)\n     .B(_029771_)\n\n② 反向锥: 3202 个组合门 / 触及 5312 个网 / 叶子触发器 2110\n     2048  (无 src)\n       39  top/cpu_top.v:318.5-332.8\n       16  exec/execute_slot.v:191.5-205.8\n        6  core/rat.v:38.5-50.8\n        1  top/cpu_top.v:984.5-998.8\n\n########## _089695_\n[注] _089695_ 是**实例名**(OAI31xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029768_\n① 网 _029768_  ← _089695_ (OAI31xp33_ASAP7_75t_R) .Y\n     .A1(_026590_)\n     .A2(_029758_)\n     .A3(_029760_)\n     .B(_029766_)\n\n② 反向锥: 3192 个组合门 / 触及 5302 个网 / 叶子触发器 2110\n     2048  (无 src)\n       39  top/cpu_top.v:318.5-332.8\n       16  exec/execute_slot.v:191.5-205.8\n        6  core/rat.v:38.5-50.8", "is_error": false}]}, "uuid": "3416afb3-cabb-482f-80e0-58be969bd8e6", "timestamp": "2026-10-12T15:15:03.298Z", "toolUseResult": {"stdout": "########## _092182_\n[注] _092182_ 是**实例名**(NAND3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _032202_\n① 网 _032202_  ← _092182_ (NAND3xp33_ASAP7_75t_R) .Y\n     .A(_030902_)\n     .B(_031743_)\n     .C(_031843_)\n\n② 反向锥: 4308 个组合门 / 触及 6775 个网 / 叶子触发器 2444\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _086681_\n[注] _086681_ 是**实例名**(NOR3xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _026754_\n① 网 _026754_  ← _086681_ (NOR3xp33_ASAP7_75t_R) .Y\n     .A(_026750_)\n     .B(_026751_)\n     .C(_026753_)\n\n② 反向锥: 13 个组合门 / 触及 26 个网 / 叶子触发器 13\n        7  top/cpu_top.v:318.5-332.8\n        6  exec/execute_slot.v:191.5-205.8\n   叶子名: (无名)×7, (无名)×6\n\n③ 负载 62: AOI211xp5_ASAP7_75t_R×26, NOR5xp2_ASAP7_75t_R×19, NOR3xp33_ASAP7_75t_R×4, OR5x1_ASAP7_75t_R×4, AOI21xp33_ASAP7_75t_R×2, NAND2xp33_ASAP7_75t_R×2\n########## _091722_\n[注] _091722_ 是**实例名**(AOI21xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _031742_\n① 网 _031742_  ← _091722_ (AOI21xp33_ASAP7_75t_R) .Y\n     .A1(_030317_)\n     .A2(_030442_)\n     .B(_000252_)\n\n② 反向锥: 4136 个组合门 / 触及 6471 个网 / 叶子触发器 2335\n     2048  (无 src)\n      121  exec/execute_slot.v:191.5-205.8\n       54  core/lsq.v:215.5-281.8\n       39  top/cpu_top.v:318.5-332.8\n       33  front/fetch.v:254.5-280.8\n########## _089699_\n[注] _089699_ 是**实例名**(NOR2xp33_ASAP7_75t_R) ⇒ 换成它的输出网 _029772_\n① 网 _029772_  ← _089699_ (NOR2xp33_ASAP7_75
+================================================================================
+{"parentUuid": "97d17169-3088-49f6-a0df-83f0bfd8285a", "isSidechain": false, "promptId": "d46c5a5e-a09a-43d4-9f31-3e4bfa4c0ce4", "type": "user", "message": {"role": "user", "content": "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\n1. Primary Request and Intent:\n\n   **Standing inherited instructions (still in force, verbatim-critical):**\n   - `docs/description.md` 是唯一口径来源，**只能由用户手动修改**；计划/架构/分析文档随其更新。\n   - **动 RTL 必须先取得用户批准**；\"找原因\"只授权只读动作；降 fmax 的改动默认不做。\n   - `test`/`perf` 必须带 `CONFIG=config.local.mk`（MAX_CYCLES 1e8；裸 make test 会假失败 pi/qsort/tak）。\n   - 综合一律走 `tools/remote_synth.py pc <id>`（一次 18 min）；ASAP7 r27（宿主）与 r28（远端/容器）数字**不可混用**。\n   - **插桩不得进 verilog/**（OJ stdout 精确比对）；每阶段一次提交（阶段内别连续 commit；收尾时 snap.py 归档 + 一起提交）；路径证据只能是级清单；被证伪的读法要划线留痕不静默改写；不为文档数字新跑实验；单发射 IPC 目标 ≈0.8；回滚以远端归档树为权威源；commit 结尾 `Co-Authored-By: Claude Code <noreply@anthropic.com>`。\n   - 口径标签：census 列 = `3.3330 − slack` ≈ 官方最小周期 − 0.0005；rc = census − 0.1；官方 `timing.rpt` 路径 Time = rc 值。\n   - IPC 门 0.6000（现 0.6156）；面积门 ≤12000（现 9647.326）。\n   - 用户本轮唯一实质指令：**\"按照你的计划做\"** = 批准执行两步计划（第一步 门 B 的 ①②；第二步 对 `_155863_` 做 ④ 类二次分裂）。\n\n2. Key Technical Concepts:\n   - **官方流物理**：ABC 不带 `-constr` ⇒ 不缓冲不 upsize ⇒ 扇出直接变延时；健康段 ~50 ps/级，热段是扇出税；**组合网复制会被 `&fraig` 的 SAT 等价类并掉**，只有**寄存器**复制才存活（两颗触发器是两个不同 PI）。\n   - **①（刀 W）的机理**：`rd_addr_w` 的 `st_addr` 支由 `rmw_rd_w` 选通，而 `rmw_rd_w` 吃了活信号 `!fill_start_w`（锥含 `rdata_w`：`any_hit_w → miss_pending_w → dc_demand_w → fill_go_w`；以及 `new_set_w/victim_way_w`）⇒ 宏一拍闭环 `rd_out[270] → addr_in[4]` 4.0481。`!st_vic_lat_now_w` 因 `st_vic_lat_now_w = fill_start_w && X` 而**恒冗余**（真正的守卫是 `!fill_start_w`）⇒ 刀 V 注释\"改后 rdata_w 到 rd_addr_w 之间不存在组合通路\"**被证伪**。修法 = 互锁方向对调：读相判决只含寄存器，起填侧让路。\n   - **① 的等价性论证**：读相窗口内 `fill_busy_r` 恒 0 / `fill_buf_r` 独占，原来靠\"T 拍不起填\"、现在靠\"T 拍被 `fill_blk_w ⊇ rm
+####################################################################################################
+```
+
+## D. 交付族起点 `_160372_` 的负载/下游 (tools/netattr.py; §3.39 §3)
+
+```
+=== line 4065 len 667 ===
+[注] _160372_ 是**实例名**(DFFASRHQNx1_ASAP7_75t_R) ⇒ 换成它的输出网 _009429_
+① 网 _009429_  ← _160372_ (DFFASRHQNx1_ASAP7_75t_R) .QN   src=top/cpu_top.v:407.5-419.8
+     .CLK(clock)
+     .D(_021463_)
+     .RESETN(_009592_)
+     .SETN(_078798_)
+
+② 反向锥: 0 个组合门 / 触及 1 个网 / 叶子触发器 1
+        1  top/cpu_top.v:407.5-419.8
+   叶子名: (无名)×1
+
+③ 负载 48: OAI222xp33_ASAP7_75t_R×30, OAI22xp33_ASAP7_75t_R×12, NOR2xp33_ASAP7_75t_R×2, OA222x2_ASAP7_75t_R×1, OR3x1_ASAP7_75t_R×1, AND3x1_ASAP7_75t_R×1
+   引脚: C1×31, B1×11, B×2, C×1, B2×1, A×1
+   来源: (无 src)×47, top/cpu_top.v:407.5-419.8×1
+
+④ 最近下游触发器 (46 个, ≤8 级): top/cpu_top.v:318.5-332.8×43, core/lsq.v:215.5-281.8×2, top/cpu_top.v:407.5-419.8×1
+```

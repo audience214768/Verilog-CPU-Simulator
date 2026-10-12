@@ -1,0 +1,32 @@
+量          census_cutX.txt census_cutY.txt
+n                    4000           4000   Δ+0
+worst              4.0481         4.2458   Δ+0.1977
+med                3.0947         3.0230   Δ-0.0717
+>3.4                 1005           1509   Δ+504
+>4.0                    8             47   Δ+39
+>4.4                    0              0   Δ+0
+B                      10             10   Δ+0
+Bworst             4.0481         4.2458   Δ+0.1977
+nb_best            3.9425         4.0858   Δ+0.1433
+
+非 B 族最好一条:
+  基线 3.9425  _160372_/QN -> _160405_/D
+  新树 4.0858  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> _157523_/D
+
+起点去重 top3:
+  基线 [('_155863_/QN', 3038), ('u_mem.u_dc.u_arr.lane_0/rd_out[270]', 928), ('_160372_/QN', 32)]
+  新树 [('_155286_/QN', 2834), ('u_mem.u_dc.u_arr.lane_1/rd_out[266]', 1039), ('_155282_/QN', 61)]
+
+新树最差 12 条:
+   4.2458  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_1/addr_in[1]
+   4.2458  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_0/addr_in[1]
+   4.1953  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_1/addr_in[2]
+   4.1953  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_0/addr_in[2]
+   4.1848  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_1/addr_in[3]
+   4.1848  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_0/addr_in[3]
+   4.1771  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_1/addr_in[0]
+   4.1771  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_0/addr_in[0]
+   4.1566  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_1/addr_in[4]
+   4.1566  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> u_mem.u_dc.u_arr.lane_0/addr_in[4]
+   4.0858  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> _157523_/D
+   4.0854  u_mem.u_dc.u_arr.lane_1/rd_out[266] -> _157522_/D
