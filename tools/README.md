@@ -159,6 +159,42 @@ tools/netattr.py runs/<id>/build/synth_<id>/opt _023593_     # 也可直接给�
 ⇒ 该字面量被折进了与/或项。④ 最近的下游触发器按 `src` 分组（答案可能很多：大云团 8 级内能碰到上千个，
 **只能当"附近是谁"读，不能当"终点是谁"**）。
 
+### `hopsrc.py` —— 一条路径**每一级**的反锥叶按 (src, 跳桶) 分解（2026-10-12 加）
+
+`path.py` 说哪一级贵、`netattr.py` 说叶子是谁，但**不分跳数** ⇒ 分不清"这一级刚出读口"还是
+"已经进比较树"。本工具给级清单里每一级输出网做带跳数的反向 BFS（跳数 = 到叶子触发器之间的组合门数）：
+
+```sh
+python3 tools/hopsrc.py <opt_dir> nets.txt      # nets.txt 每行一个实例名/网名
+```
+
+输出 `叶≤2跳:`（= 该级**直接吃**谁）与 `全部:`（前 6 个 (src,跳桶) 组）。
+**判据**：某级 ≤2 跳就有 PRF 叶 ⇒ 它才可能是"读口那一级"；叶子全在 5-8 跳 ⇒ 它只是云里的深处
+（§3.34 §2 就是靠这条把"前缀 = PRF 读 + 旁路 mux"读法划掉的）。
+
+### `fwd.py` —— 一颗网的**完整**下游消费者名单（延迟窗口审计用，2026-10-12 加）
+
+```sh
+python3 tools/fwd.py <opt_dir> <跳数> <网名或实例名>...
+```
+
+`netattr.py` 第 ④ 步只给前 6 组；广播网的审计要**全部**（§3.34 §7 的 830 / 1511 名单）。
+**判据**：这是"晚一拍谁跟着晚"的**候选面**，不是"必须同拍"的结论 —— 能不能晚要逐组读 RTL。
+
+### `arrive.tcl` —— 定点到达 / 前 N 条排行（2026-10-12 加）
+
+```sh
+ssh pc 'cat > /tmp/arrive.tcl' < tools/arrive.tcl
+ssh pc 'cd ~/cpu2026 && docker run --rm --cpus=2 \
+  -e CENSUS_DIR=/work/runs/<id>/build/synth_<id>/opt \
+  -e AR_FROM=_155618_/QN -e AR_PINS=_088847_/B -e AR_TO=_153594_/D -e AR_N=40 -e AR_FMT=summary \
+  -v /home/aud_xiejiaye/cpu2026:/work -v /tmp:/t:ro -w /work cpu2026:local sta /t/arrive.tcl'
+```
+
+`AR_FROM` = 族形（同一起点散到哪些终点、带内多宽）；`AR_PINS` 里的脚默认按 `-through` 报**定点到达**
+（该脚那一行的 Time）；列进 `AR_TO` 的按 `-to` 报**前 N 条**（"切掉头名后谁来"）。
+四条坑（cell 类型、`-to` 组合脚、`-endpoint_path_count` 默认 1、无 `sta::worst_arrival`）见 §2 坑 15。
+
 ### `census.tcl` —— 路径普查（**推翻"官方产物够用"的那一个**）
 
 官方 `scripts/timing.tcl` 的 `report_checks` **写死 `-group_path_count 5`** ⇒ 归档的
@@ -646,6 +682,18 @@ tools/vcd_branch.py /tmp/w.vcd
    两者都是**静默**的（RTL 每次 `rm -rf` 重取，所以"看起来是新的"）。现已改为：框架文件每次覆盖、
    `testcases/`＋`config.local.mk` 各自按存在性补齐。**判读口径**：`SWEEP <label>` 后面没有 6 个数字
    就是无效点，必须查 `/tmp/sweep_${ID}_perf.log` 的末尾，不能当成"跑过了"。
+
+15. **`report_checks -format summary` 的起点列会打错 cell 类型（2026-10-12 栽）。** 同一颗触发器，
+    `summary` 打 `DFFHQNx1`、官方 `critical_paths.json` 与 `mapped.v` 都打 `DFFASRHQNx1`（同步 vs 异步复位
+    是**两个不同的库单元**，看错就会把结论建在别的触发器上）。⇒ **cell 类型只从 `full_clock_expanded`
+    或官方 `critical_paths.json` 读；`summary` 只读 slack/起终点名**。配套三条：`-to <组合脚>` 一律
+    “No paths found”（组合脚不是 timing endpoint，要问它的到达就用 `-through <脚>`，报出来那一行的
+    Time 即到达）；`-endpoint_path_count` 默认 **1**（不给就只有一行）；OpenSTA 3.1 **没有**
+    `sta::worst_arrival`（`invalid command name`）。slack→arrival：`arrival = 3.333 − 0.05 − slack`。
+
+16. **`no src` ≠ "一定是 PRF"。** 坑 13 的 2048 是 PRF 阵列没错（连续段 + 变址切片写），但同一片无 src
+    区域里还有**载荷链**的触发器（§3.33 §4：P6 族 480 颗不是 PRF 写口）。**判据**：只有
+    ①连续段、②个数与 RTL 数组声明逐位相等（64×32 = 2048）、③变址切片写 三条同时成立才能叫 PRF。
 
 ## 3. 已被这套工具确诊的机制（当作"该怎么用"的例子）
 
