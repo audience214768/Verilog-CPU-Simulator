@@ -60,6 +60,8 @@ def main():
     art = Path(args.artifacts).resolve()
     if not (art / "timing.rpt").is_file():
         sys.exit(f"没有 timing.rpt: {art}")
+    # git 状态必须在落盘"之前"取: 新建归档目录会把自己变成 untracked, 再判必然脏
+    dirty = args.dirty if args.dirty is not None else ("yes" if sh("git", "status", "--porcelain") else "no")
     dest = Path(args.root) / args.tag
     dest.mkdir(parents=True, exist_ok=True)
     for name in KEEP:
@@ -85,8 +87,7 @@ def main():
     row = {
         "tag": args.tag, "date": date.today().isoformat(),
         "git_rev": args.rev or sh("git", "rev-parse", "--short", "HEAD"),
-        "git_dirty": args.dirty if args.dirty is not None
-        else ("yes" if sh("git", "status", "--porcelain") else "no"),
+        "git_dirty": dirty,
         "params": args.params, "filelist": args.filelist, "flow": args.flow,
         "area_um2": f"{ar['area_um2']:.3f}", "seq_area_um2": f"{ar['sequential_area_um2']:.3f}",
         "sram_area_um2": f"{ar['sram_area_um2']:.3f}",
