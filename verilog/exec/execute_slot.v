@@ -101,6 +101,7 @@ module execute_slot #(
     output [$clog2(LSQ_SIZE) - 1 : 0]         set_addr_idx, set_data_idx,
     output [31 : 0]                           set_addr_val, set_data_val,
     output                                    misp_det,
+    output                                    misp_det_b,  // 判决的**第二副本** (供上半机负载劈半; 值恒等)
     output [31 : 0]                           misp_red,
     output [$clog2(ROB_SIZE) - 1 : 0]         misp_fs,
     output [$clog2(RAS_SIZE) - 1 : 0]         misp_ras,
@@ -145,6 +146,14 @@ module execute_slot #(
     wire [TOTW - 1 : 0] sel_all_w;      // D 级输出 (AND-OR 归约结果)
     reg  [TOTW - 1 : 0] sel_all_q;      // Q 级寄存器: 选中条目的全部字段
     reg                 sel_valid_q_r;  // Q 级寄存器: 有效位
+    // ★ 源触发器的**副本** (值恒等于 sel_valid_q_r): 劈扇出负载用。
+    //   官方 ABC 不带 `-constr` ⇒ 不插缓冲/不做驱动强度优化, 于是判决广播网由一颗 X1 门驮着
+    //   上百个负载 (实测 `_088848_` 58.93 fF / 143 脚, 单级 572 ps)。劈法只能从**源触发器**下手:
+    //   组合网复制会被 `&fraig` 的 SAT 等价类并掉, 而两颗触发器是**两个不同的 PI** ⇒ 等价性不成立。
+    //   副本的 enable **必须引用自己的 Q** (q_freeze_b), 否则 `opt_merge`("同类型 + 输入信号完全相同")
+    //   会把它并回原寄存器 —— 实测: 无自反馈的复制 16→8 颗, 有自反馈 16 颗全存活 (玩具电路 + 官方脚本)。
+    reg                 sel_valid_q_r_b;
+    wire                q_freeze_b;     // 副本的冻结条件 (与 q_freeze 同式, 但吃自己的 Q —— 见上)
     genvar gd, gb, ge;
     generate
         // 索引 → one-hot (16 条, 每条只驱动一个条目的位宽)
@@ -181,14 +190,17 @@ module execute_slot #(
     assign sel_valid_q = sel_valid_q_r;
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sel_all_q     <= {TOTW{1'b0}};
-            sel_valid_q_r <= 1'b0;
+            sel_all_q       <= {TOTW{1'b0}};
+            sel_valid_q_r   <= 1'b0;
+            sel_valid_q_r_b <= 1'b0;
         end else if (flush_hit) begin
-            sel_all_q     <= {TOTW{1'b0}};
-            sel_valid_q_r <= 1'b0;
-        end else if (!q_freeze) begin
-            sel_all_q     <= sel_all_w;
-            sel_valid_q_r <= sel_valid;
+            sel_all_q       <= {TOTW{1'b0}};
+            sel_valid_q_r   <= 1'b0;
+            sel_valid_q_r_b <= 1'b0;
+        end else begin
+            if (!q_freeze)   sel_valid_q_r   <= sel_valid;
+            if (!q_freeze_b) sel_valid_q_r_b <= sel_valid;
+            if (!q_freeze)   sel_all_q       <= sel_all_w;
         end
     end
 
@@ -230,6 +242,7 @@ module execute_slot #(
     // q_freeze 的两个成因: 冲刷窗口 (不放新指令进执行级, 否则它会逃过 rs 失效掩码) 与
     // div 没被收下 (条目在入选那拍已清 ⇒ 只能扣寄存器; 不扣就丢掉这一发 ⇒ 永不执行)。
     assign q_freeze   = flush_win || (sel_valid_q_r && is_div && !div_accept);
+    assign q_freeze_b = flush_win || (sel_valid_q_r_b && is_div && !div_accept);
     //   (端口 q_freeze/q_rob_tag 的声明在端口表; 赋值只能在这里 —— 依赖 is_div 与 rob_tag)
     // pipe_stall 是给 cpu_top 用的 **rs_clear 放过条件**, 比 q_freeze 多一个 flush_hit:
     // 误预测当拍 D 级选中的那条本拍**没有**进执行级 (寄存器被清), 所以它的条目绝不能清 ——
@@ -367,6 +380,9 @@ module execute_slot #(
     // ---- B4 误预测检测 (汇出链在 cpu_top) ----
     assign misp_det = sel_valid_q_r && ((is_branch && (br_taken != pred_taken))
                                      || (is_jalr && (br_target != pred_target)));
+    // 第二副本: 只换源触发器, **比较链共用** (它不依赖 sel_valid, 本来就不该被复制)
+    assign misp_det_b = sel_valid_q_r_b && ((is_branch && (br_taken != pred_taken))
+                                         || (is_jalr && (br_target != pred_target)));
     assign misp_red = misp_det ? br_target : 32'd0;
     assign misp_fs  = misp_det ? rob_tag  : {RW{1'b0}};
     assign misp_ras = misp_det ? ras_snap : {RA{1'b0}};

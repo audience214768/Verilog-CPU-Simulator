@@ -85,6 +85,7 @@ module cpu_top #(
     wire [(ISSUE_WIDTH + 1) * LSQ_SIZE - 1 : 0] inv_c;        // one-hot 掩码累加链 (commit invalidate)
     // execute_slot 输出 (每槽) + misp 汇出链 (最老优先前缀 OR)
     wire [ISSUE_WIDTH - 1 : 0]        misp_det_w;
+    wire [ISSUE_WIDTH - 1 : 0]        misp_det_b_w;   // 判决第二副本 (负载劈半用; 值恒等于 misp_det_w)
     wire [ISSUE_WIDTH * 32 - 1 : 0]   misp_red_w;
     wire [ISSUE_WIDTH * RW - 1 : 0]   misp_fs_pay_w;
     wire [ISSUE_WIDTH * RA - 1 : 0]   misp_ras_pay_w;
@@ -116,6 +117,12 @@ module cpu_top #(
     wire [ISSUE_WIDTH * RA - 1 : 0] f2i_ras_snap;
     wire fetch_stall;
     wire misp_valid;
+    // ---- 判决广播的**负载劈半** (② 干道税) ----
+    // 记录路 (重定向 → fetch) 独占副本 A, 其余**全机冲刷/提交束**改读副本 B:
+    // 官方 ABC 不插缓冲 ⇒ 判决网由一颗 X1 门驮上百负载 (58.93 fF / 143 脚), 单级 572 ps,
+    // 还给下游留 521/858/955 ps 的坏沿。两个源触发器 = 两个不同 PI ⇒ 共享子式 (分支比较链)
+    // 仍共用、而它下游的整片束**各自成锥**, 各驮一半负载。语义: 两个副本恒等 (见 execute_slot)。
+    wire misp_valid_b;
     wire [31 : 0] redirect_pc_w;
     wire [ISSUE_WIDTH - 1 : 0]    upd_req_w;
     wire [ISSUE_WIDTH * BW - 1 : 0] upd_idx_w;
@@ -126,7 +133,7 @@ module cpu_top #(
         .f2i_pred_taken(f2i_pred_taken), .f2i_pred_target(f2i_pred_target),
         .f2i_ras_snap(f2i_ras_snap), .imem_addr(imem_addr),
         .bht_upd_req(upd_req_w), .bht_upd_idx(upd_idx_w), .bht_upd_taken(upd_taken_w),
-        .ras_restore_valid(misp_valid), .ras_restore_head(misp_ras_w),
+        .ras_restore_valid(misp_valid_b), .ras_restore_head(misp_ras_w),
         .inst_data(inst_data), .imem_valid(imem_valid), .imem_hit(imem_hit),
         .imem_direct(imem_direct), .stall(fetch_stall),
         .redirect_valid(misp_valid), .redirect_pc(redirect_pc_w), .halt(halt_q_r)
@@ -443,7 +450,7 @@ module cpu_top #(
     // 当拍新误预测是否比已注册的冲刷点更老 (冲刷中才可能为真: 更老的条目在 walker 期间才执行)
     wire misp_older_w = (misp_fs_w - rob_head_w) < (flush_fs_r - rob_head_w);
     // fs_eff = 当前生效冲刷点 (中途新误预测更老 → 取新); 无 flush 时组合为 misp_fs, 仅 walker 用 (flushing_r 门控)
-    assign fs_eff_w = flushing_r ? ((misp_valid && misp_older_w) ? misp_fs_w : flush_fs_r)
+    assign fs_eff_w = flushing_r ? ((misp_valid_b && misp_older_w) ? misp_fs_w : flush_fs_r)
  : misp_fs_w;
     assign rem_w    = walk_ptr_r - fs_eff_w;   // 待回滚条数 (fs+1..walk_ptr]
     assign walk_done = flushing_r && (rem_w <= ROLLBACK_WIDTH);
@@ -519,13 +526,14 @@ module cpu_top #(
     // ⇒ 停机锁存永不置位。W=1 每批至多 1 条 ⇒ 该缺陷不可见。
     wire resources_ok = (rob_free_w >= n_valid) && (rs_free_w >= ISSUE_WIDTH)
                      && (fl_count >= n_wr) && (lsq_free_w >= n_mem);
-    wire issue_en = have_batch && !misp_valid && !flushing_r && resources_ok;
+    wire issue_en = have_batch && !misp_valid_b && !flushing_r && resources_ok;
 
     // ---- 误预测汇出 (B4) ----
     wire [ISSUE_WIDTH * 32 - 1 : 0] redirect_c;
     wire [ISSUE_WIDTH * RW - 1 : 0] misp_fs_c;
     wire [ISSUE_WIDTH * RA - 1 : 0] misp_ras_c;
-    assign misp_valid = |misp_det_w;
+    assign misp_valid   = |misp_det_w;         // 副本 A: 记录路 (重定向) 专用
+    assign misp_valid_b = |misp_det_b_w;       // 副本 B: 冲刷/提交束 (见上)
     assign redirect_pc_w = redirect_c[(ISSUE_WIDTH - 1) * 32 +: 32];
     assign misp_fs_w     = misp_fs_c[(ISSUE_WIDTH - 1) * RW +: RW];
     assign misp_ras_w    = misp_ras_c[(ISSUE_WIDTH - 1) * RA +: RA];
@@ -644,7 +652,7 @@ module cpu_top #(
             // 只等于"不放新指令进来", 与旧行为一致 (旧行为对这类槽本就安全)。
             wire              q_freeze_s;
             wire [RW - 1 : 0] q_rob_tag_s;
-            wire              flush_hit_s = misp_valid
+            wire              flush_hit_s = misp_valid_b
                 && (!q_freeze_s || ((q_rob_tag_s - rob_head_w) >= (fs_eff_w - rob_head_w)));
 
             // ===== execute_slot 实例 (B3 字段取 / B1 旁路 / alu+branch / CDB 广播 / 访存 / B4 检测) =====
@@ -675,7 +683,8 @@ module cpu_top #(
                 .set_addr_val(set_addr_val[s * 32 +: 32]),
                 .set_data_req(set_data_req[s]), .set_data_idx(set_data_idx[s * LW +: LW]),
                 .set_data_val(set_data_val[s * 32 +: 32]),
-                .misp_det(misp_det_w[s]), .misp_red(misp_red_w[s * 32 +: 32]),
+                .misp_det(misp_det_w[s]), .misp_det_b(misp_det_b_w[s]),
+                .misp_red(misp_red_w[s * 32 +: 32]),
                 .misp_fs(misp_fs_pay_w[s * RW +: RW]), .misp_ras(misp_ras_pay_w[s * RA +: RA]),
                 .br_inc(br_inc_w[s]),
                 .sel_valid_q(sel_valid_q[s]), .pipe_stall(pipe_stall_w[s]),
@@ -755,7 +764,7 @@ module cpu_top #(
     // ---- 冲刷动作 (B4): rob 截断 + fetch 重定向 + ras 恢复 (bht 更新在 slt 内) ----
     // 冲刷中只接受"更老"的新误预测: 否则会按更新的条目截断 rob, 把 walker 正在回滚的窗口重新撑大
     // (那些错路条目不再被 walker 回滚, 却留在窗口内 → 可能被提交)
-    assign set_last_valid = misp_valid && (!flushing_r || misp_older_w);
+    assign set_last_valid = misp_valid_b && (!flushing_r || misp_older_w);
     // +1: rob 的 last 是"空槽位"语义, 存活窗口是 [head, last) ⇒ set_last = fs 会把误预测的那条
     // 自己也丢掉。而误预测只说明"它后面取的那串是错路", 它本身是必须提交的有效指令 ——
     // 丢了它, jalr 写 rd 的副作用就没了 (官方题集用 jalr ra,off(ra) 做调用 ⇒ 返回地址丢失 ⇒ 死循环),
@@ -788,7 +797,7 @@ module cpu_top #(
     // 且 walker 可能只走一拍 —— 那时掩码对"已不在 rs 里"的在飞 div 已无从下手。
     // age 用 (tag - rob_head) 自然回绕比较: 在飞 div 必然未提交 (READY 未置), 故 age ∈ [0, ROB_SIZE)。
     // 被杀的 div 不产生 done_valid, 也永远不会写 PRF/置 ready ⇒ 年龄比较不会越界。
-    assign div_kill = (misp_valid || flushing_r)
+    assign div_kill = (misp_valid_b || flushing_r)
                    && ((div_fly_rob_tag - rob_head_w) > (fs_eff_w - rob_head_w));
 
     // ==================== 5. 提交 (B6) ====================
@@ -865,7 +874,7 @@ module cpu_top #(
             if (c == 0) begin : ce0
                 // misp 拍禁提交: rob 内 set_last 优先于 set_head (head 不前进), 但提交副作用
                 // (free_list 回收 / RAT arch / 计数) 已发生 → 同一条目会再提交一次, free_list 出重
-                assign ce_w[0] = !flushing_r && !misp_valid && cmt_in_win && cmt_rdy
+                assign ce_w[0] = !flushing_r && !misp_valid_b && cmt_in_win && cmt_rdy
                                  && sw_ok_w;      // c==0: cmt_in_win ≡ !rob_empty (占用量 >= 1)
             end else begin : cen
                 assign ce_w[c] = ce_w[c - 1] && !is_store_w[c - 1] && cmt_in_win && cmt_rdy
