@@ -9,7 +9,7 @@
 |---|---|
 | 频率 / 面积（**判分数**） | 容器 `cpu2026:local`（yosys 0.63 + ASAP7 **r28**）跑官方 `make synth`（**不带 `-constr`**） |
 | 全设计扇出 / 路径普查（**可当判据**） | 判分产物的 `mapped.v` + `design.json`（`tools/bombs.py`）；容器 OpenSTA（`tools/census.tcl`） |
-| RTL 名字归因（哪个信号、哪段 RTL） | **同版本**容器的 pre-ABC 网表（`pre_abc2.ys` 重放，见 §1 `bombs.py`） |
+| RTL 名字归因（哪个信号、哪段 RTL） | **同版本**容器的 pre-ABC 网表（`preabc_official.ys.tpl` 重放，见 §1） |
 
 **`-constr` 不是判分口径**（2026-10-09 订正）：`docs/description.md` §5 的评测走官方 `make synth`，
 ABC **没有** `set_driving_cell` / `set_load` ⇒ 不 buffer、不 upsize，**一个网的负载数就是它的延时**。
@@ -46,6 +46,27 @@ RTL 的提交流逐条比，一次就定位到 hanoi 的第一条错值。
 官方 `scripts/synth.py` 跑完 `abc` 之后所有 RTL 名字都没了（只剩 `_NNNNN_`），于是
 "关键路径上那个 637 扇出的网到底是哪段 RTL"没法从判分产物里读出来。本脚本用同一套
 read/synth 序列在 `abc` 之前把网表写出来，名字还在。
+
+**⚠ 它的产物已判不可信**（见 §0：宿主 0.68）。要名字请用下面的官方截断模板。
+
+### `preabc_official.ys.tpl` —— **官方 pass-1 截断在 `abc` 之前**（2026-10-12 加，**归因用的正路**）
+
+```sh
+ssh pc 'sed -e "s|__OPT__|/work/build/synth_<id>/opt|g" -e "s|__OUT__|/t/preabc_<id>.v|g" \
+         /t/preabc_official.ys.tpl > /t/pre.ys'
+ssh pc 'docker run --rm --cpus=2 -v /home/aud_xiejiaye/cpu2026/runs/<id>:/work -v /tmp/fwdtool:/t:ro \
+         -w /work cpu2026:local yosys -Q -T -s /t/pre.ys'
+scp pc:/t/preabc_<id>.v /tmp/fwdtool/
+```
+
+**它是模板不是脚本**（`__OPT__` / `__OUT__` 两个占位符），逐行等于 `scripts/synth.py` 的 pass-1
+**去掉 `abc` 及其之后**：`abc` 之后的 `clean/delete $scopeinfo/hilomap/write_json` 都要求"已映射"，
+在 `abc` 前跑会直接报错。产物 **15.8 MB（cutW）/ 名字保留 / 单元是 `$_MUX_` 级的 pre-ABC 网**，
+配 `tools/seqcone.py` 回答"这条路径依赖哪些 RTL 信号"（`docs/plan.md` §3.36 就是它的产出）。
+
+**与 `mapped.v` 的分工**：`mapped.v` 是**判分产物侧**（扇出/延时数从它读，`bombs.py`/`loadtax.py` 用它）；
+pre-ABC 网表**只在"名字 → 结构"这一类问题上用**（ABC 匿名名 `_083533_` 与 RTL 无对应关系）。
+**两边的数字绝不可互算**（重解前后是两张不同的网表）。
 
 ### `loadtax.py` —— 从 `mapped.v` 量**全网负载税**（与 ABC 无关的结构量）
 
@@ -250,6 +271,24 @@ tools/cone.py runs/<id>/build/synth_<id>/opt --path 0          # 第 0 条路径
 （到最近上游触发器的级数，那些触发器的模块），再把路径逐级打出来。
 **限制**：标签取的是**最近**的边界，一个门只要有任一输入来自某模块的触发器就被标成那个模块 ——
 它回答"这段逻辑贴着谁的寄存器"，**不**回答"这条路径穿过了谁"。要模块级**确定**归因只能 `MODE=diagnose`。
+
+### `seqcone.py` —— pre-ABC 网表上的**时序等效组合锥** + 成员查询（2026-10-12 加）
+
+```sh
+python3 tools/seqcone.py /tmp/fwdtool/preabc_cutW.v '\u_mem.u_dc.u_arr.addr [0]' \
+        '\u_mem.u_dc.rmw_rd_w' '\u_mem.u_dc.u_arr.rdata [557]' --bounds 6 --named 20
+```
+
+输入 = `preabc_official.ys.tpl` 的产物（**名字保留**）。回答两件事：
+**① 这颗终点依赖哪些 RTL 信号**（含跳数 d）；**② 锥的规模与边界族**（边界 = 顺序单元输出网 + 无驱动网）。
+`--bounds N` 打边界族（名字去位下标后聚合）、`--named N` 打锥内的 RTL 具名网。
+
+**为什么不能拿 `mapped.v` 代替**：ABC 是全局重分解，post-ABC 的 `_083533_` 与 RTL 没有任何对应关系，
+"锥里有没有 X"在 post-ABC 上问不出来。**用途实例**：`docs/plan.md` §3.36 用它判 B 族（dcache 宏读出口 →
+宏地址脚）**是真实 RTL 通路**（`u_arr.addr[0]` 的锥 4817 网，含 `rmw_rd_w` d=4 … 宏 tag 位 d=19/24）。
+
+**两个必须知道的坑见 §2 坑 17/18**（`S` 选择端当输出、宏输出是拼接）—— 都在这一个脚本里修好了，
+但**别照抄别的工具里的老写法**（`tools/cone.py` 的 `OUT_PINS` 不含 `S`，所以它是安全的）。
 
 ### `bombs.py` —— 官方流程的"热网 → RTL"归因（**判分产物上直接跑**）
 
@@ -694,6 +733,22 @@ tools/vcd_branch.py /tmp/w.vcd
 16. **`no src` ≠ "一定是 PRF"。** 坑 13 的 2048 是 PRF 阵列没错（连续段 + 变址切片写），但同一片无 src
     区域里还有**载荷链**的触发器（§3.33 §4：P6 族 480 颗不是 PRF 写口）。**判据**：只有
     ①连续段、②个数与 RTL 数组声明逐位相等（64×32 = 2048）、③变址切片写 三条同时成立才能叫 PRF。
+
+17. **锥 BFS 的输出脚必须按 cell 类型判：`$_MUX_` 的 `S` 是选择端（输入）**（2026-10-12 栽，plan §3.36）。
+    如果在输出脚集合里放一个通用的 `S`，**所有 mux 的选择脚都会被当出口而跳过** ⇒ 锥被严重低估，
+    并且会得出**符号相反的结论**（实测同一次查询："52 网 / 目标不可达 / 锥里没有 `rmw_rd_w`"，
+    而网表里白纸黑字 `\$_MUX_ _139803_ (.A(...), .B(...), .S(\u_mem.u_dc.rmw_rd_w ), .Y(...))`）。
+    正确写法 = `tools/seqcone.py` 的 `outs()`：`rd_out`（宏）> `Y` > `Q/QN` > `S/CO/SO/CON/SN/H/L`（加法器/其余）
+    按类型取。**审计过的安全者**：`tools/cone.py` 的 `OUT_PINS = ('Y','Q','QN')` 不含 `S`
+    ⇒ 仓库里历史结论（§3.19/§3.24/§3.26/§3.33 等）不受影响。
+
+18. **宏的输出引脚常是拼接，必须拆开登记驱动者**（同上，2026-10-12 栽）。pre-ABC 网表里：
+    `fakeram_asap7_32x288 \u_mem.u_dc.u_arr.lane_1 (.rd_out({ \u_mem.u_dc.u_arr.rdata [575:554], \u_mem.u_dc.rdata_w [553:288] }), …)`。
+    只登记整串 ⇒ 那 44 个 tag/valid 位（两条 lane 各 22 位）看起来"无驱动"，锥的边界族里混进 44 个假主输入
+    （**锥规模不变**，因为宏本来就是截断边界 —— 变的是**边界归谁**，而这正是要读的量）。
+    配套两条：① 位段形 `x [287:266]` 用**基名兜底**匹配单比特查询；② **bit 归属要按位算**，
+    上例 `rd_out[269]` = 上段第 3 位 = `u_arr.rdata[554+3] = u_arr.rdata[557]`，**不是** `rdata_w[557]`
+    （`rdata_w` 在这个网表里最大只到 `[553]`，写错会得到"网表里没有这颗网"）。
 
 ## 3. 已被这套工具确诊的机制（当作"该怎么用"的例子）
 
