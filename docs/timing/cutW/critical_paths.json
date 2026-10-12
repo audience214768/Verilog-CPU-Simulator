@@ -1,0 +1,5195 @@
+{"checks": [
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+  "endpoint": "u_mem.u_dc.u_arr.lane_0/addr_in[0]",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "capacitance": 4.362e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/B",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "slew": 6.667e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/Y",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "capacitance": 9.109e-16,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/B",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/Y",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "capacitance": 4.796e-16,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/C",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/Y",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "capacitance": 4.687e-16,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/C",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/Y",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "capacitance": 5.097e-16,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/A",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/Y",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "capacitance": 5.533e-16,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/C",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/Y",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "capacitance": 7.666e-16,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/B",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/Y",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "capacitance": 2.725e-15,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/A1",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/Y",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "capacitance": 1.122e-15,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/D",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/Y",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "capacitance": 1.495e-15,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/A",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/Y",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "capacitance": 3.142e-14,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/B",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/Y",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "capacitance": 2.453e-15,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/A",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/Y",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "capacitance": 2.498e-14,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/C",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/Y",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "capacitance": 9.853e-16,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/B",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/Y",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "capacitance": 3.870e-15,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/A",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/Y",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "capacitance": 2.004e-14,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/A2",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/Y",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "capacitance": 4.649e-16,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/B",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/Y",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "capacitance": 4.077e-16,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/B",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/Y",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "capacitance": 3.814e-16,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/B1",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/Y",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "capacitance": 3.467e-16,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/B",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/Y",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/B",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/Y",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "capacitance": 8.977e-16,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/C",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/Y",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "capacitance": 4.362e-15,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/B",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/Y",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "capacitance": 4.655e-16,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/B",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/Y",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "capacitance": 4.831e-16,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/A1",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/Y",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "capacitance": 1.455e-15,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/B",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/Y",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "capacitance": 1.771e-15,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/A",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/Y",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "capacitance": 4.420e-14,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/A2",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/Y",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "capacitance": 7.414e-15,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/A2",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/Y",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "capacitance": 4.741e-16,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/C",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/Y",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "capacitance": 4.591e-16,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/C",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/Y",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "capacitance": 4.687e-16,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/D",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/Y",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "capacitance": 5.105e-16,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/A",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/Y",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "capacitance": 4.316e-16,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/B2",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/Y",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "capacitance": 4.697e-16,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/B",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/Y",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "capacitance": 1.027e-15,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/A",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/Y",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "capacitance": 4.241e-16,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/A2",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/Y",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "capacitance": 2.637e-15,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/B",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/Y",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "capacitance": 1.783e-14,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/B",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/Y",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "capacitance": 1.624e-14,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/A3",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/Y",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "capacitance": 3.256e-14,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/B",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/Y",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "capacitance": 1.025e-15,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/A",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/Y",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "capacitance": 2.294e-14,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089498_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089498_/A",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089498_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089498_/Y",
+      "net": "_030197_",
+      "arrival": 4.122e-09,
+      "capacitance": 8.530e-16,
+      "slew": 2.635e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/A",
+      "net": "_030197_",
+      "arrival": 4.122e-09,
+      "slew": 2.635e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/Y",
+      "net": "_030209_",
+      "arrival": 4.246e-09,
+      "capacitance": 1.359e-14,
+      "slew": 2.430e-10
+    },
+    {
+      "instance": "_123410_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123410_/B",
+      "net": "_030209_",
+      "arrival": 4.246e-09,
+      "slew": 2.430e-10
+    },
+    {
+      "instance": "_123410_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123410_/Y",
+      "net": "_061059_",
+      "arrival": 4.293e-09,
+      "capacitance": 4.784e-16,
+      "slew": 5.551e-11
+    },
+    {
+      "instance": "_123411_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123411_/B2",
+      "net": "_061059_",
+      "arrival": 4.293e-09,
+      "slew": 5.551e-11
+    },
+    {
+      "instance": "_123411_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123411_/Y",
+      "net": "_061060_",
+      "arrival": 4.316e-09,
+      "capacitance": 4.077e-16,
+      "slew": 5.090e-11
+    },
+    {
+      "instance": "_123412_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123412_/B",
+      "net": "_061060_",
+      "arrival": 4.316e-09,
+      "slew": 5.090e-11
+    },
+    {
+      "instance": "_123412_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123412_/Y",
+      "net": "_061061_",
+      "arrival": 4.335e-09,
+      "capacitance": 3.466e-16,
+      "slew": 4.382e-11
+    },
+    {
+      "instance": "_123413_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123413_/B",
+      "net": "_061061_",
+      "arrival": 4.335e-09,
+      "slew": 4.382e-11
+    },
+    {
+      "instance": "_123413_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123413_/Y",
+      "net": "_061062_",
+      "arrival": 4.352e-09,
+      "capacitance": 3.970e-16,
+      "slew": 3.753e-11
+    },
+    {
+      "instance": "_123415_",
+      "cell": "AOI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123415_/B1",
+      "net": "_061062_",
+      "arrival": 4.352e-09,
+      "slew": 3.753e-11
+    },
+    {
+      "instance": "_123415_",
+      "cell": "AOI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123415_/Y",
+      "net": "u_mem.u_dc.rd_addr_w[5]",
+      "arrival": 4.382e-09,
+      "capacitance": 9.105e-16,
+      "slew": 4.153e-11
+    },
+    {
+      "instance": "_123511_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123511_/B",
+      "net": "u_mem.u_dc.rd_addr_w[5]",
+      "arrival": 4.382e-09,
+      "slew": 4.153e-11
+    },
+    {
+      "instance": "_123511_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123511_/Y",
+      "net": "_061120_",
+      "arrival": 4.401e-09,
+      "capacitance": 3.809e-16,
+      "slew": 3.769e-11
+    },
+    {
+      "instance": "_123513_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123513_/B1",
+      "net": "_061120_",
+      "arrival": 4.401e-09,
+      "slew": 3.769e-11
+    },
+    {
+      "instance": "_123513_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123513_/Y",
+      "net": "u_mem.u_dc.u_arr.addr[0]",
+      "arrival": 4.535e-09,
+      "capacitance": 1.000e-14,
+      "slew": 2.799e-10
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/addr_in[0]",
+      "net": "u_mem.u_dc.u_arr.addr[0]",
+      "arrival": 4.535e-09,
+      "slew": 2.099e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 4.535e-09,
+  "crpr": 0.000e+00,
+  "margin": 5.000e-11,
+  "required_time": 1.900e-09,
+  "slack": -2.635e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+  "endpoint": "u_mem.u_dc.u_arr.lane_1/addr_in[0]",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "capacitance": 4.362e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/B",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "slew": 6.667e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/Y",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "capacitance": 9.109e-16,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/B",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/Y",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "capacitance": 4.796e-16,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/C",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/Y",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "capacitance": 4.687e-16,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/C",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/Y",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "capacitance": 5.097e-16,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/A",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/Y",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "capacitance": 5.533e-16,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/C",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/Y",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "capacitance": 7.666e-16,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/B",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/Y",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "capacitance": 2.725e-15,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/A1",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/Y",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "capacitance": 1.122e-15,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/D",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/Y",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "capacitance": 1.495e-15,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/A",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/Y",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "capacitance": 3.142e-14,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/B",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/Y",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "capacitance": 2.453e-15,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/A",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/Y",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "capacitance": 2.498e-14,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/C",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/Y",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "capacitance": 9.853e-16,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/B",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/Y",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "capacitance": 3.870e-15,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/A",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/Y",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "capacitance": 2.004e-14,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/A2",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/Y",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "capacitance": 4.649e-16,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/B",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/Y",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "capacitance": 4.077e-16,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/B",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/Y",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "capacitance": 3.814e-16,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/B1",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/Y",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "capacitance": 3.467e-16,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/B",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/Y",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/B",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/Y",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "capacitance": 8.977e-16,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/C",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/Y",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "capacitance": 4.362e-15,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/B",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/Y",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "capacitance": 4.655e-16,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/B",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/Y",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "capacitance": 4.831e-16,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/A1",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/Y",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "capacitance": 1.455e-15,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/B",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/Y",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "capacitance": 1.771e-15,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/A",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/Y",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "capacitance": 4.420e-14,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/A2",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/Y",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "capacitance": 7.414e-15,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/A2",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/Y",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "capacitance": 4.741e-16,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/C",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/Y",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "capacitance": 4.591e-16,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/C",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/Y",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "capacitance": 4.687e-16,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/D",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/Y",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "capacitance": 5.105e-16,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/A",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/Y",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "capacitance": 4.316e-16,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/B2",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/Y",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "capacitance": 4.697e-16,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/B",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/Y",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "capacitance": 1.027e-15,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/A",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/Y",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "capacitance": 4.241e-16,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/A2",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/Y",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "capacitance": 2.637e-15,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/B",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/Y",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "capacitance": 1.783e-14,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/B",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/Y",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "capacitance": 1.624e-14,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/A3",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/Y",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "capacitance": 3.256e-14,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/B",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/Y",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "capacitance": 1.025e-15,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/A",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/Y",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "capacitance": 2.294e-14,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089498_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089498_/A",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089498_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089498_/Y",
+      "net": "_030197_",
+      "arrival": 4.122e-09,
+      "capacitance": 8.530e-16,
+      "slew": 2.635e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/A",
+      "net": "_030197_",
+      "arrival": 4.122e-09,
+      "slew": 2.635e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/Y",
+      "net": "_030209_",
+      "arrival": 4.246e-09,
+      "capacitance": 1.359e-14,
+      "slew": 2.430e-10
+    },
+    {
+      "instance": "_123410_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123410_/B",
+      "net": "_030209_",
+      "arrival": 4.246e-09,
+      "slew": 2.430e-10
+    },
+    {
+      "instance": "_123410_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123410_/Y",
+      "net": "_061059_",
+      "arrival": 4.293e-09,
+      "capacitance": 4.784e-16,
+      "slew": 5.551e-11
+    },
+    {
+      "instance": "_123411_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123411_/B2",
+      "net": "_061059_",
+      "arrival": 4.293e-09,
+      "slew": 5.551e-11
+    },
+    {
+      "instance": "_123411_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123411_/Y",
+      "net": "_061060_",
+      "arrival": 4.316e-09,
+      "capacitance": 4.077e-16,
+      "slew": 5.090e-11
+    },
+    {
+      "instance": "_123412_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123412_/B",
+      "net": "_061060_",
+      "arrival": 4.316e-09,
+      "slew": 5.090e-11
+    },
+    {
+      "instance": "_123412_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123412_/Y",
+      "net": "_061061_",
+      "arrival": 4.335e-09,
+      "capacitance": 3.466e-16,
+      "slew": 4.382e-11
+    },
+    {
+      "instance": "_123413_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123413_/B",
+      "net": "_061061_",
+      "arrival": 4.335e-09,
+      "slew": 4.382e-11
+    },
+    {
+      "instance": "_123413_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123413_/Y",
+      "net": "_061062_",
+      "arrival": 4.352e-09,
+      "capacitance": 3.970e-16,
+      "slew": 3.753e-11
+    },
+    {
+      "instance": "_123415_",
+      "cell": "AOI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123415_/B1",
+      "net": "_061062_",
+      "arrival": 4.352e-09,
+      "slew": 3.753e-11
+    },
+    {
+      "instance": "_123415_",
+      "cell": "AOI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123415_/Y",
+      "net": "u_mem.u_dc.rd_addr_w[5]",
+      "arrival": 4.382e-09,
+      "capacitance": 9.105e-16,
+      "slew": 4.153e-11
+    },
+    {
+      "instance": "_123511_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123511_/B",
+      "net": "u_mem.u_dc.rd_addr_w[5]",
+      "arrival": 4.382e-09,
+      "slew": 4.153e-11
+    },
+    {
+      "instance": "_123511_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123511_/Y",
+      "net": "_061120_",
+      "arrival": 4.401e-09,
+      "capacitance": 3.809e-16,
+      "slew": 3.769e-11
+    },
+    {
+      "instance": "_123513_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123513_/B1",
+      "net": "_061120_",
+      "arrival": 4.401e-09,
+      "slew": 3.769e-11
+    },
+    {
+      "instance": "_123513_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123513_/Y",
+      "net": "u_mem.u_dc.u_arr.addr[0]",
+      "arrival": 4.535e-09,
+      "capacitance": 1.000e-14,
+      "slew": 2.799e-10
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/addr_in[0]",
+      "net": "u_mem.u_dc.u_arr.addr[0]",
+      "arrival": 4.535e-09,
+      "slew": 2.099e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 4.535e-09,
+  "crpr": 0.000e+00,
+  "margin": 5.000e-11,
+  "required_time": 1.900e-09,
+  "slack": -2.635e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+  "endpoint": "u_mem.u_dc.u_arr.lane_0/addr_in[2]",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "capacitance": 4.362e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/B",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "slew": 6.667e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/Y",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "capacitance": 9.109e-16,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/B",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/Y",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "capacitance": 4.796e-16,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/C",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/Y",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "capacitance": 4.687e-16,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/C",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/Y",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "capacitance": 5.097e-16,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/A",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/Y",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "capacitance": 5.533e-16,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/C",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/Y",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "capacitance": 7.666e-16,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/B",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/Y",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "capacitance": 2.725e-15,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/A1",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/Y",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "capacitance": 1.122e-15,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/D",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/Y",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "capacitance": 1.495e-15,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/A",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/Y",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "capacitance": 3.142e-14,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/B",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/Y",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "capacitance": 2.453e-15,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/A",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/Y",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "capacitance": 2.498e-14,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/C",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/Y",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "capacitance": 9.853e-16,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/B",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/Y",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "capacitance": 3.870e-15,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/A",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/Y",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "capacitance": 2.004e-14,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/A2",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/Y",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "capacitance": 4.649e-16,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/B",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/Y",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "capacitance": 4.077e-16,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/B",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/Y",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "capacitance": 3.814e-16,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/B1",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/Y",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "capacitance": 3.467e-16,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/B",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/Y",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/B",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/Y",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "capacitance": 8.977e-16,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/C",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/Y",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "capacitance": 4.362e-15,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/B",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/Y",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "capacitance": 4.655e-16,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/B",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/Y",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "capacitance": 4.831e-16,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/A1",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/Y",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "capacitance": 1.455e-15,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/B",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/Y",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "capacitance": 1.771e-15,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/A",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/Y",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "capacitance": 4.420e-14,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/A2",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/Y",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "capacitance": 7.414e-15,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/A2",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/Y",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "capacitance": 4.741e-16,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/C",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/Y",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "capacitance": 4.591e-16,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/C",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/Y",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "capacitance": 4.687e-16,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/D",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/Y",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "capacitance": 5.105e-16,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/A",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/Y",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "capacitance": 4.316e-16,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/B2",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/Y",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "capacitance": 4.697e-16,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/B",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/Y",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "capacitance": 1.027e-15,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/A",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/Y",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "capacitance": 4.241e-16,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/A2",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/Y",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "capacitance": 2.637e-15,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/B",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/Y",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "capacitance": 1.783e-14,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/B",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/Y",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "capacitance": 1.624e-14,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/A3",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/Y",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "capacitance": 3.256e-14,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/B",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/Y",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "capacitance": 1.025e-15,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/A",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/Y",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "capacitance": 2.294e-14,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/A",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/Y",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "capacitance": 3.318e-15,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089504_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089504_/B",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089504_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089504_/Y",
+      "net": "_030202_",
+      "arrival": 4.211e-09,
+      "capacitance": 3.457e-15,
+      "slew": 9.704e-11
+    },
+    {
+      "instance": "_089513_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089513_/A",
+      "net": "_030202_",
+      "arrival": 4.211e-09,
+      "slew": 9.704e-11
+    },
+    {
+      "instance": "_089513_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089513_/Y",
+      "net": "_030208_",
+      "arrival": 4.310e-09,
+      "capacitance": 6.077e-15,
+      "slew": 1.356e-10
+    },
+    {
+      "instance": "_123399_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123399_/A1",
+      "net": "_030208_",
+      "arrival": 4.310e-09,
+      "slew": 1.356e-10
+    },
+    {
+      "instance": "_123399_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123399_/Y",
+      "net": "_061050_",
+      "arrival": 4.343e-09,
+      "capacitance": 5.516e-16,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123400_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123400_/B",
+      "net": "_061050_",
+      "arrival": 4.343e-09,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123400_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123400_/Y",
+      "net": "_061051_",
+      "arrival": 4.364e-09,
+      "capacitance": 5.002e-16,
+      "slew": 5.218e-11
+    },
+    {
+      "instance": "_123402_",
+      "cell": "OA22x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123402_/B1",
+      "net": "_061051_",
+      "arrival": 4.364e-09,
+      "slew": 5.218e-11
+    },
+    {
+      "instance": "_123402_",
+      "cell": "OA22x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123402_/Y",
+      "net": "u_mem.u_dc.rd_addr_w[7]",
+      "arrival": 4.400e-09,
+      "capacitance": 1.075e-15,
+      "slew": 1.453e-11
+    },
+    {
+      "instance": "_123506_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123506_/A2",
+      "net": "u_mem.u_dc.rd_addr_w[7]",
+      "arrival": 4.400e-09,
+      "slew": 1.453e-11
+    },
+    {
+      "instance": "_123506_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123506_/Y",
+      "net": "_061117_",
+      "arrival": 4.418e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.242e-11
+    },
+    {
+      "instance": "_123507_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123507_/B",
+      "net": "_061117_",
+      "arrival": 4.418e-09,
+      "slew": 5.242e-11
+    },
+    {
+      "instance": "_123507_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123507_/Y",
+      "net": "u_mem.u_dc.u_arr.addr[2]",
+      "arrival": 4.522e-09,
+      "capacitance": 1.000e-14,
+      "slew": 2.312e-10
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/addr_in[2]",
+      "net": "u_mem.u_dc.u_arr.addr[2]",
+      "arrival": 4.522e-09,
+      "slew": 1.734e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 4.522e-09,
+  "crpr": 0.000e+00,
+  "margin": 5.000e-11,
+  "required_time": 1.900e-09,
+  "slack": -2.622e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+  "endpoint": "u_mem.u_dc.u_arr.lane_1/addr_in[2]",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "capacitance": 4.362e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/B",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "slew": 6.667e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/Y",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "capacitance": 9.109e-16,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/B",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/Y",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "capacitance": 4.796e-16,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/C",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/Y",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "capacitance": 4.687e-16,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/C",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/Y",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "capacitance": 5.097e-16,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/A",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/Y",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "capacitance": 5.533e-16,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/C",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/Y",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "capacitance": 7.666e-16,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/B",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/Y",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "capacitance": 2.725e-15,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/A1",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/Y",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "capacitance": 1.122e-15,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/D",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/Y",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "capacitance": 1.495e-15,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/A",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/Y",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "capacitance": 3.142e-14,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/B",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/Y",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "capacitance": 2.453e-15,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/A",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/Y",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "capacitance": 2.498e-14,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/C",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/Y",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "capacitance": 9.853e-16,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/B",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/Y",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "capacitance": 3.870e-15,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/A",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/Y",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "capacitance": 2.004e-14,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/A2",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/Y",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "capacitance": 4.649e-16,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/B",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/Y",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "capacitance": 4.077e-16,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/B",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/Y",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "capacitance": 3.814e-16,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/B1",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/Y",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "capacitance": 3.467e-16,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/B",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/Y",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/B",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/Y",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "capacitance": 8.977e-16,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/C",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/Y",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "capacitance": 4.362e-15,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/B",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/Y",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "capacitance": 4.655e-16,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/B",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/Y",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "capacitance": 4.831e-16,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/A1",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/Y",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "capacitance": 1.455e-15,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/B",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/Y",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "capacitance": 1.771e-15,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/A",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/Y",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "capacitance": 4.420e-14,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/A2",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/Y",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "capacitance": 7.414e-15,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/A2",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/Y",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "capacitance": 4.741e-16,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/C",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/Y",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "capacitance": 4.591e-16,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/C",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/Y",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "capacitance": 4.687e-16,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/D",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/Y",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "capacitance": 5.105e-16,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/A",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/Y",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "capacitance": 4.316e-16,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/B2",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/Y",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "capacitance": 4.697e-16,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/B",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/Y",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "capacitance": 1.027e-15,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/A",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/Y",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "capacitance": 4.241e-16,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/A2",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/Y",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "capacitance": 2.637e-15,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/B",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/Y",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "capacitance": 1.783e-14,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/B",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/Y",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "capacitance": 1.624e-14,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/A3",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/Y",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "capacitance": 3.256e-14,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/B",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/Y",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "capacitance": 1.025e-15,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/A",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/Y",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "capacitance": 2.294e-14,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/A",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/Y",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "capacitance": 3.318e-15,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089504_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089504_/B",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089504_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089504_/Y",
+      "net": "_030202_",
+      "arrival": 4.211e-09,
+      "capacitance": 3.457e-15,
+      "slew": 9.704e-11
+    },
+    {
+      "instance": "_089513_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089513_/A",
+      "net": "_030202_",
+      "arrival": 4.211e-09,
+      "slew": 9.704e-11
+    },
+    {
+      "instance": "_089513_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089513_/Y",
+      "net": "_030208_",
+      "arrival": 4.310e-09,
+      "capacitance": 6.077e-15,
+      "slew": 1.356e-10
+    },
+    {
+      "instance": "_123399_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123399_/A1",
+      "net": "_030208_",
+      "arrival": 4.310e-09,
+      "slew": 1.356e-10
+    },
+    {
+      "instance": "_123399_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123399_/Y",
+      "net": "_061050_",
+      "arrival": 4.343e-09,
+      "capacitance": 5.516e-16,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123400_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123400_/B",
+      "net": "_061050_",
+      "arrival": 4.343e-09,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123400_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123400_/Y",
+      "net": "_061051_",
+      "arrival": 4.364e-09,
+      "capacitance": 5.002e-16,
+      "slew": 5.218e-11
+    },
+    {
+      "instance": "_123402_",
+      "cell": "OA22x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123402_/B1",
+      "net": "_061051_",
+      "arrival": 4.364e-09,
+      "slew": 5.218e-11
+    },
+    {
+      "instance": "_123402_",
+      "cell": "OA22x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123402_/Y",
+      "net": "u_mem.u_dc.rd_addr_w[7]",
+      "arrival": 4.400e-09,
+      "capacitance": 1.075e-15,
+      "slew": 1.453e-11
+    },
+    {
+      "instance": "_123506_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123506_/A2",
+      "net": "u_mem.u_dc.rd_addr_w[7]",
+      "arrival": 4.400e-09,
+      "slew": 1.453e-11
+    },
+    {
+      "instance": "_123506_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123506_/Y",
+      "net": "_061117_",
+      "arrival": 4.418e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.242e-11
+    },
+    {
+      "instance": "_123507_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123507_/B",
+      "net": "_061117_",
+      "arrival": 4.418e-09,
+      "slew": 5.242e-11
+    },
+    {
+      "instance": "_123507_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123507_/Y",
+      "net": "u_mem.u_dc.u_arr.addr[2]",
+      "arrival": 4.522e-09,
+      "capacitance": 1.000e-14,
+      "slew": 2.312e-10
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/addr_in[2]",
+      "net": "u_mem.u_dc.u_arr.addr[2]",
+      "arrival": 4.522e-09,
+      "slew": 1.734e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 4.522e-09,
+  "crpr": 0.000e+00,
+  "margin": 5.000e-11,
+  "required_time": 1.900e-09,
+  "slack": -2.622e-09
+},
+{
+  "type": "check",
+  "path_group": "core_clock",
+  "path_type": "max",
+  "startpoint": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+  "endpoint": "u_mem.u_dc.u_arr.lane_0/addr_in[1]",
+  "source_clock": "core_clock",
+  "source_clock_edge": "rise",
+  "source_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 4.769e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "source_path": [
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_1",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_1/rd_out[269]",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "capacitance": 4.362e-15,
+      "slew": 5.000e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/B",
+      "net": "u_mem.u_dc.rdata_w[557]",
+      "arrival": 4.299e-10,
+      "slew": 6.667e-11
+    },
+    {
+      "instance": "_083355_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083355_/Y",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "capacitance": 9.109e-16,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/B",
+      "net": "_024102_",
+      "arrival": 4.615e-10,
+      "slew": 3.439e-11
+    },
+    {
+      "instance": "_083356_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083356_/Y",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "capacitance": 4.796e-16,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/C",
+      "net": "_024103_",
+      "arrival": 4.838e-10,
+      "slew": 2.993e-11
+    },
+    {
+      "instance": "_083357_",
+      "cell": "OAI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083357_/Y",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "capacitance": 4.687e-16,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/C",
+      "net": "_024104_",
+      "arrival": 5.025e-10,
+      "slew": 2.922e-11
+    },
+    {
+      "instance": "_083362_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083362_/Y",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "capacitance": 5.097e-16,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/A",
+      "net": "_024109_",
+      "arrival": 5.311e-10,
+      "slew": 3.920e-11
+    },
+    {
+      "instance": "_083375_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083375_/Y",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "capacitance": 5.533e-16,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/C",
+      "net": "_024122_",
+      "arrival": 5.579e-10,
+      "slew": 3.815e-11
+    },
+    {
+      "instance": "_083376_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083376_/Y",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "capacitance": 7.666e-16,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/B",
+      "net": "_024123_",
+      "arrival": 5.926e-10,
+      "slew": 1.269e-11
+    },
+    {
+      "instance": "_083377_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083377_/Y",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "capacitance": 2.725e-15,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/A1",
+      "net": "_024124_",
+      "arrival": 6.327e-10,
+      "slew": 7.372e-11
+    },
+    {
+      "instance": "_083441_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083441_/Y",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "capacitance": 1.122e-15,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/D",
+      "net": "_024188_",
+      "arrival": 6.667e-10,
+      "slew": 4.053e-11
+    },
+    {
+      "instance": "_083461_",
+      "cell": "AND4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083461_/Y",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "capacitance": 1.495e-15,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/A",
+      "net": "_024208_",
+      "arrival": 6.972e-10,
+      "slew": 1.412e-11
+    },
+    {
+      "instance": "_083533_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083533_/Y",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "capacitance": 3.142e-14,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/B",
+      "net": "_024280_",
+      "arrival": 1.078e-09,
+      "slew": 8.220e-10
+    },
+    {
+      "instance": "_083535_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083535_/Y",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "capacitance": 2.453e-15,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/A",
+      "net": "_024282_",
+      "arrival": 1.261e-09,
+      "slew": 2.121e-10
+    },
+    {
+      "instance": "_083574_",
+      "cell": "OR4x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083574_/Y",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "capacitance": 2.498e-14,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/C",
+      "net": "_024321_",
+      "arrival": 1.417e-09,
+      "slew": 1.739e-10
+    },
+    {
+      "instance": "_083583_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083583_/Y",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "capacitance": 9.853e-16,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/B",
+      "net": "_024330_",
+      "arrival": 1.461e-09,
+      "slew": 5.898e-11
+    },
+    {
+      "instance": "_083585_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083585_/Y",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "capacitance": 3.870e-15,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/A",
+      "net": "_024332_",
+      "arrival": 1.514e-09,
+      "slew": 1.161e-10
+    },
+    {
+      "instance": "_083591_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083591_/Y",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "capacitance": 2.004e-14,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/A2",
+      "net": "_024338_",
+      "arrival": 1.799e-09,
+      "slew": 5.284e-10
+    },
+    {
+      "instance": "_083669_",
+      "cell": "OA222x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083669_/Y",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "capacitance": 4.649e-16,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/B",
+      "net": "_024416_",
+      "arrival": 1.906e-09,
+      "slew": 2.404e-11
+    },
+    {
+      "instance": "_083670_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083670_/Y",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "capacitance": 4.077e-16,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/B",
+      "net": "_024417_",
+      "arrival": 1.922e-09,
+      "slew": 7.714e-11
+    },
+    {
+      "instance": "_083673_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083673_/Y",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "capacitance": 3.814e-16,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/B1",
+      "net": "_024420_",
+      "arrival": 1.946e-09,
+      "slew": 3.245e-11
+    },
+    {
+      "instance": "_083674_",
+      "cell": "OAI22xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083674_/Y",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "capacitance": 3.467e-16,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/B",
+      "net": "_024421_",
+      "arrival": 1.962e-09,
+      "slew": 2.431e-11
+    },
+    {
+      "instance": "_083675_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083675_/Y",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "capacitance": 4.126e-16,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/B",
+      "net": "_024422_",
+      "arrival": 1.979e-09,
+      "slew": 5.506e-11
+    },
+    {
+      "instance": "_083676_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083676_/Y",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "capacitance": 8.977e-16,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/C",
+      "net": "_024423_",
+      "arrival": 2.004e-09,
+      "slew": 6.632e-11
+    },
+    {
+      "instance": "_083677_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083677_/Y",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "capacitance": 4.362e-15,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/B",
+      "net": "_024424_",
+      "arrival": 2.058e-09,
+      "slew": 8.610e-11
+    },
+    {
+      "instance": "_083836_",
+      "cell": "NOR2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083836_/Y",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "capacitance": 4.655e-16,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/B",
+      "net": "_024583_",
+      "arrival": 2.085e-09,
+      "slew": 2.908e-11
+    },
+    {
+      "instance": "_083869_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083869_/Y",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "capacitance": 4.831e-16,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/A1",
+      "net": "_024616_",
+      "arrival": 2.108e-09,
+      "slew": 4.179e-11
+    },
+    {
+      "instance": "_083877_",
+      "cell": "OA211x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083877_/Y",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "capacitance": 1.455e-15,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/B",
+      "net": "_024624_",
+      "arrival": 2.145e-09,
+      "slew": 4.856e-11
+    },
+    {
+      "instance": "_083879_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083879_/Y",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "capacitance": 1.771e-15,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/A",
+      "net": "_024626_",
+      "arrival": 2.177e-09,
+      "slew": 4.663e-11
+    },
+    {
+      "instance": "_083917_",
+      "cell": "NAND2xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083917_/Y",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "capacitance": 4.420e-14,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/A2",
+      "net": "_024659_",
+      "arrival": 2.720e-09,
+      "slew": 1.153e-09
+    },
+    {
+      "instance": "_083981_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_083981_/Y",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "capacitance": 7.414e-15,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/A2",
+      "net": "u_mem.dc_fill_line_w[14]",
+      "arrival": 3.081e-09,
+      "slew": 3.967e-10
+    },
+    {
+      "instance": "_084170_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084170_/Y",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "capacitance": 4.741e-16,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/C",
+      "net": "_024885_",
+      "arrival": 3.139e-09,
+      "slew": 7.475e-11
+    },
+    {
+      "instance": "_084171_",
+      "cell": "AOI221xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084171_/Y",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "capacitance": 4.591e-16,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/C",
+      "net": "_024886_",
+      "arrival": 3.162e-09,
+      "slew": 6.969e-11
+    },
+    {
+      "instance": "_084172_",
+      "cell": "OAI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084172_/Y",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "capacitance": 4.687e-16,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/D",
+      "net": "_024887_",
+      "arrival": 3.191e-09,
+      "slew": 8.076e-11
+    },
+    {
+      "instance": "_084173_",
+      "cell": "NOR4xp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084173_/Y",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "capacitance": 5.105e-16,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/A",
+      "net": "_024888_",
+      "arrival": 3.218e-09,
+      "slew": 2.870e-11
+    },
+    {
+      "instance": "_084187_",
+      "cell": "NAND5xp2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084187_/Y",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "capacitance": 4.316e-16,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/B2",
+      "net": "_024902_",
+      "arrival": 3.236e-09,
+      "slew": 3.015e-11
+    },
+    {
+      "instance": "_084188_",
+      "cell": "OAI32xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084188_/Y",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "capacitance": 4.697e-16,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/B",
+      "net": "_024903_",
+      "arrival": 3.257e-09,
+      "slew": 2.415e-11
+    },
+    {
+      "instance": "_084391_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084391_/Y",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "capacitance": 1.027e-15,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/A",
+      "net": "_025106_",
+      "arrival": 3.304e-09,
+      "slew": 1.852e-11
+    },
+    {
+      "instance": "_084392_",
+      "cell": "INVx1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084392_/Y",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "capacitance": 4.241e-16,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/A2",
+      "net": "_025107_",
+      "arrival": 3.313e-09,
+      "slew": 1.002e-11
+    },
+    {
+      "instance": "_084393_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_084393_/Y",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "capacitance": 2.637e-15,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/B",
+      "net": "_025108_",
+      "arrival": 3.343e-09,
+      "slew": 6.672e-11
+    },
+    {
+      "instance": "_088575_",
+      "cell": "OR5x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088575_/Y",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "capacitance": 1.783e-14,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/B",
+      "net": "_029279_",
+      "arrival": 3.462e-09,
+      "slew": 1.277e-10
+    },
+    {
+      "instance": "_088577_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_088577_/Y",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "capacitance": 1.624e-14,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/A3",
+      "net": "_029281_",
+      "arrival": 3.537e-09,
+      "slew": 7.096e-11
+    },
+    {
+      "instance": "_089049_",
+      "cell": "AOI31xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089049_/Y",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "capacitance": 3.256e-14,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/B",
+      "net": "_029753_",
+      "arrival": 3.943e-09,
+      "slew": 8.252e-10
+    },
+    {
+      "instance": "_089494_",
+      "cell": "A2O1A1O1Ixp25_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089494_/Y",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "capacitance": 1.025e-15,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/A",
+      "net": "_030194_",
+      "arrival": 4.013e-09,
+      "slew": 1.179e-10
+    },
+    {
+      "instance": "_089497_",
+      "cell": "AND2x2_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089497_/Y",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "capacitance": 2.294e-14,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/A",
+      "net": "u_mem.u_dc.stp_go_w",
+      "arrival": 4.099e-09,
+      "slew": 8.198e-11
+    },
+    {
+      "instance": "_089502_",
+      "cell": "OR3x1_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089502_/Y",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "capacitance": 3.318e-15,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/B",
+      "net": "_030201_",
+      "arrival": 4.155e-09,
+      "slew": 3.054e-11
+    },
+    {
+      "instance": "_089514_",
+      "cell": "NAND3xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_089514_/Y",
+      "net": "_030209_",
+      "arrival": 4.251e-09,
+      "capacitance": 1.362e-14,
+      "slew": 1.850e-10
+    },
+    {
+      "instance": "_123403_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123403_/C",
+      "net": "_030209_",
+      "arrival": 4.251e-09,
+      "slew": 1.850e-10
+    },
+    {
+      "instance": "_123403_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123403_/Y",
+      "net": "_061053_",
+      "arrival": 4.289e-09,
+      "capacitance": 5.598e-16,
+      "slew": 7.717e-11
+    },
+    {
+      "instance": "_123405_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123405_/B",
+      "net": "_061053_",
+      "arrival": 4.289e-09,
+      "slew": 7.717e-11
+    },
+    {
+      "instance": "_123405_",
+      "cell": "A2O1A1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123405_/Y",
+      "net": "_061055_",
+      "arrival": 4.319e-09,
+      "capacitance": 5.516e-16,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123406_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123406_/B",
+      "net": "_061055_",
+      "arrival": 4.319e-09,
+      "slew": 5.611e-11
+    },
+    {
+      "instance": "_123406_",
+      "cell": "O2A1O1Ixp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123406_/Y",
+      "net": "_061056_",
+      "arrival": 4.340e-09,
+      "capacitance": 4.655e-16,
+      "slew": 5.145e-11
+    },
+    {
+      "instance": "_123407_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123407_/B",
+      "net": "_061056_",
+      "arrival": 4.340e-09,
+      "slew": 5.145e-11
+    },
+    {
+      "instance": "_123407_",
+      "cell": "AOI211xp5_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123407_/Y",
+      "net": "_061057_",
+      "arrival": 4.366e-09,
+      "capacitance": 4.423e-16,
+      "slew": 4.268e-11
+    },
+    {
+      "instance": "_123408_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123408_/B",
+      "net": "_061057_",
+      "arrival": 4.366e-09,
+      "slew": 4.268e-11
+    },
+    {
+      "instance": "_123408_",
+      "cell": "AOI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123408_/Y",
+      "net": "u_mem.u_dc.rd_addr_w[6]",
+      "arrival": 4.385e-09,
+      "capacitance": 9.816e-16,
+      "slew": 3.687e-11
+    },
+    {
+      "instance": "_123509_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123509_/A2",
+      "net": "u_mem.u_dc.rd_addr_w[6]",
+      "arrival": 4.385e-09,
+      "slew": 3.687e-11
+    },
+    {
+      "instance": "_123509_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123509_/Y",
+      "net": "_061119_",
+      "arrival": 4.406e-09,
+      "capacitance": 4.126e-16,
+      "slew": 3.716e-11
+    },
+    {
+      "instance": "_123510_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123510_/B",
+      "net": "_061119_",
+      "arrival": 4.406e-09,
+      "slew": 3.716e-11
+    },
+    {
+      "instance": "_123510_",
+      "cell": "OAI21xp33_ASAP7_75t_R",
+      "verilog_src": "",
+      "pin": "_123510_/Y",
+      "net": "u_mem.u_dc.u_arr.addr[1]",
+      "arrival": 4.506e-09,
+      "capacitance": 1.000e-14,
+      "slew": 2.312e-10
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/addr_in[1]",
+      "net": "u_mem.u_dc.u_arr.addr[1]",
+      "arrival": 4.506e-09,
+      "slew": 1.734e-10
+    }
+  ],
+  "target_clock": "core_clock",
+  "target_clock_edge": "rise",
+  "target_clock_path": [
+    {
+      "instance": "",
+      "cell": "student_top",
+      "verilog_src": "",
+      "pin": "clock",
+      "arrival": 0.000e+00,
+      "capacitance": 3.608e-12,
+      "slew": 0.000e+00
+    },
+    {
+      "instance": "u_mem.u_dc.u_arr.lane_0",
+      "cell": "fakeram_asap7_32x288",
+      "verilog_src": "",
+      "pin": "u_mem.u_dc.u_arr.lane_0/clk",
+      "net": "clock",
+      "arrival": 0.000e+00,
+      "slew": 0.000e+00
+    }
+  ],
+  "data_arrival_time": 4.506e-09,
+  "crpr": 0.000e+00,
+  "margin": 5.000e-11,
+  "required_time": 1.900e-09,
+  "slack": -2.606e-09
+}
+]
+}
