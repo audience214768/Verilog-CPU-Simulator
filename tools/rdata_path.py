@@ -23,9 +23,15 @@ RDATA = re.compile(r'rdata|rd_out')
 
 
 def main():
-    if len(sys.argv) < 3:
+    argv = sys.argv[1:]
+    cuts = frozenset()
+    if '--cut' in argv:
+        i = argv.index('--cut')
+        cuts = frozenset(x for x in argv[i + 1].split(',') if x)
+        del argv[i:i + 2]
+    if len(argv) < 2:
         sys.exit(__doc__)
-    netlist, target = sys.argv[1], sys.argv[2]
+    netlist, target = argv[0], argv[1]
     cells, drv, drvbase, seen = parse(netlist)
     if target not in seen:
         sys.exit(f'{target}: 网表里找不到这颗网（转义名含空格，记得整体加引号）')
@@ -37,6 +43,8 @@ def main():
     depth, parent, q = {target: 0}, {}, deque([target])
     while q:
         n = q.popleft()
+        if n in cuts:
+            continue
         inst = drv.get(n) or drvbase.get(base_name(n))
         if inst is None or sq(inst):
             continue

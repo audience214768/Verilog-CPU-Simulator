@@ -76,9 +76,14 @@
 //   ⑤ **刀 V (2026-10-11): 读相判决改吃锁存 ⇒ 断掉宏自己的一拍闭环**。旧 `rmw_rd_w` 的判决吃了本拍
 //      `rdata_w` 上的比较结果 (`any_st_hit_w` / `st_vic_now_w`), 而它又去选 `rd_addr_w` 的 `st_addr` 支
 //      ⇒ "读出 tag → 命中判定 → 占读口 → 地址" 是**同一拍**的环 (census 头名族 4.5588, plan §3.30)。
-//      做法: `st_tm_lat_w` 从 `st_tm_ok_w` 单立; `st_hit_lat_g`/`st_hit_lat_w`/`st_way_lat_w`/
-//      `st_vic_lat_now_w` = 它的锁存版 (整组只含寄存器, 无 rdata); 读相判决改吃锁存版 + `!st_tm_live_w`
-//      ⇒ 环在结构上不存在。代价: 回包那拍不再发起读 ⇒ **命中吸收 3 拍 → 4 拍** (队首多挡一拍)。
+//      做法: `st_tm_lat_w` 从 `st_tm_ok_w` 单立; `st_hit_lat_g`/`st_hit_lat_w` = 它的锁存版
+//      (只含寄存器, 无 rdata); 读相判决改吃锁存版 + `!st_tm_live_w`。
+//      代价: 回包那拍不再发起读 ⇒ **命中吸收 3 拍 → 4 拍** (队首多挡一拍)。
+//      ★ 订正 (2026-10-13, plan §3.42 §5): 本项当时连带写的"`st_way_lat_w`/`st_vic_lat_now_w` 同
+//        只含寄存器 ⇒ 环在结构上不存在"**两处都错** —— ① `st_vic_lat_now_w` 自己吃 rdata d=20；
+//        ② 判决里的 `!fill_start_w` 也吃 (d=18)。环还在, 只是换了入口 (pre-ABC 定名见 §3.42 §3)。
+//        两者由**刀 AA** 收口 (删那两颗网 + 判决删 `!fill_start_w`/`!st_vic_lat_now_w`, 互锁方向
+//        对调成"起填让 RMW"); 另一入口 (`lk_valid` → `probe_slot_w`) 由**刀 X** 收口。
 //      ★ **别顺手把"合成"也搬到回包那拍** (刀 U 的反例, plan §3.31): 那会把 `fill_buf_r` 的 256+ 个
 //      enable 交给活判决 (单网 FO=308 / 1.4705 ns) ⇒ 官方 218.66 → 199.11 MHz。读相那一拍同时是
 //      "rdata 锥"与"288 位写寄存器"之间的**寄存边界** —— 删读相就是删掉这层边界, 净账为负。
@@ -177,16 +182,24 @@
 //   (`tag_r[... +: TAG_W]`) 在官方 ABC 流程 (无 -constr ⇒ 只按字面量数优化) 下是最贵的宽扇出簇
 //   之一。SRAM 里本来就存着同一份 tag, 只是同步读 ⇒ 缺的只是"提前一拍问"。探针就是这件事。
 //   规则 (四条):
-//     · **优先只在读口真空闲那拍发出** (`probe_slot_w`): 没有 load 会被接受 (`!lk_valid`) + 没有待判
-//       的 load (`!(lk_v_r && !lk_wait_r)`, 含重放) + 没有别的读用户占口 (`!wb_cap_w && !rmw_rd_w`)
-//       + 本拍无写 (写周期 sram_fakeram 把 rdata 置 x)。满足这些时这笔读**不偷任何人的口**,
-//       于是 `rd_ok_r` 不必为它置 0 —— 少一次重放。(注意"组合环"不是这里的约束: `rd_ok_r` 是
-//       寄存器, `lk_valid → probe 门 → rd_ok_r.D` 是一条合法的 Q→D 路径。真正不许碰的只有
-//       `wb_cap_w`/`rmw_rd_w`/`sram_we_w`/`lk_replay_r` 那四种**不可重放**的读。)
+//     · **优先只在读口真空闲那拍发出** (`probe_free_w`): 没有待判的 load (`!(lk_v_r && !lk_wait_r)`,
+//       含重放) + 没有别的读用户占口 (`!wb_cap_w && !rmw_rd_w`) + 本拍无写 (写周期 sram_fakeram 把
+//       rdata 置 x)。真正不许碰的只有 `wb_cap_w`/`rmw_rd_w`/`sram_we_w`/`lk_replay_r` 那四种
+//       **不可重放**的读 —— 三个寄存器 + `rmw_rd_w` (它自己已在第 5 节改成**不吃 rdata**)。
+//       ★ 刀 X+Y (2026-10-13): 原来这里还有第五项 `!lk_valid` ("没有 load 会被接受")。**必须去掉** ——
+//       `lk_valid` 自己就是 `rd_out` 的函数 (`rd_out → way_hit → any_hit → hit_valid → dc_busy →
+//       ld_busy → lk_valid`), 挂在选择项上就是那圈**一拍闭环**的闭合点 (链条见 plan §3.40 §2)。
+//       ★ **单独去掉它不够**: 刀 X 实测 (plan §3.41 §7) 环仍在 —— `probe_hold_w` 里的 `rmw_rd_w`
+//       同样吃 `rd_out` (d=25), 是**第二条冗余入口** (plan §3.42 §3 支 B)。故刀 AA 同刀把
+//       `rmw_rd_w` 也改成不吃 rdata (第 5 节), 两支同切后选择项才真正干净。
+//       代价: 本拍**恰好**接受一条 load 时探针不再让路, 而是把它顶掉 ⇒ 那笔查表读走重放 (+2 拍)。
+//       这笔账下移到 `probe_steal_w` (只喂 `rd_ok_r.D`, 是 D 侧) —— 不再影响任何地址选择。
+//       ("组合环不是约束"这条旧注**已作废**: 它当时没看到 `lk_valid` 自己就是 rdata 的函数。)
 //     · **等不到空槽就硬抢** (饿死计时, `probe_wait_r`): 被抢的那笔查表读由 `probe_steal_w` 置
 //       `rd_ok_r=0` 走重放 (+2 拍) —— 只慢不错。阈值按用户能等多久给: 填充清理只等 2 拍 (它每次
 //       填充只有一次机会), store 退休与预取等 8 拍 (SQ 队首在等, 但重放比再等便宜)。
-//       不会自锁: 堵住探针的正是"load 流不断", 而 SQ 一旦积压就没人再发 load ⇒ 空槽必然出现。
+//       不会自锁: 探针请求都是 one-shot (`stp_act_r`/`fc_tm_v_r`/`pfc_same_w` 各自一次性),
+//       而每条 load 至多被顶一次 (`lk_v_r=1` 后 `probe_free_w` 恒 0) ⇒ 代价有界。
 //     · **结果锁存**: 探针数据下一拍才到 `rdata_w`, 故发起那拍锁下"比的是哪个 tag / 哪一组",
 //       回包那拍把 DC_WAYS 个比较结果整条锁下 (`st_tm_r` / `fc_tm_r` / `pfc_present_r`)。中间若换了
 //       地址, 锁存的那份因 `st_tag_r == st_tag_w` 等条件不成立而**不被采用** (不是错值, 是重查)。
@@ -353,8 +366,9 @@ module dcache #(
     // ---- 第 9 节: store 命中吸收 (整路写粒度 ⇒ **一律**读-改-写, 整字与部分字同一条路) ----
     wire                     rmw_rd_w, rmw_wr_w, rmw_hold_w;
     // ★ 刀 V (2026-10-11): 读相判决只用**锁存**状态的命中判定 (整组无 rdata) —— 见第 9 节末尾
-    wire                     st_tm_lat_w, st_hit_lat_w, st_vic_lat_now_w;
-    wire [WY_W - 1 : 0]      st_way_lat_w;
+    // ★ 刀 AA (2026-10-13): 同组的 `st_way_lat_w` / `st_vic_lat_now_w` 已删 (无读者; `st_vic_lat_now_w`
+    //   自己吃 rdata d=20 —— 刀 V 那句"整组无 rdata"当时越界, 见第 9 节末尾的订正)
+    wire                     st_tm_lat_w, st_hit_lat_w;
     wire [DC_WAYS - 1 : 0]   st_hit_lat_g;
     wire [WMASK_W - 1 : 0]   rmw_wmask_w;
     wire [32 * DC_LINE_WORDS - 1 : 0] rmw_data_new_w;    // 回包八字的**数据**+ 只替换命中的那个 word 槽
@@ -443,10 +457,11 @@ module dcache #(
     // ★ WB 捕获读**抢占**读口 (它只有这一拍机会): 被它偷走的查表读由 rd_ok_r=0 变成重放, 不判缺失。
     // ★ 部分字 store 的读-改-写读**次之** (只取组号, 地址低位的组内偏移无意义); 被它偷走的查表读
     //   同样靠 rd_ok_r=0 重放。它**必须让** WB 捕获读 —— 那笔读只有一次机会, 错过就是丢一条脏行。
-    // ★ tag 探针排在最底, 但**抢的那次必须真的拿到口**: 走空槽 (`probe_slot_w`) 时本来就没人口用,
-    //   排哪儿都等价; 硬抢 (`probe_steal_w`) 时正是有 load 要被接受的那拍 —— 于是它必须压过 `lk_addr`,
-    //   而被压掉的那笔查表读由 `rd_ok_r=0` 走重放。`lk_replay_r` 那拍与四种不可重放的读都被
-    //   `probe_hold_w` 挡在门外 ⇒ 与它们的先后无关。
+    // ★ tag 探针排在最底, 但**它一发就必须真的拿到口**: 有 load 要被接受的那拍它必须压过 `lk_addr`,
+    //   被压掉的那笔查表读由 `rd_ok_r=0` 走重放。`lk_replay_r` 那拍与四种不可重放的读都被
+    //   `probe_hold_w` 挡在门外 —— 而 `probe_go_w=1 ⇒ probe_hold_w=1` ⇒ 上面三条更高优先级的支
+    //   全为 0, 探针这一支必然被选中 ⇒ 与它们的先后无关。(刀 X 前走空槽那支靠 `!lk_valid` 自证
+    //   "没人口用", 现在这条自证由 `probe_steal_w` 在 D 侧补 —— 见第 3 节末。)
     assign rd_addr_w = wb_cap_w ? wb_base_r
                      : (rmw_rd_w ? st_addr
                      : (lk_replay_r ? lk_addr_r
@@ -465,23 +480,30 @@ module dcache #(
     wire                   fcp_req_w = fill_busy_r && !fc_tm_v_r && !fcp_act_r;
     wire                   pfp_req_w = (DC_PREFETCH != 0) && dpf_v_r && !pfc_same_w && !pfp_act_r;
     wire                   probe_req_w = stp_req_w || fcp_req_w || pfp_req_w;
-    // ★ 首选**真空闲**的槽: 这一拍没人会看读口的结果 ⇒ 探针不偷任何人的读 ⇒ `rd_ok_r` 不必为它置 0
-    //   (省掉一次重放)。四项缺一不可, 少一项就是"偷"。
+    // ★ 首选**真空闲**的槽: 这一拍没有待判的 load 会看读口的结果 ⇒ 探针不偷任何人的读 ⇒
+    //   `rd_ok_r` 不必为它置 0 (省掉一次重放)。四项缺一不可, 少一项就是"偷"。
     // ★ 硬抢 (等不到空槽): 被抢的那笔查表读靠 `rd_ok_r=0` 走重放 (+2 拍), 只慢不错。抢也必须避开
     //   四种**不可重放**的读: WB 捕获 (只有一次机会) / 读-改-写取老字 / 写周期 (rdata=x) / 重放那一拍
     //   (FSM 在重放支不为它看 rd_ok_r ⇒ 被抢就是静默错值)。
     wire                   probe_hold_w = !lk_replay_r && !wb_cap_w && !rmw_rd_w && !sram_we_w;
-    wire                   probe_slot_w = !lk_valid && !(lk_v_r && !lk_wait_r) && probe_hold_w;
+    // ★ 刀 X (2026-10-13): 判据里**没有** `!lk_valid`。它原本在 (见头注释【★ tag 探针】) —— 拿掉
+    //   它是刀 X 的全部内容: `lk_valid` 经 `busy←hit_valid←any_hit←rd_out` 吃宏读出口, 挂在选择项上
+    //   就是那圈一拍闭环。少这一项之后本拍若**恰好**有 load 被接受, 它会被顶掉并走重放 (+2 拍)。
+    //   ★ 但刀 X 单独跑不够 (支 B 的 `rmw_rd_w` 还在吃, plan §3.41 §7) ⇒ 刀 AA 与第 5 节同批。
+    wire                   probe_free_w = !(lk_v_r && !lk_wait_r) && probe_hold_w;
     // 优先级: store 退休 (SQ 在等) > 填充清理 (不变量) > 预取 (机会性, 丢了不亏)。
     // 抢的阈值按"这个用户能等多久"给: 填充清理只等 2 拍 (它每次填充只有一次机会), 另两个等 8 拍。
-    wire                   stp_go_w = stp_req_w && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
+    wire                   stp_go_w = stp_req_w && (probe_free_w || (probe_wait_r[2] && probe_hold_w));
     wire                   fcp_go_w = fcp_req_w && !stp_go_w
-                                   && (probe_slot_w || (probe_wait_r[1] && probe_hold_w));
+                                   && (probe_free_w || (probe_wait_r[1] && probe_hold_w));
     wire                   pfp_go_w = pfp_req_w && !stp_go_w && !fcp_go_w
-                                   && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
+                                   && (probe_free_w || (probe_wait_r[2] && probe_hold_w));
     assign                 probe_go_w  = stp_go_w || fcp_go_w || pfp_go_w;
-    // 这一次是"抢"的 ⇒ 下一拍那笔被顶掉的查表读必须重放 (只有走空槽那次才不偷)
-    wire                   probe_steal_w = probe_go_w && !probe_slot_w;
+    // 这一次是"抢"的 ⇒ 下一拍那笔被顶掉的查表读必须重放。★ 这项**仍然**吃当拍 `lk_valid` (它只喂
+    // `rd_ok_r.D`, 是 D 侧, 不进任何地址选择) —— 正是它让"发放用寄存器版"不至于变成静默错值:
+    // 走空槽那拍若恰好有 load 被接受 (`lk_valid=1`), `probe_free_w` 仍为 1, 但账必须记成"抢"。
+    // 逐值等价: 原式 `probe_go_w && !(!lk_valid && probe_free_w)` ≡ 本式。
+    wire                   probe_steal_w = probe_go_w && (!probe_free_w || lk_valid);
     // 地址只有组号有意义 (读回来的是整行, tag 槽照读); 给 0 基址即可, 组号必须是真的。
     assign                 probe_addr_w = {{(32 - TAGHI){1'b0}},
                                            stp_go_w ? st_set_w : (fcp_go_w ? fill_set_r : pf_set_w),
@@ -721,9 +743,15 @@ module dcache #(
     //   被挡住的 miss 落进 fill_pend_w ⇒ 排队等窗口结束, 不丢。
     //   ★ 同行比较同样带 tag 未知窗口 (保守 = 只多挡): 起填若撞上未知窗口, 同组一律当同行, 推迟一拍
     //     —— 那一拍过后 tag 就到了 (受害行 tag 由捕获读回包给出)。
+    //   ④ **读-改-写读相那一拍** (`rmw_rd_w`, 刀 AA 2026-10-13): 该拍起填会把受害路清 valid —— 万一
+    //     正是 RMW 要改写的那一路, 已读出的老字就落进一条无效行 (静默丢数据)。原先是反着写的
+    //     (判决自己带 `!fill_start_w` / `!st_vic_lat_now_w`), 而这两项**都吃宏读出口**
+    //     (`fill_start_w` d=18、`st_vic_lat_now_w` d=20) ⇒ 宏自己的一拍闭环的**第二条入口**
+    //     (plan §3.42 §3 支 B)。互锁方向对调成"起填让 RMW"后, 判决的因子**全是寄存器/干净网** ⇒ 环断。
     assign fill_blk_w  = (wb_line_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == fill_base_new_w[31 : SPLIT])
                                                         : (wb_base_r[TAGHI - 1 : SPLIT] == fill_base_new_w[TAGHI - 1 : SPLIT])))
-                      || (wb_buf_busy_w && vic_v_w && vic_dirty_w);
+                      || (wb_buf_busy_w && vic_v_w && vic_dirty_w)
+                      || rmw_rd_w;
     // ★ 落盘拍不许起的两种新填充 (`fill_vic_hit_w`) —— 都是"这一拍才装进去的行/槽, 检查看不见":
     //   ① 同 (组,路): 同拍 `fill_vset_r` 会把该槽 valid 置 1, 而 always 块里"起填清受害路"在前、
     //      "vset 置位"在后 ⇒ vset 赢 ⇒ 新填充往一条刚标 valid 的行里灌 tag/数据 (命中读到半行)。
@@ -1097,8 +1125,9 @@ module dcache #(
             rd_addr_q <= rd_addr_w;
             // 写的那拍 / WB 捕获读占口的那拍 / 读-改-写取老字的那拍 / **探针硬抢**的那拍, 都没有
             // "本次查表"的读 ⇒ 下一拍条目不可信 (被偷的查表读一律走重放, 不判缺失)。
-            // ★ 探针那两项成对: 走**空槽** (probe_slot_w) 时它没偷任何人, 这一位必须留 1 —— 若也置 0,
-            //   一个恰好在这拍被接受的 load 会白白重放两拍; 硬抢 (probe_steal_w) 时才置 0。
+            // ★ 刀 X 之后"没偷人"只剩这一项在算 (`probe_steal_w` 同时含 `probe_free_w` 与当拍
+            //   `lk_valid`): 走空槽且这拍没人被接受时留 1 (否则那条恰好被接受的 load 白重放两拍),
+            //   其余情况置 0。别把 `lk_valid` 从 `probe_steal_w` 里也删掉 —— 那就成了静默错值。
             rd_ok_r   <= !sram_we_w && !wb_cap_w && !rmw_rd_w && !probe_steal_w;
         end
     end
@@ -1169,7 +1198,8 @@ module dcache #(
     //   · 未命中 ⇒ st_bypass: 本缓存没有该行, 数据照原样走 SQ→AXI 写通道 (DC_WA=0 不分配)。
     // 让路 (都不抬 ⇒ 队首多等一拍; 条目还在 SQ 里 ⇒ 合并链仍覆盖, 正确性不受影响):
     //   · 安装写占着 SRAM 口 (fill_wr_r —— 落盘拍, 见头注释锥 ①); · WB 捕获读占着读口 (wb_cap_w);
-    //   · 本拍该路正被驱逐 (st_vic_lat_now_w): 行马上就要没了, 写进去也是白写 ⇒ 下拍自然走旁路;
+    //   · 本拍该路正被驱逐 (刀 AA 前是 `st_vic_lat_now_w`, 已删): 行马上就要没了 ⇒ 下拍自然走旁路;
+    //     该情形现由起填侧拦住 (`fill_blk_w` 第三项 = `rmw_rd_w`, 第 9 节) —— 读相发起时即无起填;
     //   · 同一行的写回还没推完 (st_wb_same_w): 写通道按序, 必须排在旧行那 8 笔之后, 否则被反超。
     assign st_set_w  = ONE_SET ? {DC_IW{1'b0}} : st_addr[TAGHI - 1 : SPLIT];
     assign st_tag_w  = st_addr[TAGHI +: TAG_W];
@@ -1195,8 +1225,10 @@ module dcache #(
         end
     endgenerate
     assign st_hit_lat_w     = |st_hit_lat_g;
-    assign st_way_lat_w     = hitway_f(st_hit_lat_g);
-    assign st_vic_lat_now_w = fill_start_w && (st_set_w == new_set_w) && (st_way_lat_w == victim_way_w);
+    // ★ 刀 AA (2026-10-13): 原 `st_way_lat_w` / `st_vic_lat_now_w` 在此删除 —— 唯二消费者是
+    //   `st_vic_lat_now_w` 自己与旧 `rmw_rd_w` 的 `!st_vic_lat_now_w`, 后者已改成由 `fill_blk_w` 守
+    //   (互锁方向对调), 于是两者再无读者。**顺手删掉它们也顺手断了一条环**: `st_vic_lat_now_w` 吃
+    //   `fill_start_w` (d=18, 宏读出口) 与 `st_way_lat_w` (d=17), 实测 d=20 吃 rdata (plan §3.42 §5)。
     // tag 未知窗口内只比组号 (保守: 只多让路一拍, 队首原地重试) —— 见 lk_wb_wait_w 同款论证。
     wire   st_wb_same_w = wb_buf_busy_w && (wb_tag_v_r ? (wb_base_r[31 : SPLIT] == st_addr[31 : SPLIT])
                                                       : (wb_base_r[TAGHI - 1 : SPLIT] == st_addr[TAGHI - 1 : SPLIT]));
@@ -1215,16 +1247,19 @@ module dcache #(
     //   收尾 (miss 仍在 ⇒ 队列里的条目下拍重试; 也会自然走旁路)。实际对 hit 而言这一项恒真无约束 ——
     //   填充在飞时本行 valid 已清 ⇒ any_st_hit_w=0。
     // 窗口内禁起填 (rmw_hold_w, 第 5 节): 起填把受害路清 valid —— 万一正是本路, 已合成的整路就
-    //   落进一条无效行了。★ rmw_hold_w **不含** rmw_rd_w, 否则 fill_go → fill_start → st_vic_lat_now →
-    //   rmw_rd 成组合环; 读相那一拍由 `!st_vic_lat_now_w` 自己挡 (同拍起填驱逐本路 ⇒ 本次不发起)。
-    // ★ 刀 O 新增 `!fill_busy_r && !fill_start_w`: 读相到落盘这 3 拍里 `fill_buf_r` 归 RMW 独占
-    //   (合成的 256 位要写回它) ⇒ 窗口内不许有在飞填充 (下一拍就可能回包写它) 也不许有起填。
-    //   三个起填源全含 `!rmw_hold_w`, 而窗口内 `rmw_hold_w` 恒 1 ⇒ 起填只在**读相那一拍**是唯一
-    //   空隙 ⇒ 用 `!fill_start_w` 堵上 (与 `!st_vic_lat_now_w` 同一个理由: 同拍起填会驱逐本路)。
-    // ★ 刀 V (2026-10-11): 判决**改吃锁存版** (`st_hit_lat_w`/`st_vic_lat_now_w`, 只含寄存器) + 显式
-    //   `!st_tm_live_w`。旧写法用 `any_st_hit_w`/`st_vic_now_w` (吃本拍 `rdata_w` 上的比较结果), 而它
-    //   又去选 `rd_addr_w` 的 `st_addr` 支 ⇒ 宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 → 地址"
-    //   (census 头名族 4.5588, plan §3.30)。改后 `rdata_w` 到 `rd_addr_w` 之间**不存在**组合通路。
+    //   落进一条无效行了。★ rmw_hold_w **不含** rmw_rd_w, 否则 fill_go → fill_start → rmw_rd 成环。
+    // ★ 刀 AA (2026-10-13): 读相那一拍原先靠判决自己带 `!fill_start_w && !st_vic_lat_now_w` 挡"同拍
+    //   起填驱逐本路" —— 那两项**都吃宏读出口** (d=18 / d=20), 是宏一拍闭环的**第二条入口**
+    //   (plan §3.42 §3 支 B)。现在**互锁方向对调**: 判决不再看起填, 改成起填看判决 ——
+    //   `fill_blk_w` 加第三项 `rmw_rd_w` (起填门控那节)。已验: 判决的 10 个因子组合锥里**不含任何
+    //   起填网** ⇒ 无组合环 (plan §3.43 §3)。刀 O 那条理由 (`fill_buf_r` 归 RMW 独占) 不变 ——
+    //   三个起填源全含 `!rmw_hold_w`, 窗口内 hold 恒 1, 唯一的空隙(读相那拍)现由 `rmw_rd_w` 堵。
+    // ★ 刀 V (2026-10-11): 判决**改吃锁存版** `st_hit_lat_w` (只含寄存器) + 显式 `!st_tm_live_w`。
+    //   旧写法用 `any_st_hit_w`/`st_vic_now_w` (吃本拍 `rdata_w` 上的比较结果), 而它又去选
+    //   `rd_addr_w` 的 `st_addr` 支 ⇒ 宏自己的一拍闭环"读出 tag → 命中判定 → 占读口 → 地址"
+    //   (census 头名族 4.5588, plan §3.30)。
+    //   ★ 订正 (2026-10-13, plan §3.42 §5): 刀 V 当时写的"该组只含寄存器 ⇒ 再无组合通路"**越界** ——
+    //     同段覆盖的 `st_vic_lat_now_w` 吃 rdata d=20。刀 AA 把它整个删掉 (已无读者) 后此说才成立。
     //   代价: 回包那拍不再发起读 ⇒ 命中吸收 3 拍 → **4 拍** (队首多挡一拍)。
     //   ★ 锁存支一定接得上: 回包那拍 (`st_tm_live_w`) always 块**无条件**置 `st_tm_v_r`/`st_tm_r`,
     //   地址没换 ⇒ 下一拍 `st_tm_lat_w`=1 ⇒ 读相照发 (队首原地多等一拍, 不丢条目)。
@@ -1232,8 +1267,7 @@ module dcache #(
     //   256+ 个 enable 由活判决驱动 —— 单网 FO=308 / 1.4705 ns, 官方 218.66 → 199.11 MHz。
     assign rmw_rd_w     = st_valid && st_hit_lat_w && st_cacheable_w && !st_tm_live_w
                        && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
-                       && !fill_busy_r && !fill_start_w
-                       && !st_vic_lat_now_w && !st_fill_same_w;
+                       && !fill_busy_r && !st_fill_same_w;
     // ★ 写相**不再让路** (刀 M): `rmw_v_r` 只会在"下一拍没有安装落盘"时置位, 故写相与安装
     //   **结构上不同拍**, 写口四组选择端可以整个交给这根 FF。
     //   ★ 刀 O 之后连"下一拍有没有安装"都不必现算了: 读相被 `!fill_busy_r && !fill_start_w` 挡住

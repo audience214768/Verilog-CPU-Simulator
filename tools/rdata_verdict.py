@@ -9,11 +9,17 @@ ABC 匿名网名与 RTL 没有对应关系，问不出来 —— 见 `seqcone.py
 
 每行输出: 锥网数 / 边界数 / 宏读出口条数 + 最近一条及其跳数。**0 条 = 该信号与宏读出口无组合关系**。
 
+`--cut 网名[,网名...]` = **what-if**: 把列出的网当边界（不再往上追）。用来问"若这些网变成
+rdata 无关, 目标还有没有别的路吃 rdata"。切点必须是**改动后会变干净**的网, 否则模型失真。
+
 用法实例（cutX 树，输出存 docs/timing/cutX/attrib_rdata_cutX.txt）:
 
     tools/rdata_verdict.py /tmp/preabc_cutX.v \\
         '\\u_mem.u_dc.way_hit_g [0]' '\\u_mem.u_dc.rmw_rd_w' '\\u_mem.u_dc.probe_slot_w' \\
         '\\u_mem.u_dc.st_hit_lat_w'
+
+    tools/rdata_verdict.py /tmp/preabc_cutX.v --cut '\\u_mem.u_dc.rmw_rd_w,\\u_mem.u_dc.probe_go_w' \\
+        '\\u_mem.u_dc.u_arr.addr [2]'
 
 ★ 网名转义里有空格（`\\u_mem.u_dc.rdata_w [557]`）⇒ 整体加引号。端口名在 flatten 后是
 `\\u_mem.dc_hit_valid` / `\\u_mem.ld_accept` 这种形式, 不是 `u_dc.hit_valid`。
@@ -29,7 +35,7 @@ from seqcone import parse, outs, base_name, CONST, SEQ  # noqa: E402
 RDATA = re.compile(r'rdata|rd_out')
 
 
-def cone_of(cells, drv, drvbase, start):
+def cone_of(cells, drv, drvbase, start, cuts=frozenset()):
     """时序截断锥: 停在顺序单元与宏的输出网。返 {net: 到 start 的跳数} + 边界族。"""
     def sq(inst):
         ty = cells[inst][0].lstrip('\\$')
@@ -38,6 +44,9 @@ def cone_of(cells, drv, drvbase, start):
     depth, bord, q = {start: 0}, defaultdict(list), deque([start])
     while q:
         n = q.popleft()
+        if n in cuts:
+            bord['(cut)'].append((n, depth[n]))
+            continue
         inst = drv.get(n) or drvbase.get(base_name(n))
         if inst is None:
             bord['(无驱动)'].append((n, depth[n]))
@@ -59,16 +68,23 @@ def cone_of(cells, drv, drvbase, start):
 
 
 def main():
-    if len(sys.argv) < 3:
+    argv = sys.argv[1:]
+    cuts = frozenset()
+    if '--cut' in argv:
+        i = argv.index('--cut')
+        cuts = frozenset(x for x in argv[i + 1].split(',') if x)
+        del argv[i:i + 2]
+    if len(argv) < 2:
         sys.exit(__doc__)
-    cells, drv, drvbase, seen = parse(sys.argv[1])
-    print(f'{"信号":<36} {"锥网数":>7} {"边界":>6}  宏读出口')
+    cells, drv, drvbase, seen = parse(argv[0])
+    print(f'{"信号":<36} {"锥网数":>7} {"边界":>6}  宏读出口'
+          + (f'   [--cut {len(cuts)} 网]' if cuts else ''))
     print('-' * 84)
-    for t in sys.argv[2:]:
+    for t in argv[1:]:
         if t not in seen:
             print(f'{t:<36} {"—":>7} {"—":>6}  **网表里没有这颗网**')
             continue
-        depth, bord = cone_of(cells, drv, drvbase, t)
+        depth, bord = cone_of(cells, drv, drvbase, t, cuts)
         nb = sum(len(v) for v in bord.values())
         hits = sorted((d, n) for g, lst in bord.items() if RDATA.search(g) for n, d in lst)
         if hits:

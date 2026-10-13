@@ -138,3 +138,45 @@
  19   _032810_                                                   <- \$_AND_ _138224_ .A
  20   _032744_                                                   <- \$_AND_ _138223_ .A
  21 ★ \u_mem.u_dc.probe_slot_w   ← 目标
+
+== (3) 刀 Y 落地前的 what-if 验算 (2026-10-13, 纯只读) ==
+# 方法: rdata_verdict.py --cut <网,...> = 把该网当边界, 问'若它变成 rdata 无关, 目标还有没有别的路'
+# 切点必须逐字对着 dcacheX.diff: 刀 X 换的是 probe_slot_w 本身 (四个消费者 stp/fcp/pfp_go_w,
+#   probe_steal_w 全改读 probe_free_w) ⇒ 切 probe_slot_w 才等价; 切 probe_go_w 不等价(见 3.3)
+
+-- (3.1) 错切点: rmw_rd_w + probe_go_w (仍剩 44 条, d 从 26 后退到 30) --
+信号                                       锥网数     边界  宏读出口   [--cut 2 网]
+------------------------------------------------------------------------------------
+\u_mem.u_dc.u_arr.addr [2]              4534    898  **44 条 吃 rdata** (最近 d=30: \u_mem.u_dc.u_arr.rdata [286])
+
+-- (3.2) 错切点下那条幸存路 (经 stp_go_w -> probe_addr_w) --
+ 17   _030463_                                                   <- \$_AND_ _138287_ .B
+ 18 ★ \u_mem.ld_accept                                           <- \$_NOT_ _137399_ .A
+ 19   _032810_                                                   <- \$_AND_ _138224_ .A
+ 20   _032744_                                                   <- \$_AND_ _138223_ .A
+ 21 ★ \u_mem.u_dc.probe_slot_w                                   <- \$_OR_ _138134_ .A
+ 22   _032834_                                                   <- \$_AND_ _138221_ .B
+ 23 ★ \u_mem.u_dc.stp_go_w                                       <- \$_MUX_ _139738_ .S
+ 24 ★ \u_mem.u_dc.probe_addr_w [7]                               <- \$_MUX_ _139753_ .B
+ 25   _032909_[7]                                                <- \$_MUX_ _139785_ .A
+ 26   _032908_[7]                                                <- \$_MUX_ _139817_ .A
+ 27   _032907_[7]                                                <- \$_MUX_ _139849_ .A
+ 28 ★ \u_mem.u_dc.rd_addr_w [7]                                  <- \$_MUX_ _139265_ .A
+ 29   _032915_[2]                                                <- \$_MUX_ _139270_ .A
+ 30 ★ \u_mem.u_dc.u_arr.addr [2]   ← 目标
+
+-- (3.3) 对切点: probe_slot_w + rmw_rd_w  (= 刀 Y 的两支) --
+信号                                       锥网数     边界  宏读出口   [--cut 2 网]
+------------------------------------------------------------------------------------
+\u_mem.u_dc.u_arr.addr [0]              2440    488  干净 (0 条)
+\u_mem.u_dc.u_arr.addr [1]              2440    488  干净 (0 条)
+\u_mem.u_dc.u_arr.addr [2]              2440    488  干净 (0 条)
+\u_mem.u_dc.u_arr.addr [3]              2440    488  干净 (0 条)
+\u_mem.u_dc.u_arr.addr [4]              2440    488  干净 (0 条)
+\u_mem.u_dc.rd_addr_w [7]               2436    487  干净 (0 条)
+\u_mem.u_dc.probe_steal_w               1510    373  干净 (0 条)
+\u_mem.u_dc.probe_go_w                  1508    373  干净 (0 条)
+\u_mem.u_dc.stp_go_w                    1312    312  干净 (0 条)
+
+# 注: 对切点这一组里 probe_steal_w 显示'干净'是**模型假象** —— 刀 Y 的 probe_steal_w 仍含
+#     lk_valid (刀 X 有意保留)。它只喂 rd_ok_r.D, 不进任何地址选择。
