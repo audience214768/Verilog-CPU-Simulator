@@ -1,0 +1,140 @@
+# 宏读出口 rdata → rd_addr_w 的入口普查 (cutX 树)
+# 网表 = preabc_cutX.v, 官方 pass-1 截断在 abc 之前 (容器 yosys 0.63), 15,859,599 B,
+#        md5 9c578c1252393284c1a9911cdadd63d5; 生成于远端 runs/cutX/ (2026-10-13)
+# 工具 = tools/rdata_verdict.py (逐信号: 求锥, 看宏读出口在不在边界) + tools/rdata_path.py (最短网级路径)
+# 口径 = 时序截断锥 (顺序单元与宏均为边界); 宏读出口 = u_mem.u_dc.u_arr.rdata[*]
+#        = 两条 lane 的 tag/valid 位 (各 [266:287]), 共 44 条
+
+== (1) 逐信号判据 ==
+信号                                       锥网数     边界  宏读出口
+------------------------------------------------------------------------------------
+\u_mem.u_dc.way_hit_g [0]                216     81  **22 条 吃 rdata** (最近 d=6: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.any_hit_w                    379    135  **44 条 吃 rdata** (最近 d=7: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.hit_raw_w                    397    140  **44 条 吃 rdata** (最近 d=8: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.dc_hit_valid                     2813    711  **44 条 吃 rdata** (最近 d=10: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.miss_pending_w               402    140  **44 条 吃 rdata** (最近 d=10: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.dc_demand_w                  701    227  **44 条 吃 rdata** (最近 d=12: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.fill_start_w                1502    417  **44 条 吃 rdata** (最近 d=18: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.victim_way_w                1067    322  **44 条 吃 rdata** (最近 d=17: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.st_vic_lat_now_w            2529    665  **44 条 吃 rdata** (最近 d=20: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.rmw_rd_w                    2950    724  **44 条 吃 rdata** (最近 d=22: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.st_tm_lat_w                  978    247  干净 (0 条)
+\u_mem.u_dc.st_hit_lat_w                1177    313  干净 (0 条)
+\u_mem.u_dc.st_way_lat_w                1077    280  干净 (0 条)
+\u_mem.dc_busy                          2842    715  **44 条 吃 rdata** (最近 d=15: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.ld_accept                        3757    824  **44 条 吃 rdata** (最近 d=18: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.probe_slot_w                4611    885  **44 条 吃 rdata** (最近 d=21: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.probe_go_w                  4648    890  **44 条 吃 rdata** (最近 d=24: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.stp_go_w                    4621    886  **44 条 吃 rdata** (最近 d=23: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.pfp_go_w                    4646    890  **44 条 吃 rdata** (最近 d=23: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.fcp_go_w                    4636    889  **44 条 吃 rdata** (最近 d=23: \u_mem.u_dc.u_arr.rdata [286])
+\u_mem.u_dc.u_arr.addr [2]              4707    899  **44 条 吃 rdata** (最近 d=26: \u_mem.u_dc.u_arr.rdata [286])
+
+== (2) 最短网级路径 ==
+
+# \u_mem.u_dc.way_hit_g [0]
+# 最近宏读出口 \u_mem.u_dc.u_arr.rdata [286]  跳数 6  (锥 216 网)
+  0 ★ \u_mem.u_dc.u_arr.rdata [286]                              <- \$_XOR_ _086998_ .A
+  1   _028485_[20]                                               <- \$_OR_ _127762_ .A
+  2   _026614_[10]                                               <- \$_OR_ _127770_ .B
+  3   _026616_[2]                                                <- \$_OR_ _127772_ .B
+  4   _028552_                                                   <- \$_NOT_ _137439_ .A
+  5   _032692_                                                   <- \$_AND_ _138206_ .A
+  6 ★ \u_mem.u_dc.way_hit_g [0]   ← 目标
+
+# \u_mem.u_dc.st_vic_lat_now_w
+# 最近宏读出口 \u_mem.u_dc.u_arr.rdata [286]  跳数 20  (锥 2529 网)
+  0 ★ \u_mem.u_dc.u_arr.rdata [286]                              <- \$_XOR_ _086998_ .A
+  1   _028485_[20]                                               <- \$_OR_ _127762_ .A
+  2   _026614_[10]                                               <- \$_OR_ _127770_ .B
+  3   _026616_[2]                                                <- \$_OR_ _127772_ .B
+  4   _028552_                                                   <- \$_NOT_ _137439_ .A
+  5   _032692_                                                   <- \$_AND_ _138206_ .A
+  6 ★ \u_mem.u_dc.way_hit_g [0]                                  <- \$_OR_ _127593_ .A
+  7 ★ \u_mem.u_dc.any_hit_w                                      <- \$_AND_ _138200_ .B
+  8 ★ \u_mem.u_dc.hit_raw_w                                      <- \$_NOT_ _137392_ .A
+  9   _032817_                                                   <- \$_AND_ _138196_ .B
+ 10 ★ \u_mem.u_dc.miss_pending_w                                 <- \$_AND_ _138192_ .A
+ 11 ★ \u_mem.demand_ar_w                                         <- \$_AND_ _138191_ .A
+ 12 ★ \u_mem.u_dc.dc_demand_w                                    <- \$_NOT_ _137389_ .A
+ 13   _032820_                                                   <- \$_AND_ _138184_ .B
+ 14 ★ \u_mem.u_dc.dpf_sel_w                                      <- \$_AND_ _138183_ .A
+ 15   _032764_                                                   <- \$_AND_ _138182_ .A
+ 16   _032765_                                                   <- \$_AND_ _138181_ .A
+ 17 ★ \u_mem.u_dc.dpf_start_w                                    <- \$_OR_ _138117_ .B
+ 18 ★ \u_mem.u_dc.fill_start_w                                   <- \$_AND_ _138253_ .A
+ 19   _032724_                                                   <- \$_AND_ _138252_ .A
+ 20 ★ \u_mem.u_dc.st_vic_lat_now_w   ← 目标
+
+# \u_mem.u_dc.fill_start_w
+# 最近宏读出口 \u_mem.u_dc.u_arr.rdata [286]  跳数 18  (锥 1502 网)
+  0 ★ \u_mem.u_dc.u_arr.rdata [286]                              <- \$_XOR_ _086998_ .A
+  1   _028485_[20]                                               <- \$_OR_ _127762_ .A
+  2   _026614_[10]                                               <- \$_OR_ _127770_ .B
+  3   _026616_[2]                                                <- \$_OR_ _127772_ .B
+  4   _028552_                                                   <- \$_NOT_ _137439_ .A
+  5   _032692_                                                   <- \$_AND_ _138206_ .A
+  6 ★ \u_mem.u_dc.way_hit_g [0]                                  <- \$_OR_ _127593_ .A
+  7 ★ \u_mem.u_dc.any_hit_w                                      <- \$_AND_ _138200_ .B
+  8 ★ \u_mem.u_dc.hit_raw_w                                      <- \$_NOT_ _137392_ .A
+  9   _032817_                                                   <- \$_AND_ _138196_ .B
+ 10 ★ \u_mem.u_dc.miss_pending_w                                 <- \$_AND_ _138192_ .A
+ 11 ★ \u_mem.demand_ar_w                                         <- \$_AND_ _138191_ .A
+ 12 ★ \u_mem.u_dc.dc_demand_w                                    <- \$_NOT_ _137389_ .A
+ 13   _032820_                                                   <- \$_AND_ _138184_ .B
+ 14 ★ \u_mem.u_dc.dpf_sel_w                                      <- \$_AND_ _138183_ .A
+ 15   _032764_                                                   <- \$_AND_ _138182_ .A
+ 16   _032765_                                                   <- \$_AND_ _138181_ .A
+ 17 ★ \u_mem.u_dc.dpf_start_w                                    <- \$_OR_ _138117_ .B
+ 18 ★ \u_mem.u_dc.fill_start_w   ← 目标
+
+# \u_mem.u_dc.rmw_rd_w
+# 最近宏读出口 \u_mem.u_dc.u_arr.rdata [286]  跳数 22  (锥 2950 网)
+  0 ★ \u_mem.u_dc.u_arr.rdata [286]                              <- \$_XOR_ _086998_ .A
+  1   _028485_[20]                                               <- \$_OR_ _127762_ .A
+  2   _026614_[10]                                               <- \$_OR_ _127770_ .B
+  3   _026616_[2]                                                <- \$_OR_ _127772_ .B
+  4   _028552_                                                   <- \$_NOT_ _137439_ .A
+  5   _032692_                                                   <- \$_AND_ _138206_ .A
+  6 ★ \u_mem.u_dc.way_hit_g [0]                                  <- \$_OR_ _127593_ .A
+  7 ★ \u_mem.u_dc.any_hit_w                                      <- \$_AND_ _138200_ .B
+  8 ★ \u_mem.u_dc.hit_raw_w                                      <- \$_NOT_ _137392_ .A
+  9   _032817_                                                   <- \$_AND_ _138196_ .B
+ 10 ★ \u_mem.u_dc.miss_pending_w                                 <- \$_AND_ _138192_ .A
+ 11 ★ \u_mem.demand_ar_w                                         <- \$_AND_ _138191_ .A
+ 12 ★ \u_mem.u_dc.dc_demand_w                                    <- \$_NOT_ _137389_ .A
+ 13   _032820_                                                   <- \$_AND_ _138184_ .B
+ 14 ★ \u_mem.u_dc.dpf_sel_w                                      <- \$_AND_ _138183_ .A
+ 15   _032764_                                                   <- \$_AND_ _138182_ .A
+ 16   _032765_                                                   <- \$_AND_ _138181_ .A
+ 17 ★ \u_mem.u_dc.dpf_start_w                                    <- \$_OR_ _138117_ .B
+ 18 ★ \u_mem.u_dc.fill_start_w                                   <- \$_NOT_ _137410_ .A
+ 19   _032631_                                                   <- \$_AND_ _138241_ .B
+ 20   _032733_                                                   <- \$_AND_ _138240_ .A
+ 21   _032734_                                                   <- \$_AND_ _138239_ .A
+ 22 ★ \u_mem.u_dc.rmw_rd_w   ← 目标
+
+# \u_mem.u_dc.probe_slot_w
+# 最近宏读出口 \u_mem.u_dc.u_arr.rdata [286]  跳数 21  (锥 4611 网)
+  0 ★ \u_mem.u_dc.u_arr.rdata [286]                              <- \$_XOR_ _086998_ .A
+  1   _028485_[20]                                               <- \$_OR_ _127762_ .A
+  2   _026614_[10]                                               <- \$_OR_ _127770_ .B
+  3   _026616_[2]                                                <- \$_OR_ _127772_ .B
+  4   _028552_                                                   <- \$_NOT_ _137439_ .A
+  5   _032692_                                                   <- \$_AND_ _138206_ .A
+  6 ★ \u_mem.u_dc.way_hit_g [0]                                  <- \$_OR_ _127593_ .A
+  7 ★ \u_mem.u_dc.any_hit_w                                      <- \$_AND_ _138200_ .B
+  8 ★ \u_mem.u_dc.hit_raw_w                                      <- \$_AND_ _138199_ .A
+  9   _032756_                                                   <- \$_OR_ _138125_ .A
+ 10 ★ \u_mem.dc_hit_valid                                        <- \$_NOT_ _077871_ .A
+ 11   _013036_                                                   <- \$_AND_ _138275_ .B
+ 12   _032708_                                                   <- \$_AND_ _138274_ .A
+ 13   _032709_                                                   <- \$_OR_ _138141_ .A
+ 14   _032830_                                                   <- \$_OR_ _138140_ .A
+ 15 ★ \u_mem.dc_busy                                             <- \$_OR_ _138410_ .B
+ 16 ★ \u_cpu.u_lsq.ld_busy                                       <- \$_NOT_ _137860_ .A
+ 17   _030463_                                                   <- \$_AND_ _138287_ .B
+ 18 ★ \u_mem.ld_accept                                           <- \$_NOT_ _137399_ .A
+ 19   _032810_                                                   <- \$_AND_ _138224_ .A
+ 20   _032744_                                                   <- \$_AND_ _138223_ .A
+ 21 ★ \u_mem.u_dc.probe_slot_w   ← 目标

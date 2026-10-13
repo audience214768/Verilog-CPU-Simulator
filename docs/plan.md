@@ -2250,6 +2250,12 @@ median **降**了（−0.0717），但超门条数与胖尾**全面肥化** ⇒ 
 
 **10 级、跨两模块、恰好一拍。**
 
+〔**★ 2026-10-13 划线留痕（§3.42 逐级定名）：这条链是真的，但"唯一"是错的。** 表里第 7 级
+`probe_slot_w` 只是**支 A**；另有一条**支 B** 不经过 `lk_valid`/`probe_slot_w` 直达 `rmw_rd_w`：
+`hit_raw_w` → `miss_pending_w` → `dc_demand_w` → `fill_start_w`(d=18) ／ `fill_base_new_w` → `set_valid_w`
+→ `victim_way_w`(17) → `st_vic_lat_now_w`(20) → **`rmw_rd_w`(22)** → `rd_addr_w` 的 `st_addr` 支。
+刀 X 切支 A ⇒ 支 B 封环（§3.41 §7 实测 −0.03 ns）。**下表请连同 §3.42 §3 一起读。**〕
+
 **3. 这是真环，不是 STA 假路径。** `busy` 吃 `hit_valid` 是**语义必需**（`lk_v_r` 那笔 load 没判完就不能收新的），
 而 `ld_busy==0` 必须在当场兑现（握手契约）⇒ 组合链一路通到 `probe_go_w`。**只要 load 在飞，这条环就活着。**
 
@@ -2387,6 +2393,78 @@ wire probe_steal_w = probe_go_w && (!probe_free_w || lk_valid);                /
 - **对 300 MHz 的含义**：§6 天花板里的 **X 半边作废**（不但没兑现 +2.7%，掉头跌 7.66%），Y 半边不受影响。
   已确认的最好状态仍是 **cutX 246.99 MHz**。下一步二选一：先做 pre-ABC 定名（纯只读、成本低、能把"第二条路"
   落到 RTL 行），或换方向 —— **待用户裁定**。
+
+---
+
+### 3.42 ★ `rdata → rd_addr_w` 的入口普查（pre-ABC 定名；2026-10-13，**纯只读取证，未动 RTL**）
+
+**0. 为什么做。** §3.41 §7 只把"环还在"证到 `mapped.v` 的 ABC 匿名门（`_083845_`/`_084230_`/`_085387_`）——
+说不出对应哪段 RTL，因此也写不出可预注册的下一刀。本轮把名字补上。
+
+**1. 器材（两个新工具已进 `tools/`）**
+
+| 工具 | 回答 |
+|---|---|
+| `tools/rdata_verdict.py <preabc.v> <网名>…` | 该信号的**时序截断锥里有没有宏读出口**（0 条 = 与读出口无组合关系） |
+| `tools/rdata_path.py <preabc.v> <网名>` | **从哪条路吃**：打印"宏读出口 → 该网"的最短网级路径，RTL 具名网标 ★ |
+
+两者都建在 `seqcone.py` 的 `parse()/outs()` 上（坑 17/18 已修）。网表 = 官方 pass-1 截断在 `abc` 之前
+（`preabc_official.ys.tpl` 重放，容器 yosys 0.63）⇒ **RTL 名字还在**；`preabc_cutX.v` 15,859,599 B，
+md5 `9c578c1252393284c1a9911cdadd63d5`。**原始读数全文存 `docs/timing/cutX/attrib_rdata_cutX.txt`。**
+
+**2. 唯一的根 = tag 比较器。** `way_hit_g[gj] = (wtag_w == rd_tag_w) && valid_r[…]`（`dcache.v:606`），
+`wtag_w` 取自宏 `rd_out` 的 tag 域 —— **宏读数据只在这里进控制逻辑**。实测 `way_hit_g[0]` 的锥里
+22 条读出口，**最近 d=6**（`u_arr.rdata[286]`，一个 `$_XOR_` 比较门）。
+
+**3. 从根分出两条互相独立的支（逐级跳数实测）**
+
+| | **支 A（load 侧）** | **支 B（miss/fill/RMW 侧）** |
+|---|---|---|
+| 路径 | `way_hit_g`(6) → `any_hit_w`(7) → `hit_raw_w`(8) → `dc_hit_valid`(10) → `dc_busy`(15) → `lsq.ld_busy`(16) → `ld_accept`(18) → **`probe_slot_w`**(21) → **`probe_go_w`**(24) | `hit_raw_w`(8) → `miss_pending_w`(10) → `demand_ar_w`(11) → `dc_demand_w`(12) → `dpf_sel_w`(14) → `dpf_start_w`(17) → **`fill_start_w`**(18) ／ 另一岔 → `fill_base_new_w`(15) → `set_valid_w`(16) → **`victim_way_w`**(17) → **`st_vic_lat_now_w`**(20) → **`rmw_rd_w`**(22) |
+| 进 `rd_addr_w` 的口 | `probe_go_w` 选 `probe_addr_w` 支 | `rmw_rd_w` 选 `st_addr` 支 |
+| 谁切过 | **刀 X**（cutZ，官方 −7.66%） | **刀 W**（cutY，官方 −4.65%） |
+| 切完还剩 | 支 B 完好 ⇒ **环没断** | 支 A 完好 ⇒ **环没断** |
+
+⇒ **A 与 B 是冗余入口，各自都足以闭合这个环。单独切任一支都不动环 —— 两次负结果是同一个原因。**
+（两项的逐级清单见归档文件：`st_vic_lat_now_w` 那条 18 跳、`rmw_rd_w` 那条 23 跳、`probe_slot_w` 那条 22 跳。）
+
+**4. `rd_addr_w` 的选择端普查（`u_arr.addr[2]` 锥，4707 网 / 1150 个具名网）**：选择端里**非寄存器**的只有两项 ——
+`rmw_rd_w`(d=4) 与 `probe_go_w`(d=6)；`wbc_pend_r`(3) / `lk_replay_r`(5) / `rmw_set_r`(1) / `fill_set_r`(2) /
+`fill_wr_r`(2) 全是寄存器。两支**都**吃 rdata ⇒ 要断环必须**同刀切两支**，切一支等于没切。
+
+**5. ★ 划线留痕（两处被证伪的读法，不静默改写）**
+
+- **§3.40 §2 的「环里*唯一*吃 rdata 的项 = `probe_slot_w` 的 `!lk_valid`」—— 错。** `rmw_rd_w` 在 d=22
+  吃 rdata，**整条路不经过 `probe_slot_w`/`lk_valid`**。§3.37 §4 其实已经量过同一件事
+  （`fill_start_w` 吃 `rdata[270]` d=20 / `victim_way_w` d=19），§3.40 漏读了那一节。
+- **`dcache.v:1189-1191` 与 `:1224-1227` 的「整组只含寄存器 … ⇒ `rdata_w` 到 `rd_addr_w` 之间*再无组合通路*」—— "整组"越界。**
+  精确切分（本轮实测）：`st_tm_lat_w` / `st_hit_lat_w` / `st_way_lat_w` **确实干净（各 0 条）**，
+  但**同段注释覆盖到的 `st_vic_lat_now_w`（`:1199`）吃 rdata d=20** —— 它是
+  `fill_start_w && (st_set_w == new_set_w) && (st_way_lat_w == victim_way_w)`，前两项一个吃、第三项也吃。
+  （§3.37 §4 已就 `:1190-1191`/`:80` 划过一次；本轮补 `:1224-1227` 与"三根干净、第四根不干净"的切分。）
+  〔RTL 注释本身**未改**（动 RTL 需批准）；三处待清理，已记在此处。〕
+- 另一条附带订正：**`victim_way_w` 吃 rdata 的路**不是我以为的"受害路选择本身"，而是
+  `miss_pending_w` → `dc_demand_w` → `dpf_sel_w` → **`fill_base_new_w`（填充目标行的地址）** → `set_valid_w`
+  （`valid_r[gj*DC_SETS + new_set_w]` 的**组号索引**）→ `victim_way_w`。即"缺失判决算出的起填地址"
+  组合地当了受害路查表的索引。
+
+**6. 战略含义（比归因本身重要）**
+
+- 断环的天花板**仍是 +2.7%（≈253.6 MHz）**（§3.41 §2 王冠交接链：削掉真环后王冠交给交付族 3.9425）
+  —— 即使两支同刀切断也拿不到更多，**不是**"两支各值一刀"。
+- 到 300 MHz 需 **+21.5%** ⇒ **断环不是那条路**，无论定名多干净。§3.40 §5 的"门 A 不在刀法射程内"结论
+  **维持**（本轮只是把它的**理由**从"环没找到"换成"环找到了，但只值 2.7%"）。
+- 真正的路仍是 §3.41 §6 的硬骨头：626 条宏读口路径挤在 3.84~3.87（要动**深度** = 查表打拍 ⇒ IPC 代价）
+  与 641 条的 A 族（§3.39 §4 判 ④ 无对象）。
+
+**7. 下一步（待用户裁定，RTL 需先批准）**
+
+| 选项 | 做法 | 上限 | 代价 |
+|---|---|---|---|
+| ① 同刀切两支 | A = 刀 X 的 4 行（`probe_slot_w` 拆 `probe_free_w`/`probe_steal_w`）；B = 刀 W 对 `rmw_rd_w` 的删除（`!fill_start_w` / `!st_vic_lat_now_w`，改由 `fill_blk_w` 守） | **+2.7%** | 两项都已证语义等价、TB 19/19、IPC 零代价；可预注册"census `addr_in` 族归零 + `addr[2]` 锥里 0 条读出口" |
+| ② 停断环 | 转攻深度 / 微架构（§3.41 §6） | 未知 | 需要新的机理取证 |
+
+★ ① 的价值仅在于**把 §3.40/§3.37 的机理彻底闭环**（可预注册、可判真假），不在于抢频率。
 
 ---
 
