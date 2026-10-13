@@ -1,0 +1,98 @@
+--- /tmp/cutX_dcache.v	2026-10-13 08:44:31
++++ /tmp/cutZ_dcache_remote.v	2026-10-13 08:44:43
+@@ -177,16 +177,22 @@
+ //   (`tag_r[... +: TAG_W]`) 在官方 ABC 流程 (无 -constr ⇒ 只按字面量数优化) 下是最贵的宽扇出簇
+ //   之一。SRAM 里本来就存着同一份 tag, 只是同步读 ⇒ 缺的只是"提前一拍问"。探针就是这件事。
+ //   规则 (四条):
+-//     · **优先只在读口真空闲那拍发出** (`probe_slot_w`): 没有 load 会被接受 (`!lk_valid`) + 没有待判
+-//       的 load (`!(lk_v_r && !lk_wait_r)`, 含重放) + 没有别的读用户占口 (`!wb_cap_w && !rmw_rd_w`)
+-//       + 本拍无写 (写周期 sram_fakeram 把 rdata 置 x)。满足这些时这笔读**不偷任何人的口**,
+-//       于是 `rd_ok_r` 不必为它置 0 —— 少一次重放。(注意"组合环"不是这里的约束: `rd_ok_r` 是
+-//       寄存器, `lk_valid → probe 门 → rd_ok_r.D` 是一条合法的 Q→D 路径。真正不许碰的只有
+-//       `wb_cap_w`/`rmw_rd_w`/`sram_we_w`/`lk_replay_r` 那四种**不可重放**的读。)
++//     · **优先只在读口真空闲那拍发出** (`probe_free_w`): 没有待判的 load (`!(lk_v_r && !lk_wait_r)`,
++//       含重放) + 没有别的读用户占口 (`!wb_cap_w && !rmw_rd_w`) + 本拍无写 (写周期 sram_fakeram 把
++//       rdata 置 x)。真正不许碰的只有 `wb_cap_w`/`rmw_rd_w`/`sram_we_w`/`lk_replay_r` 那四种
++//       **不可重放**的读 —— 它们全在上面那四项里, 这四项**全是寄存器**。
++//       ★ 刀 X (2026-10-13): 原来这里还有第五项 `!lk_valid` ("没有 load 会被接受")。**必须去掉** ——
++//       它是 `rd_out → way_hit → any_hit → hit_valid → busy → dc_busy → ld_busy → lk_valid → probe_go_w
++//       → rd_addr_w → addr_in` 这圈**一拍闭环**的唯一闭合点 (链条见 plan §3.40 §2)。去掉之后
++//       `probe_go_w` 全寄存器 ⇒ `rd_addr_w` 的选择项不吃 `rdata`, 环从结构上消失。
++//       代价: 本拍**恰好**接受一条 load 时探针不再让路, 而是把它顶掉 ⇒ 那笔查表读走重放 (+2 拍)。
++//       这笔账下移到 `probe_steal_w` (只喂 `rd_ok_r.D`, 是 D 侧) —— 不再影响任何地址选择。
++//       ("组合环不是约束"这条旧注**已作废**: 它当时没看到 `lk_valid` 自己就是 rdata 的函数。)
+ //     · **等不到空槽就硬抢** (饿死计时, `probe_wait_r`): 被抢的那笔查表读由 `probe_steal_w` 置
+ //       `rd_ok_r=0` 走重放 (+2 拍) —— 只慢不错。阈值按用户能等多久给: 填充清理只等 2 拍 (它每次
+ //       填充只有一次机会), store 退休与预取等 8 拍 (SQ 队首在等, 但重放比再等便宜)。
+-//       不会自锁: 堵住探针的正是"load 流不断", 而 SQ 一旦积压就没人再发 load ⇒ 空槽必然出现。
++//       不会自锁: 探针请求都是 one-shot (`stp_act_r`/`fc_tm_v_r`/`pfc_same_w` 各自一次性),
++//       而每条 load 至多被顶一次 (`lk_v_r=1` 后 `probe_free_w` 恒 0) ⇒ 代价有界。
+ //     · **结果锁存**: 探针数据下一拍才到 `rdata_w`, 故发起那拍锁下"比的是哪个 tag / 哪一组",
+ //       回包那拍把 DC_WAYS 个比较结果整条锁下 (`st_tm_r` / `fc_tm_r` / `pfc_present_r`)。中间若换了
+ //       地址, 锁存的那份因 `st_tag_r == st_tag_w` 等条件不成立而**不被采用** (不是错值, 是重查)。
+@@ -443,10 +449,11 @@
+     // ★ WB 捕获读**抢占**读口 (它只有这一拍机会): 被它偷走的查表读由 rd_ok_r=0 变成重放, 不判缺失。
+     // ★ 部分字 store 的读-改-写读**次之** (只取组号, 地址低位的组内偏移无意义); 被它偷走的查表读
+     //   同样靠 rd_ok_r=0 重放。它**必须让** WB 捕获读 —— 那笔读只有一次机会, 错过就是丢一条脏行。
+-    // ★ tag 探针排在最底, 但**抢的那次必须真的拿到口**: 走空槽 (`probe_slot_w`) 时本来就没人口用,
+-    //   排哪儿都等价; 硬抢 (`probe_steal_w`) 时正是有 load 要被接受的那拍 —— 于是它必须压过 `lk_addr`,
+-    //   而被压掉的那笔查表读由 `rd_ok_r=0` 走重放。`lk_replay_r` 那拍与四种不可重放的读都被
+-    //   `probe_hold_w` 挡在门外 ⇒ 与它们的先后无关。
++    // ★ tag 探针排在最底, 但**它一发就必须真的拿到口**: 有 load 要被接受的那拍它必须压过 `lk_addr`,
++    //   被压掉的那笔查表读由 `rd_ok_r=0` 走重放。`lk_replay_r` 那拍与四种不可重放的读都被
++    //   `probe_hold_w` 挡在门外 —— 而 `probe_go_w=1 ⇒ probe_hold_w=1` ⇒ 上面三条更高优先级的支
++    //   全为 0, 探针这一支必然被选中 ⇒ 与它们的先后无关。(刀 X 前走空槽那支靠 `!lk_valid` 自证
++    //   "没人口用", 现在这条自证由 `probe_steal_w` 在 D 侧补 —— 见第 3 节末。)
+     assign rd_addr_w = wb_cap_w ? wb_base_r
+                      : (rmw_rd_w ? st_addr
+                      : (lk_replay_r ? lk_addr_r
+@@ -465,23 +472,29 @@
+     wire                   fcp_req_w = fill_busy_r && !fc_tm_v_r && !fcp_act_r;
+     wire                   pfp_req_w = (DC_PREFETCH != 0) && dpf_v_r && !pfc_same_w && !pfp_act_r;
+     wire                   probe_req_w = stp_req_w || fcp_req_w || pfp_req_w;
+-    // ★ 首选**真空闲**的槽: 这一拍没人会看读口的结果 ⇒ 探针不偷任何人的读 ⇒ `rd_ok_r` 不必为它置 0
+-    //   (省掉一次重放)。四项缺一不可, 少一项就是"偷"。
++    // ★ 首选**真空闲**的槽: 这一拍没有待判的 load 会看读口的结果 ⇒ 探针不偷任何人的读 ⇒
++    //   `rd_ok_r` 不必为它置 0 (省掉一次重放)。四项缺一不可, 少一项就是"偷"。
+     // ★ 硬抢 (等不到空槽): 被抢的那笔查表读靠 `rd_ok_r=0` 走重放 (+2 拍), 只慢不错。抢也必须避开
+     //   四种**不可重放**的读: WB 捕获 (只有一次机会) / 读-改-写取老字 / 写周期 (rdata=x) / 重放那一拍
+     //   (FSM 在重放支不为它看 rd_ok_r ⇒ 被抢就是静默错值)。
+     wire                   probe_hold_w = !lk_replay_r && !wb_cap_w && !rmw_rd_w && !sram_we_w;
+-    wire                   probe_slot_w = !lk_valid && !(lk_v_r && !lk_wait_r) && probe_hold_w;
++    // ★ 刀 X (2026-10-13): 判据里**没有** `!lk_valid`。它原本在 (见头注释【★ tag 探针】) —— 拿掉
++    //   它是本刀的全部内容: `lk_valid` 经 `busy←hit_valid←any_hit←rd_out` 吃宏读出口, 挂在选择项上
++    //   就是那圈一拍闭环。少这一项之后本拍若**恰好**有 load 被接受, 它会被顶掉并走重放 (+2 拍)。
++    wire                   probe_free_w = !(lk_v_r && !lk_wait_r) && probe_hold_w;
+     // 优先级: store 退休 (SQ 在等) > 填充清理 (不变量) > 预取 (机会性, 丢了不亏)。
+     // 抢的阈值按"这个用户能等多久"给: 填充清理只等 2 拍 (它每次填充只有一次机会), 另两个等 8 拍。
+-    wire                   stp_go_w = stp_req_w && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
++    wire                   stp_go_w = stp_req_w && (probe_free_w || (probe_wait_r[2] && probe_hold_w));
+     wire                   fcp_go_w = fcp_req_w && !stp_go_w
+-                                   && (probe_slot_w || (probe_wait_r[1] && probe_hold_w));
++                                   && (probe_free_w || (probe_wait_r[1] && probe_hold_w));
+     wire                   pfp_go_w = pfp_req_w && !stp_go_w && !fcp_go_w
+-                                   && (probe_slot_w || (probe_wait_r[2] && probe_hold_w));
++                                   && (probe_free_w || (probe_wait_r[2] && probe_hold_w));
+     assign                 probe_go_w  = stp_go_w || fcp_go_w || pfp_go_w;
+-    // 这一次是"抢"的 ⇒ 下一拍那笔被顶掉的查表读必须重放 (只有走空槽那次才不偷)
+-    wire                   probe_steal_w = probe_go_w && !probe_slot_w;
++    // 这一次是"抢"的 ⇒ 下一拍那笔被顶掉的查表读必须重放。★ 这项**仍然**吃当拍 `lk_valid` (它只喂
++    // `rd_ok_r.D`, 是 D 侧, 不进任何地址选择) —— 正是它让"发放用寄存器版"不至于变成静默错值:
++    // 走空槽那拍若恰好有 load 被接受 (`lk_valid=1`), `probe_free_w` 仍为 1, 但账必须记成"抢"。
++    // 逐值等价: 原式 `probe_go_w && !(!lk_valid && probe_free_w)` ≡ 本式。
++    wire                   probe_steal_w = probe_go_w && (!probe_free_w || lk_valid);
+     // 地址只有组号有意义 (读回来的是整行, tag 槽照读); 给 0 基址即可, 组号必须是真的。
+     assign                 probe_addr_w = {{(32 - TAGHI){1'b0}},
+                                            stp_go_w ? st_set_w : (fcp_go_w ? fill_set_r : pf_set_w),
+@@ -1097,8 +1110,9 @@
+             rd_addr_q <= rd_addr_w;
+             // 写的那拍 / WB 捕获读占口的那拍 / 读-改-写取老字的那拍 / **探针硬抢**的那拍, 都没有
+             // "本次查表"的读 ⇒ 下一拍条目不可信 (被偷的查表读一律走重放, 不判缺失)。
+-            // ★ 探针那两项成对: 走**空槽** (probe_slot_w) 时它没偷任何人, 这一位必须留 1 —— 若也置 0,
+-            //   一个恰好在这拍被接受的 load 会白白重放两拍; 硬抢 (probe_steal_w) 时才置 0。
++            // ★ 刀 X 之后"没偷人"只剩这一项在算 (`probe_steal_w` 同时含 `probe_free_w` 与当拍
++            //   `lk_valid`): 走空槽且这拍没人被接受时留 1 (否则那条恰好被接受的 load 白重放两拍),
++            //   其余情况置 0。别把 `lk_valid` 从 `probe_steal_w` 里也删掉 —— 那就成了静默错值。
+             rd_ok_r   <= !sram_we_w && !wb_cap_w && !rmw_rd_w && !probe_steal_w;
+         end
+     end
