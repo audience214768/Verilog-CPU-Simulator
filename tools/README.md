@@ -7,14 +7,22 @@
 
 | 用途 | 唯一可信来源 |
 |---|---|
-| 频率 / 面积（**判分数**） | 容器 `cpu2026:local`（yosys 0.63 + ASAP7 **r28**）跑官方 `make synth`（**不带 `-constr`**） |
+| 频率 / 面积（**判分数**） | 容器 `cpu2026:local`（yosys 0.63 + ASAP7 **r28**）跑官方 `make synth`（**2026-10-14 起默认带 `-constr`**）；一律在**远端 PC** 上跑，本机容器退路已停用（见下） |
 | 全设计扇出 / 路径普查（**可当判据**） | 判分产物的 `mapped.v` + `design.json`（`tools/bombs.py`）；容器 OpenSTA（`tools/census.tcl`） |
 | RTL 名字归因（哪个信号、哪段 RTL） | **同版本**容器的 pre-ABC 网表（`preabc_official.ys.tpl` 重放，见 §1） |
 
-**`-constr` 不是判分口径**（2026-10-09 订正）：`docs/description.md` §5 的评测走官方 `make synth`，
-ABC **没有** `set_driving_cell` / `set_load` ⇒ 不 buffer、不 upsize，**一个网的负载数就是它的延时**。
-`tools/run.sh --constr` 是本机私有对照（给 ABC 多传一个 `-constr`），它给出的是**有 buffer 树的世界**：
-同一份 RTL 官方 31.77 MHz vs `-constr` 275.86 MHz。**两套数绝不可混用**。
+**`-constr` 现在是判分口径**（**2026-10-14 官方 `302f0cf` 起**）：官方 `make synth` 默认写 `abc.constr`
+（`set_driving_cell INVx1_ASAP7_75t_R` / `set_load 5.0`）并给 ABC 传 `-constr` ⇒ ABC 走
+`buffer/upsize/dnsize`，**有 buffer 树的世界**。
+~~**`-constr` 不是判分口径**（2026-10-09 订正）：ABC 没有 `set_driving_cell`/`set_load` ⇒ 不 buffer、
+不 upsize，一个网的负载数就是它的延时；`--constr` 是本机私有对照~~ ——〔2026-10-14 划线：该读法作废〕
+现在要区分的是**新口径**（官方默认，含 `-constr`）与**旧口径**（2026-10-14 前的官方流程，
+`tools/run.sh --noconstr` 可复现，只用于归因/对历史）：同一份 RTL 旧口径 216.95 MHz vs 新口径 412.24 MHz。
+**两套数绝不可混用**（详见 `docs/plan.md` §1 口径翻转块、§3.46）。
+
+**远端是本机唯一的综合通道**（用户 2026-10-14 裁定）：远端不通就**停下报告**，
+按 [`remote_synth.py` 一节的「PC 重启后必做（三条命令）」](#remote_synthpy--把官方综合挪到另一台机器上跑2026-10-10-加) 重连；
+**不经批准不得改跑本机容器**。
 
 **宿主 yosys 0.68 的 pre-ABC 网表已判不可信**（2026-10-09）：0.68 在 `prepared.json` 上会报
 **32 条 `multiple conflicting drivers`**（容器 0.63 报 0 条），且 FF 单元只剩 1990 个（正确值 10242）
@@ -24,6 +32,8 @@ ABC **没有** `set_driving_cell` / `set_load` ⇒ 不 buffer、不 upsize，**�
 **已证伪、不许再当成功判据的量**：`ltp`、关键路径**级数**、面积、高扇出网**个数**、
 单个网的扇出下降、跨环境比较。这五个里任意一个出现在"成功"栏里，就是把已经证伪的
 东西请了回来 —— 实测它们与频率**反相关**。
+〔2026-10-14 附注：上列的证伪实测都在**旧口径**下做的；换口径后**没有重测过**。
+纪律照旧（不许当判据），但别引用"反相关"作为机制解释 —— 那是旧口径的机制。〕
 
 ## 1. 脚本
 
@@ -357,10 +367,14 @@ tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "
 `alu_sites.txt`。同时往 `docs/timing/results.csv` 追加一行自解释记录 —— 历史最优 f3 的
 证据只活在 `/tmp` 里差点丢掉，这个脚本就是为此写的。
 
-**`--flow` 必填项（2026-10-02 加）**：`official` = `scripts/synth.py` 原样的 `abc -D 2000`（**判分口径**）；
-`constr` = 再加 `abc.constr`（`set_driving_cell INVx1` + `set_load 5.0` + `buffer/upsize/dnsize/stime`，**本机私有对照**）。
-两者 fmax 相差 **8.7 倍**（同 RTL 实测 31.77 vs 275.86 MHz），**混在一张表里必读错**
+**`--flow` 必填项（2026-10-02 加；**2026-10-14 重新定义**）**：`official` = 官方 `scripts/synth.py` 原样
+（**现在自带** `abc.constr` + `-constr` = `buffer/upsize/dnsize`，**判分口径**）；
+`constr` 是 2026-10-14 之前那个"本机私有对照"的旧名（今天与新 `official` 等价）；
+复现旧口径用 `tools/run.sh --noconstr`（**归档时仍写 `official` 并注明 `noconstr`**）。
+两个口径的 fmax 实测相差 **1.90 倍**（同 RTL：旧 216.95 vs 新 412.24 MHz），**混在一张表里必读错**
 —— 所以 `results.csv` 有独立的 `flow` 列，不要靠 `note` 里的文字判断。
+★ **`results.csv` 里的历史 `official` 行（2026-10-14 前，共 64 行）一律是旧口径**，
+只可与同口径的旧行比；跨这条线的比较必须重新综合，不能沿用旧数。
 **报数只用 `official` 行**（§0）。
 `path.json` 是 `path.py` 每次归档**重新生成**的，`critical_paths.json`/`report.json` 是官方原产物，
 两者都可由 `timing.rpt` 复算；`alu_sites.txt` 例外（源 `synth.log` 不归档，**不可再生**）。
@@ -374,9 +388,9 @@ tools/snap.py --artifacts build/synth_<id>/opt --tag <id> --rev <git> --params "
 
 ### `run.sh` —— 造变体树 + 跑官方容器综合
 
-> ★ **用户 2026-10-10 裁定：官方综合一律优先走远端**（[`remote_synth.py`](#remote_synthpy--把官方综合挪到另一台机器上跑2026-10-10-加)）。
-> `tools/run.sh` 本机这条只在**远端不可达**时当退路，且该刀记录里要注明"本机跑的"。
-> 本机保留它还有两个**非判分**用途：`--no-synth` 造树、`--mode=diagnose`/`--constr` 归因。
+> ★ **用户 2026-10-10 裁定：官方综合一律走远端**（[`remote_synth.py`](#remote_synthpy--把官方综合挪到另一台机器上跑2026-10-10-加)）。
+> **2026-10-14 加严**：远端不可达 ⇒ **停下报告 + 给出重连步骤**，~~本机容器当退路~~ **已撤销**。
+> 本机剩下的都是**非判分**用途：`--no-synth` 造树、`--mode=diagnose` 归因、`--noconstr` 对历史数。
 
 ```sh
 tools/run.sh <id> [参数=值 ...]     # 例: tools/run.sh lsq8 LSQ_SIZE=8
@@ -384,19 +398,19 @@ tools/run.sh <id> --no-synth       # 只造树不打综合（归因/普查要的
 tools/run.sh <id> --filelist=docs/timing/filelist_ic.f   # 换冻结口径的源文件列表
 tools/run.sh <id> --mode=diagnose                        # 保层次网表（归因用，非判分口径）
 tools/run.sh <id> --period=6.0                           # 换 ABC 的映射时序目标（见下）
-tools/run.sh <id> --constr                               # 官方脚本 + ABC 的 -constr 分支（见下）
+tools/run.sh <id> --constr                               # 空操作（官方默认已带；只为老命令行兼容）
+tools/run.sh <id> --noconstr                             # 删掉官方脚本的 -constr，复现 2026-10-14 前旧口径
 ```
 
 `--period=<ns>` 改的是 `CLOCK_PERIOD_NS`。它在 `synth.ys` 里以 **ps** 传给 ABC 的 `-D`
 （默认 2.0 ns ⇒ `abc -D 2000`），而 OpenSTA 报的最小时钟周期是对产出的网表**重新二分**
 测出来的，与这个目标无关。
 
-**在官方（不带 `-constr`）流程里这个旋钮完全无效，不要用它出性能数**（详见 `docs/plan.md` §15.10.28）。
-`-D 2000 / 3400 / 6000` 三个点的 `mapped.v` **md5 完全相同**（关键路径延时都是 12.141287 ns）——
-`{D}` 在无约束那条 ABC 脚本里只出现在 `&nf {D}`，而三个约束都比实际路径紧，
-ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任何"换个参数能不能提频"的猜想，
-一次综合 + 一次 `md5` 就能判死。**但带 `-constr` 时 `{D}` 还要喂 `upsize {D}`/`dnsize {D}`，
-这个结论不适用**。
+**~~在官方流程里这个旋钮完全无效~~**〔2026-10-14 附注：下面这条 md5 不变的实测是**旧口径**（无
+`-constr`）下做的 —— `{D}` 当时只出现在 `&nf {D}`；新口径里 ABC 还要拿它喂 `upsize {D}`/`dnsize {D}`，
+**该结论是否仍成立未测**。不要拿它当"改参数无用"的普遍证据。〕
+`-D 2000 / 3400 / 6000` 三个点的 `mapped.v` **md5 完全相同**（关键路径延时都是 12.141287 ns；
+ABC 收敛到同一个面积最优解 —— 当时它只被用作"证伪工具"）。
 
 > ⚠ **`--period` 不在实验范围内（用户 2026-09-30 裁定）**：助教建议的是"在原有官方脚本基础上
 > 增加 `constr`"，**除 `-constr` 外一律用官方参数**。⇒ `CLOCK_PERIOD_NS` 固定在
@@ -404,20 +418,20 @@ ABC 收敛到同一个面积最优解。**它现在的用处是"证伪"**：任�
 > `--period=1.0/4.0` 两棵树已删除，其数字不作为结论（见 `docs/plan.md` §15.10.33 一）。
 > 这个选项保留只是因为它同时是"证伪工具"，以及将来若口径变了可以再启用。
 
-`--constr` 只在变体树内的 `scripts/synth.py` 那一行多传 `-constr /work/abc.constr`
-（官方文件不动），并在树里写 `abc.constr`（`set_driving_cell INVx1_ASAP7_75t_R` / `set_load 5.0`），
-补丁后 `grep` 自检，打不上直接退出。它与官方的差别是 ABC 会走
-**`buffer; upsize {D}; dnsize {D}; stime -p`** 那一支 —— 官方那一支**不插缓冲、不做驱动强度优化**。
+`--constr` 现在是**空操作**（官方 `302f0cf` 起默认就写 `abc.constr` 并传 `-constr`，逐字相同）。
+反向的 `--noconstr` 才动脚本：在变体树内的 `scripts/synth.py` 里**删掉** `-constr` 那一句
+（官方文件不动），补丁后 `grep` 自检，打不上直接退出。两者差别是 ABC 走
+**`buffer; upsize {D}; dnsize {D}; stime -p`** 还是**不插缓冲、不做驱动强度优化**。
 
 **实测（`docs/plan.md` §15.10.32，同样是 HEAD RTL 的单变量对照）：**
 
 | | 最低周期 | fmax | 面积 µm² | 扇出 ≥64 的网 | 缓冲数 | 路径扇出税 |
 |---|---:|---:|---:|---:|---:|---:|
-| 官方 | 12.1416 ns | 82.36 MHz | 8,184.21 | 349（最大 351） | 0 | 8.0975 ns（67%） |
-| `--constr` | **4.0195 ns** | **248.79 MHz** | 8,941.70 | **0**（最大 18） | **12,245** | **0 ns** |
+| 旧官方（无 `-constr`） | 12.1416 ns | 82.36 MHz | 8,184.21 | 349（最大 351） | 0 | 8.0975 ns（67%） |
+| 带 `-constr`（= **现在的判分口径**） | **4.0195 ns** | **248.79 MHz** | 8,941.70 | **0**（最大 18） | **12,245** | **0 ns** |
 
 ⇒ 扇出税是**流程**造的，不是 RTL 造的；`buffer/upsize/dnsize` 一开，最小周期 ÷3.02。
-（判分口径待定，见 §15.10.32 五 —— 与官方口径的数字**分开记，不混用**。）
+〔2026-10-14：上面那张表的左列**就是**判分口径了（官方 `302f0cf`）；两列仍分开记、不混用。〕
 
 用 `cp` 而不是 `git archive`：要能测**未提交**的 RTL 改动（改一版测一版是常态）。
 参数补丁只改 `student_top.v` 的 `parameter` 默认值，改完**回读校验**，对不上直接退出。
@@ -438,7 +452,7 @@ tools/remote_synth.py pc cutA3 --restart    # 远端同 id 的容器先杀掉重
 **为什么要挪**：`make synth` 是**单线程**的，而且 memory-bound —— 2026-10-10 那次把
 elaborate 从 5.9 min 拖到 26 min（4.4×）的原因是**宿主 swap 抖动**（6.2/7.2 GB 已用），
 不是 CPU 不够。换一台空闲机器即回到 ~7–10 min/次。**判分口径不变**：仍是官方
-`scripts/synth.py`、opt 模式、不传 `-constr`。
+`scripts/synth.py`、opt 模式（2026-10-14 起**含官方默认的 `-constr`** —— 脚本原样，我们不额外传参）。
 
 **同步纪律**：只推 `verilog/ scripts/ tools/ Makefile config.mk`（≈1 MB），
 **`runs/` 17 GB 一个字节都不推**；跑完只 rsync 回 `snap.py` 那 8 个小文件 + 两个日志。

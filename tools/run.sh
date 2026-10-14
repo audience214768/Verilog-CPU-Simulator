@@ -25,10 +25,14 @@
 #       # 本设计关键路径 ~12 ns, 默认 -D 2000 等于让 ABC 放弃时序、按面积映射。
 #       # OpenSTA 报的最小时钟周期是对产出的网表**重新二分**测出来的, 与这个目标无关。
 #   tools/run.sh <id> --constr
-#       # 官方脚本原样 + ABC 的 `-constr` 分支 (助教建议的对照实验)。唯一差别是给 abc 多传
-#       # -constr /work/abc.constr, 使 ABC 走 buffer/upsize/dnsize 那一支 —— 官方那一支
-#       # **不做缓冲也不做 upsizing**, 宽扇出被全额惩罚 (见 docs/plan.md §15.10.28)。
-#       # 补丁锚在官方 scripts/synth.py 那一行, 打不上就直接失败: 静默不生效等于跑了个假对照。
+#       # **2026-10-14 起是空操作**: 官方框架更新 (302f0cf) 后, `-constr`
+#       # (set_driving_cell INVx1_ASAP7_75t_R / set_load 5.0; ABC 走 buffer/upsize/dnsize)
+#       # 已是**官方默认** —— 与本脚本旧的 --constr 补丁参数逐字相同。保留本开关只为让
+#       # 归档里的老命令行仍表达同一支流程。
+#   tools/run.sh <id> --noconstr
+#       # 反向对照: 从变体树的 scripts/synth.py 里**删掉** abc 行的 -constr 那一句,
+#       # 复现 2026-10-14 之前的旧判分口径 (ABC 不缓冲不 upsize, 宽扇出被全额惩罚)。
+#       # 只用于归因 / 复现历史数字, **不当判据**。补丁带自检, 打不上直接失败。
 set -e
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ID=$1; shift
@@ -37,7 +41,7 @@ TREE="$ROOT/runs/$ID"
 FLIST=verilog/filelist.f
 MODE=opt
 PERIOD=2.0
-CONSTR=
+NOCONSTR=
 
 # 先扫一遍 --filelist/--mode/--period/--constr, 再走参数补丁 (它们要放进下面那个循环里一起吃掉)
 for kv in "$@"; do
@@ -45,7 +49,8 @@ for kv in "$@"; do
         --filelist=*) FLIST=${kv#--filelist=} ;;
         --mode=*)     MODE=${kv#--mode=} ;;
         --period=*)   PERIOD=${kv#--period=} ;;
-        --constr)     CONSTR=1 ;;
+        --constr)     : ;;              # 2026-10-14 起已是官方默认, 空操作
+        --noconstr)   NOCONSTR=1 ;;
     esac
 done
 [ -f "$ROOT/$FLIST" ] || { echo "缺少源文件列表 $FLIST"; exit 1; }
@@ -56,16 +61,16 @@ cp -R "$ROOT/verilog" "$ROOT/scripts" "$ROOT/Makefile" "$ROOT/config.mk" "$TREE/
 cp "$ROOT/$FLIST" "$TREE/verilog/" || { echo "缺少源文件列表 $FLIST"; exit 1; }
 FNAME=$(basename "$FLIST")
 
-# -constr: 只给官方脚本的 abc 那一行多传一个 -constr, 其余一字不改。
-# set_driving_cell/set_load 是 ABC 那两个数用的口径 (官方 SDC 只有时钟/输入输出延时,
-# 没有 set_load 也没有 set_driving_cell ⇒ 这两个值只能自己定)。
-if [ -n "$CONSTR" ]; then
-    printf 'set_driving_cell INVx1_ASAP7_75t_R\nset_load 5.0\n' > "$TREE/abc.constr"
+# --noconstr: 从官方脚本的 abc 那一行删掉 ` -constr " + quote(abc_constraints)`, 其余一字不改。
+# (abc.constr 仍会被脚本写出, 只是没人读 —— 无害)
+if [ -n "$NOCONSTR" ]; then
     # -i.bak 而不是 -i '': BSD sed 与 GNU sed 通吃 (远端 Linux 上 -i '' 会把 '' 当文件名)
-    sed -i.bak 's|:.9g}"|:.9g} -constr /work/abc.constr"|' "$TREE/scripts/synth.py"
+    sed -i.bak 's|+ " -constr " + quote(abc_constraints) + |+ |' "$TREE/scripts/synth.py"
     rm -f "$TREE/scripts/synth.py.bak"
-    grep -q -- '-constr /work/abc.constr' "$TREE/scripts/synth.py" || { echo "constr 补丁失败"; exit 1; }
-    echo "  已加 -constr (abc.constr: set_driving_cell INVx1 / set_load 5.0)"
+    if grep -q -- '-constr' "$TREE/scripts/synth.py"; then
+        echo "noconstr 补丁失败"; exit 1
+    fi
+    echo "  已删 -constr (复现旧口径: ABC 不缓冲不 upsize)"
 fi
 
 # 参数补丁: 只改 student_top 的 parameter 默认值 (参数由它显式往下传)
@@ -76,6 +81,7 @@ for kv in "$@"; do
         --mode=*) continue ;;
         --period=*) continue ;;
         --constr) continue ;;
+        --noconstr) continue ;;
         *=*) ;;
         *) echo "跳过无法识别的参数: $kv"; continue ;;
     esac

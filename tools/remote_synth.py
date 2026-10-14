@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PAYLOAD = ["verilog", "scripts", "tools", "Makefile", "config.mk"]
 KEEP = ["report.json", "timing_values.json", "area.json", "area_report.json",
-        "report.txt", "critical_paths.json", "timing.rpt", "stat.json"]
+        "report.txt", "critical_paths.json", "timing.rpt", "stat.json", "abc.constr"]
 CAP_S = 5400            # 观察上限 90 min
 HEARTBEAT_S = 300
 
