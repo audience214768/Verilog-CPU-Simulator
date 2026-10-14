@@ -6,7 +6,7 @@
 
 ## 1. 总览
 
-本项目是一个**可参数化的 RV32IM 乱序执行、按序提交处理器**：默认参数为**单发射**（`ISSUE_WIDTH=1`），
+本项目是一个**可参数化的 RV32IM 乱序执行、按序提交处理器**：默认参数为**双发射**（`ISSUE_WIDTH=2`，基线 C），
 发射宽度、ROB/RS/LSQ/PRF 容量、BHT/RAS、Cache 容量与相联度全部由 `student_top` 的 parameter 收口。
 
 ```
@@ -38,7 +38,7 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 - **重命名**（`rat`+`free_list`）：`rat` 组合读口把 rs1/rs2 映成物理号（含批内前递），写 `rd → 新 preg`；
   `free_list` 弹出新 preg；被覆盖的旧映射记进 ROB 供回收，同时清 `ready_table` 对应就绪位。
 - **派发**（`cpu_top` 发射组合块）：**整批 or 不批** —— ROB/RS/free_list/LSQ 空间齐备（`resources_ok`，
-  `cpu_top.v:442`）就整批同时压入 `rob`（new/old preg、`lsq_tag`、原始指令）、`rs`（操作数 preg、pc/imm、
+  `cpu_top.v:203`）就整批同时压入 `rob`（new/old preg、`lsq_tag`、原始指令）、`rs`（操作数 preg、pc/imm、
   预测载荷）与 `lsq` 条目。
 - **发射**（`rs` 仲裁 → `execute_slot` 的 D/Q/W 三级）：`rs` 按年龄（`rob_tag − rob_head` 回绕）选出
   至多 W 条就绪条目；D 级按 one-hot 索引取字段，Q 级取操作数（`prs==0→0` / CDB 当拍旁路 / `ready_table`
@@ -62,24 +62,24 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 
 | 参数 | 默认 | 含义 | 使用模块 |
 |---|---|---|---|
-| `ISSUE_WIDTH` (W) | 1 | 取指/发射/执行/提交宽度 | 全部 |
-| `ROB_SIZE` | 16 | ROB 条目数（2 的幂） | rob |
-| `RS_SIZE` | 4 | 保留站条目数 | rs |
+| `ISSUE_WIDTH` (W) | 2 | 取指/发射/执行/提交宽度 | 全部 |
+| `ROB_SIZE` | 32 | ROB 条目数（2 的幂） | rob |
+| `RS_SIZE` | 8 | 保留站条目数 | rs |
 | `PRF_SIZE` | 64 | 物理寄存器数（2 的幂） | prf, rat, free_list, ready_table |
-| `LSQ_SIZE` | 8 | 装载-存储队列条目数（2 的幂） | lsq |
-| `BHT_SIZE` | 8 | 2-bit 饱和计数器数 | bht, fetch |
-| `RAS_SIZE` | 4 | 返回地址栈深度（有效深度 RAS_SIZE−1） | ras, fetch |
+| `LSQ_SIZE` | 16 | 装载-存储队列条目数（2 的幂） | lsq |
+| `BHT_SIZE` | 32 | 2-bit 饱和计数器数 | bht, fetch |
+| `RAS_SIZE` | 8 | 返回地址栈深度（有效深度 RAS_SIZE−1） | ras, fetch |
 | `ROLLBACK_WIDTH` | 4 | 回滚 walker 每拍撤销条数（与 W 解耦） | rat, free_list, ready_table |
 | `IC_SIZE` | 512 | I-cache 总容量（字节） | icache |
 | `IC_LINE_WORDS` | 8 | I-cache 行字数（2 的幂） | icache |
 | `IC_BYPASS` / `IC_PREFETCH` | 0 / 1 | 交付一次即失效（每次都 miss 的归因对照）/ 顺需求行预取下一行 | icache |
-| `DC_SIZE` | 2048 | D-cache 总容量（字节；0 = 旁路） | dcache |
-| `DC_LINE_WORDS` | 8 | D-cache 行字数（2 的幂） | dcache |
+| `DC_SIZE` | 4096 | D-cache 总容量（字节；0 = 旁路） | dcache |
+| `DC_LINE_WORDS` | 16 | D-cache 行字数（2 的幂） | dcache |
 | `DC_WAYS` | 2 | D-cache 相联度（2 路走 LRU） | dcache |
 | `DC_PREFETCH` | 2 | D-cache 下一行预取：0 关 / 1 需求缺失起填那拍 / 2 每次命中交付那拍 | dcache |
 | `LD_INFLIGHT` | 4 | 在飞 load 上限（AXI 未完成读数） | mem_subsystem |
 | `SQ_DEPTH` | 8 | 已提交 store 队列深度（2 的幂） | mem_subsystem |
-| `RD_DEPTH` / `WR_DEPTH` | 16 / 8 | AXI 读事务 FIFO 深度（2 的幂）/ 写事务在途上限 | axi_lite_master |
+| `RD_DEPTH` / `WR_DEPTH` | 32 / 8 | AXI 读事务 FIFO 深度（2 的幂）/ 写事务在途上限 | axi_lite_master |
 
 派生量（`cpu_top` localparam）：`PW/RW/LW/SRW/BW/RA = $clog2(PRF_SIZE/ROB_SIZE/LSQ_SIZE/RS_SIZE/BHT_SIZE/
 RAS_SIZE)`；计数器宽 `CSW/RCW/LCW/PCW = $clog2(容量+1)`。**参数合法性硬约束**（改参数前对照）：
@@ -97,7 +97,7 @@ RAS_SIZE)`；计数器宽 `CSW/RCW/LCW/PCW = $clog2(容量+1)`。**参数合法�
 ## 3. 时序约定
 
 - **复位极性**：官方顶层 `reset` **高有效**（初始化保持 5 拍）；内部一律低有效 `rst_n`，取反只做在
-  `student_top` 包层一行（`student_top.v:67`），不给各模块加极性参数。
+  `student_top` 包层一行（`student_top.v:71`），不给各模块加极性参数。
 - **复位风格现存两种，新代码优先异步**：多数模块是异步 `always @(posedge clk or negedge rst_n)`
   （`rob`×2、`rs`、`rat`、`ready_table`、`div`、`axi_lite_master`、`mem_subsystem`、两个 cache、`cpu_top`
   的 walker/halt/计数器），少数同步 `always @(posedge clk)` + `if (!rst_n)`（`prf`、`lsq`、`free_list`、
@@ -201,7 +201,7 @@ RAS_SIZE)`；计数器宽 `CSW/RCW/LCW/PCW = $clog2(容量+1)`。**参数合法�
 | `new_pnum`/`old_pnum`、`lsq_tag`/`ins_raw`、`push_valid`+`push_*` / `set_ready_req` | PW·ROB_SIZE ×2；LW·ROB_SIZE / 32·ROB_SIZE；W 各 / ROB_SIZE | 目的 preg / rename 前映射；提交时取 store 条目 / 终止检测；发射（push 时清该条目 ready）/ CDB 完成置位 |
 
 写优先级：`set_last`（flush 截断；head 若被截则收敛到 `last+1`）> `set_head` > `set_ready` > `push`；
-`set_last_val = fs + 1`（`cpu_top.v:676`）—— last 是"空槽位"语义，截到 `fs` 会丢掉误预测分支自己（jalr 的
+`set_last_val = fs + 1`（`cpu_top.v:747`）—— last 是"空槽位"语义，截到 `fs` 会丢掉误预测分支自己（jalr 的
 link 与它占的 preg 回池都没了）。
 
 ### 5.4 `core/rs.v` — 保留站
@@ -352,7 +352,7 @@ rd_ok_r && valid[q_line] && (条目 tag == rd_addr_q 的 tag)`（tag 与数据�
 LUI/AUIPC 由 `cpu_top` 映射为 add（a=0/pc，b=imm），alu 无需 pc 输入。乘法器输入由
 `sel_prod = (op ≥ 10) && (op ≤ 13)` 门控：不收窄到 13 的话，除法占位编码会点燃整棵华莱士树。
 
-**execute_slot 四条不变量**（改流水必须维持）：① RS 条目在入选那拍就被清（`cpu_top.v:263`）⇒ 凡要
+**execute_slot 四条不变量**（改流水必须维持）：① RS 条目在入选那拍就被清（`cpu_top.v:270`）⇒ 凡要
 "扣住"只能扣**流水寄存器**；② "扣寄存器"（`q_freeze`）与"放过条目"（门控 `rs_clear` 的 `pipe_stall`）
 必须**同条件**，否则会"条目被清却没进寄存器"（丢失）或"没清却进了寄存器"（重复执行）；③ 误预测当拍
 **清空**寄存器而非冻结（冻住则 `misp_det` 自持续 ⇒ 死循环），清哪些槽必须由 `cpu_top` 逐槽按年龄给
@@ -363,9 +363,9 @@ LUI/AUIPC 由 `cpu_top` 映射为 add（a=0/pc，b=imm），alu 无需 pc 输入
 ### 8.1 `top/student_top.v`
 
 官方顶层：固定 19 个 AXI4-Lite 端口（`clock`/`reset` + AR/R/AW/W/B，端口名一个不改），`reset` **高有效**、
-初始化保持 5 拍；内部 `wire rst_n = ~reset;`（`student_top.v:67`）后例化 `cpu_top` 与 `mem_subsystem`。
+初始化保持 5 拍；内部 `wire rst_n = ~reset;`（`student_top.v:71`）后例化 `cpu_top` 与 `mem_subsystem`。
 **终止**：程序向 MMIO `0x80000000` 做一次 32 位 store（`WSTRB=4'hf`）⇒ `cpu_top` 内 `mmio_exit` 拉起 `halt`
-（`cpu_top.v:880`）；退出值由官方从机在 B 握手时从 `WDATA[31:0]` 取（本模块不引出 `ret_val`），TERM
+（`cpu_top.v:951`）；退出值由官方从机在 B 握手时从 `WDATA[31:0]` 取（本模块不引出 `ret_val`），TERM
 marker 判定与其 OR 并存。
 
 ### 8.2 `top/cpu_top.v`
