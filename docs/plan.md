@@ -194,12 +194,15 @@ DC_PREFETCH=2, LD_INFLIGHT=4, SQ_DEPTH=8, RD_DEPTH=32, WR_DEPTH=8
 
 - **为什么是闸门**：C 的三个判分条件里 IPC 已实测，**面积与 fmax 一个都没测过**（C 从未综合）；
   fmax <300 ⇒ 一切归 85 分。不测出来，"离 0.8450 还差 +9.2%"这句话**没有分母**。
-- **动作**：`tools/remote_synth.py pc c1`（远端 PC）。排期按 **1 h** 算 —— 标称 18 min 是小设计的数，
-  在飞的 `kXq4` 已 >59 min 仍处 synth 相位 ⇒ **大结构显著变慢**。产物 = `min_period` / fmax / 面积
-  三件套 → `docs/timing/results.csv`。
-- **在飞的近似点**：`kXq4`（= C ＋ IC1K ＋ IW3，IPC 0.7959）2026-10-15 已在远端跑。
-  它只能**框住** C 的量级，**不是** C 的数 ⇒ 记行时按"相邻点"标注，**不得**当基线数引用。
+- **★ 远端 PC 当前不通**（2026-10-15 复测：`ssh pc` → `connect to host 100.121.142.80 port 2222:
+  Operation timed out`）⇒ 按 2026-10-14 用户口径：**停下报告 + 给重连方法，不用本机容器退路**。
+  重连 = PC 上三条命令，见 `tools/README.md`「PC 重启后必做」。
+- **动作**：`tools/remote_synth.py pc c1`。★ **排期按 ≥1.5 h 算**（实测订正）：标称 18 min 是
+  小设计的数 —— 2026-10-15 那次 `kXq4` 跑到 **64 min 仍在 synth 相位**、随后远端断连而**失败，
+  无任何产物**（`runs/kXq4/` 只有本机暂存，无 `timing_values.json`）。产物 = `min_period` / fmax /
+  面积三件套 → `docs/timing/results.csv`。
 - **验收**：判定 = fmax 是否 ≥300（悬崖）、面积落 ≤9000 / ≤18000 / ≤36000 哪一档。
+- **上一条近似点已作废**：`kXq4`（= C ＋ IC1K ＋ IW3，IPC 0.7959）**没有综合数**，不能用来框 C。
 
 #### T1 IPC +9.2%（0.7739 → 0.8450）—— 阶段 2 的唯一缺口
 
