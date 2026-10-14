@@ -6,16 +6,20 @@
 //   退出值由官方从机在 B 握手时从 WDATA 取 (sim.cpp:119-121), 故本模块不引出 ret_val。
 //   手写程序用的 TERM marker 判定保留 (OR 并存), 两条路径互不干扰。
 // 复位: 外部 reset 高有效 ⇒ 内部 rst_n = ~reset (异步低有效, 与 ASAP7 触发器一致)
-// 基准参数 = **基线 C** (2026-10-15 落地; 参数取自参数阶梯 t3q 的 q2 点 + 三把刀全部短路, 见 plan.md §1.1):
-//   geo IPC **0.7739** (官方 make perf, 19/19 门禁通过, 2026-10-15); 逐程序 median 0.7084 / multiply 1.1184 /
-//   qsort 0.6481 / rsort 0.7856 / towers 0.5992 / vvadd 0.8888
-//   面积/频率 **从未综合**: C 比唯一有综合数的 cutAA (10395.630 µm² / 412.24 MHz, 新尺) 结构全面更大,
+// 基准参数 = **基线 C ＋ T1a** (2026-10-15; C = 参数阶梯 t3q 的 q2 点 + 三把刀全部短路, 见 plan.md §1.1;
+//   T1a = 本文件 IC_SIZE 512→1024 与 ISSUE_WIDTH 2→3 两个旋钮, 见 plan.md §2 T1a):
+//   geo IPC **0.7959** (官方 make perf, 19/19 门禁通过, 2026-10-15); 逐程序 median 0.7624 / multiply 1.1208 /
+//   qsort 0.6959 / rsort 0.8127 / towers 0.6105 / vvadd 0.8614
+//   面积/频率 **从未综合**: 本树比唯一有综合数的 cutAA (10395.630 µm² / 412.24 MHz, 新尺) 结构全面更大,
 //   且三把刀短路方向对 fmax 是**负**的 ⇒ 阶段归属未定, 须综合复核 (plan.md §2 T0)
 //   三把刀 = load 交付链上三级流水寄存器改组合直连: 刀 R (`mem_subsystem.v` 的 `dl_*_r`) /
 //   刀 D/Q (`cpu_top.v` 的 `ld_done_*_q`) / 刀 A (`cpu_top.v` 的 load CDB 组); 合计 +13.9% IPC
 //   短路后各级必须保持的不变式写在两处 RTL 头注释里 —— **再插同类寄存器前先读那里**
+// ★ ISSUE_WIDTH=3 与 IC_LINE_WORDS=8 **不整除**: 取指批 = W 个字, 批基址步长 3 mod 8 走遍 0..7,
+//   偏移 6/7 的批要跨 I-cache 行装配 (实测占新批 18.3%, W=2 时只有 0.2%) ⇒ 最吃取指的 vvadd 反被
+//   拖慢 3.1% (median 0.7624 等其余五例净赚, geo 仍 +2.84%)。详见 plan.md §3.50 §3。
 module student_top #(
-    parameter ISSUE_WIDTH = 2,
+    parameter ISSUE_WIDTH = 3,
     parameter ROB_SIZE    = 32,
     parameter RS_SIZE     = 8,
     parameter PRF_SIZE    = 64,
@@ -23,7 +27,7 @@ module student_top #(
     parameter BHT_SIZE    = 32,
     parameter RAS_SIZE     = 8,
     parameter ROLLBACK_WIDTH = 4,    // 回滚 walker 每拍撤销的条目数 (与 ISSUE_WIDTH 解耦)
-    parameter IC_SIZE       = 512,   // I-cache 总容量 (字节)
+    parameter IC_SIZE       = 1024,  // I-cache 总容量 (字节)
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行

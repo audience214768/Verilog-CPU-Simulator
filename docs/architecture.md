@@ -6,7 +6,7 @@
 
 ## 1. 总览
 
-本项目是一个**可参数化的 RV32IM 乱序执行、按序提交处理器**：默认参数为**双发射**（`ISSUE_WIDTH=2`，基线 C），
+本项目是一个**可参数化的 RV32IM 乱序执行、按序提交处理器**：默认参数为**三发射**（`ISSUE_WIDTH=3`，基线 C ＋ T1a），
 发射宽度、ROB/RS/LSQ/PRF 容量、BHT/RAS、Cache 容量与相联度全部由 `student_top` 的 parameter 收口。
 
 ```
@@ -62,7 +62,7 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 
 | 参数 | 默认 | 含义 | 使用模块 |
 |---|---|---|---|
-| `ISSUE_WIDTH` (W) | 2 | 取指/发射/执行/提交宽度 | 全部 |
+| `ISSUE_WIDTH` (W) | 3 | 取指/发射/执行/提交宽度 | 全部 |
 | `ROB_SIZE` | 32 | ROB 条目数（2 的幂） | rob |
 | `RS_SIZE` | 8 | 保留站条目数 | rs |
 | `PRF_SIZE` | 64 | 物理寄存器数（2 的幂） | prf, rat, free_list, ready_table |
@@ -70,8 +70,8 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 | `BHT_SIZE` | 32 | 2-bit 饱和计数器数 | bht, fetch |
 | `RAS_SIZE` | 8 | 返回地址栈深度（有效深度 RAS_SIZE−1） | ras, fetch |
 | `ROLLBACK_WIDTH` | 4 | 回滚 walker 每拍撤销条数（与 W 解耦） | rat, free_list, ready_table |
-| `IC_SIZE` | 512 | I-cache 总容量（字节） | icache |
-| `IC_LINE_WORDS` | 8 | I-cache 行字数（2 的幂） | icache |
+| `IC_SIZE` | 1024 | I-cache 总容量（字节） | icache |
+| `IC_LINE_WORDS` | 8 | I-cache 行字数（2 的幂）；★ 取指批 = W 个字，`W ∤ LINE_WORDS` 时批会跨行装配（W=3 实测 18.3% 的批跨行，见 plan.md §3.50 §3） | icache |
 | `IC_BYPASS` / `IC_PREFETCH` | 0 / 1 | 交付一次即失效（每次都 miss 的归因对照）/ 顺需求行预取下一行 | icache |
 | `DC_SIZE` | 4096 | D-cache 总容量（字节；0 = 旁路） | dcache |
 | `DC_LINE_WORDS` | 16 | D-cache 行字数（2 的幂） | dcache |
