@@ -25,7 +25,8 @@ from datetime import date
 from pathlib import Path
 
 KEEP = ("report.json", "timing_values.json", "area.json", "area_report.json",
-        "report.txt", "critical_paths.json", "timing.rpt", "stat.json")
+        "report.txt", "critical_paths.json", "timing.rpt", "stat.json",
+        "abc.constr")   # 2026-10-14 加: 官方默认带 -constr ⇒ 这个文件就是"哪把尺子"的物证
 ALU_RE = re.compile(r"^.*creating \$(?:alu|macc|mul|add|sub) cell for (\S+).*$", re.M)
 COLS = ["tag", "date", "git_rev", "git_dirty", "params", "filelist", "flow", "area_um2",
         "seq_area_um2", "sram_area_um2", "min_period_ns", "fmax_mhz", "slack_ns",
