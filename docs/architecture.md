@@ -60,6 +60,9 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 默认值 = `verilog/top/student_top.v` 的 parameter 声明；子模块的同名 parameter 默认值只是占位，
 `student_top`/`cpu_top` 对每个实例都显式绑定。
 
+> 2026-10-17：工作区把 `ISSUE_WIDTH` 临时切回 **2** 做综合（dual2），上表其余值不变；提交默认仍为 3。
+> 两版 IPC：W3 **0.7959** / W2 **0.7766**（plan.md §1.1）。
+
 | 参数 | 默认 | 含义 | 使用模块 |
 |---|---|---|---|
 | `ISSUE_WIDTH` (W) | 3 | 取指/发射/执行/提交宽度 | 全部 |
