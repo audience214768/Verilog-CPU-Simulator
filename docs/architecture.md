@@ -71,7 +71,7 @@ student_top                       ← 官方顶层：19 个 AXI4-Lite 端口，r
 | `RAS_SIZE` | 8 | 返回地址栈深度（有效深度 RAS_SIZE−1） | ras, fetch |
 | `ROLLBACK_WIDTH` | 4 | 回滚 walker 每拍撤销条数（与 W 解耦） | rat, free_list, ready_table |
 | `IC_SIZE` | 1024 | I-cache 总容量（字节） | icache |
-| `IC_LINE_WORDS` | 8 | I-cache 行字数（2 的幂）；★ 取指批 = W 个字，`W ∤ LINE_WORDS` 时批会跨行装配（W=3 实测 18.3% 的批跨行，见 plan.md §3.50 §3） | icache |
+| `IC_LINE_WORDS` | 8 | I-cache 行字数（2 的幂）；★ 取指批 = W 个字，`W ∤ LINE_WORDS` 时批会跨行装配（W=3 实测 18.3% 的批跨行，见 plan.md §3.50） | icache |
 | `IC_BYPASS` / `IC_PREFETCH` | 0 / 1 | 交付一次即失效（每次都 miss 的归因对照）/ 顺需求行预取下一行 | icache |
 | `DC_SIZE` | 4096 | D-cache 总容量（字节；0 = 旁路） | dcache |
 | `DC_LINE_WORDS` | 16 | D-cache 行字数（2 的幂） | dcache |

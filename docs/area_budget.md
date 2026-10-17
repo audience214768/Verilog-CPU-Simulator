@@ -1,5 +1,8 @@
 # 面积预算与实测（ASAP7 7.5-track RVT TT）
 
+> **★ 参数轴已关闭**（用户 2026-10-17 裁定，见 `plan.md` §0）：本文件里的参数对照表只作**历史台账与面积模型标定**，
+> **不是候选方向**，不得据此提出调参。
+>
 > **口径**（官方，`docs/description.md` §评分标准与时间安排）：`make synth`（Yosys + ABC + OpenSTA，
 > `CLOCK_PERIOD_NS` 默认 **2.0 ns**）综合到 ASAP7 7.5-track RVT TT，**总面积 = 组合 + 时序 + SRAM 估算**；
 > SRAM 由 `sram_fakeram` 参数估算，**计入**总面积（禁止用寄存器组当内存）。
