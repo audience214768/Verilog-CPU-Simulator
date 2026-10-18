@@ -269,24 +269,49 @@ module mem_subsystem #(
     wire [31 : 0] dl_word_w  = dc_hit_valid ? dc_hit_word  : rd_resp_data;
     wire [LIW - 1 : 0] dl_idx_w = dc_hit_valid ? dc_hit_idx : ld_i_w;
 
-    // ★ 交付 mux 输出**不再打拍** (基线 C, 2026-10-15): 此处原是"刀 R"寄存器 (cutR 为切交付链
-    //   共同头名而插, 见 plan §3.26)。为抬 IPC 已整体短路 —— 完成脉冲与右旋/字节合并/宽度 mux
-    //   全部回到**与捕获同拍**。三条不可忘的口径 (插刀/拔刀都要照它复核):
-    //   · 端口级契约不变: "接受一个 load 恰好回一个 ld_done_valid"; `ld_busy` 必须组合不动
-    //     (那是"当场兑现"的承诺, 寄存即死锁, 见本文件头注释)。
-    //   · ★ SQ 快照安全性: 数组读拍 R_V → 交付捕获 R_V+1 → 合并拍 M_V。退休闸要求
-    //     `d(t) ≥ ticket ≥ i(R_V)` ⇒ 最早退休拍 t ≥ R_V+3。打拍时 M_V = R_V+2 ⇒ 裕量 **1 拍**;
-    //     本树短路后 M_V = R_V+1 ⇒ 裕量 **2 拍** (方向是更安全)。完整论证见 plan §3.26 末「过程中的一条教训」。
-    //     ⇒ 这条裕量是**插入同类寄存器的预算**: 仍可安全插回一级, 插到第三级才会踩穿
-    //     (退休先于合并 ⇒ 合并兜不住 ⇒ 静默算错)。T13 是对拍定向测试。
-    //   · SQ↔LSQ 接力: 本模块只合并"已进队"的 store (见第 4 节 344-351 行), 本拍提交的那条由
-    //     lsq.v 兜, 而 `lsq_invalidate` 是**寄存器** (cpu_top.v:360-363) ⇒ 同一条 store 在两边
-    //     重叠一拍: SQ 侧覆盖提交拍 C ≤ T, LSQ 侧覆盖 C ≥ T+1。换掉那个打拍会让缝裂开。
-    wire [31 : 0]      dl_addr_r  = dl_addr_w;
-    wire [31 : 0]      dl_word_r  = dl_word_w;
-    wire [1 : 0]       dl_width_r = dl_width_w;
-    wire [LIW - 1 : 0] dl_idx_r   = dl_idx_w;
-    wire               dl_valid_r = dl_cap_w;
+    // ★ 刀 R (2026-10-11, plan §2 T1): 交付链入口打一拍 —— 唯一能同时切掉两条共同头名的位置。
+    //   cutQ 头名族 (24 条 >5.0 ns, 终点全在 `ld_done_data_q`) 有两条共同头名: 宏读出口
+    //   (`u_mem.u_dc.u_arr.lane_*/rd_out`) 与 dcache §9 退休口 RMW 状态 (`rmw_rd1_r`/`rmw_v_r`),
+    //   两者在命中 way 选择处 (t≈1.87 ns) **汇合**, 其后 3.19 ns 完全共享 ⇒ 单点刀无用, 只能切
+    //   汇合点之后的公共段。本寄存器把上面这个交付 mux 的**输出**整体寄存 (stage1 到 D 端为止最短),
+    //   右旋 + 字节合并树 + 宽度 mux 全部改读 `dl_*_r` ⇒ 头名族被切成
+    //     stage1 = 宏读/退休口状态 → 命中比较·选通 → 交付 mux
+    //     stage2 = 右旋 + 8 目 max 归约 + 宽度 mux
+    //   两段都远低于第二档 (icache 填充族 4.5177) ⇒ 头名换族, 官方天花板 ≈4.58 ns / 218 MHz。
+    // 端口级契约不变: "接受一个 load 恰好回一个 ld_done_valid", 只是**晚一拍**; `ld_busy` 仍组合
+    //   不动 —— 那是"当场兑现"的承诺, 寄存即死锁 (见本文件头注释)。1 深寄存器无背压 ⇒ 每拍必排空
+    //   ⇒ 不吞脉冲、不改溢序 (完成序仍 = 接受序, ticket 口径依赖这一点)。
+    // ★ SQ 快照安全性 (合并发生在 T+1 而要的是 T 的口径): T 边上队列只可能 push 或 pop ——
+    //   · push 进来的条目**必比本 load 老** (提交前提 rob_ready: 它的数据比"本拍才到数据的 load"
+    //     早 ⇒ 本刀把完成再推后一拍只会更宽松), 合并它属**幂等/正确**, 且同一拍提交的那条本就由
+    //     lsq.v 的字节合并兜着 (见第 4 节 369-376 行的论证), 本刀让它更早进队 ⇒ 更稳;
+    //   · pop 被 ticket 兜住: 条目 E 的 ticket = 吸收/旁路那拍已接受的 load 数; 交付脉冲**本身也迟一拍**
+    //     ⇒ 计数满足 `d(t) ≤ i(t-3)` (t 拍已数到的脉冲 ⟺ 捕获在 t-2 边上 ⟺ 数组读 ≤ t-3; 每条被接受的
+    //     load 恰一个脉冲)。合并拍 M_V = R_V + 2, 而退休闸要求 d(t) ≥ ticket ≥ i(R_V) ⇒ 最早退休拍
+    //     t ≥ R_V + 3 = M_V + 1 ⇒ "可能读到旧行"的条目**不可能**在本 load 合并之前退休。
+    //     完整论证见 plan §2 T1 自查 ④ ⇒ 本刀不另加闸 (加闸反而把 rd_resp_valid 组合拉进 sq_ret_p,
+    //     且每个交付拍都卡队首)。T13 就是这条的对拍定向测试: load 在 store 可见之前被接受 ⇒ 合并非走不可。
+    //   ★★ 由此得一条硬约束: "数组读 → 合并"之间**还剩 1 拍裕量** —— 本级之后**再插一级**同类寄存器,
+    //     裕量降到 0: 退休与合并同拍仍安全 (退休在边沿生效, 合并是组合的); 插到**第三级**才真的踩穿
+    //     (退休先于合并 ⇒ 合并兜不住 ⇒ 静默算错)。
+    //   · SQ↔LSQ 接力也随之后移一拍且仍无缝: 本模块只合并"已进队"的 store (见第 4 节 369-376 行),
+    //     本拍提交的那条由 lsq.v 兜, 而 `lsq_invalidate` 是**寄存器** (cpu_top.v:374-377) ⇒ 同一条
+    //     store 在两边重叠一拍: SQ 侧覆盖提交拍 C ≤ T, LSQ 侧覆盖 C ≥ T+1。换掉那个打拍会让缝裂开。
+    reg  [31 : 0]      dl_addr_r, dl_word_r;
+    reg  [1 : 0]       dl_width_r;
+    reg  [LIW - 1 : 0] dl_idx_r;
+    reg                dl_valid_r;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) dl_valid_r <= 1'b0;
+        else        dl_valid_r <= dl_cap_w;
+    end
+    // 数据侧不复位 (valid=0 的那拍下游不看); 与 ld_addr_r/ld_idx_r 同款写法
+    always @(posedge clk) begin
+        dl_addr_r  <= dl_addr_w;
+        dl_width_r <= dl_width_w;
+        dl_word_r  <= dl_word_w;
+        dl_idx_r   <= dl_idx_w;
+    end
 
     assign ld_done_valid = dl_valid_r;
     assign ld_done_idx   = dl_idx_r;

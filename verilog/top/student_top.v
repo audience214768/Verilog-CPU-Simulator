@@ -6,38 +6,30 @@
 //   退出值由官方从机在 B 握手时从 WDATA 取 (sim.cpp:119-121), 故本模块不引出 ret_val。
 //   手写程序用的 TERM marker 判定保留 (OR 并存), 两条路径互不干扰。
 // 复位: 外部 reset 高有效 ⇒ 内部 rst_n = ~reset (异步低有效, 与 ASAP7 触发器一致)
-// 基准参数 = **基线 C ＋ T1a** (2026-10-15; C = 参数阶梯 t3q 的 q2 点 + 三把刀全部短路, 见 plan.md §1.1;
-//   T1a = 本文件 IC_SIZE 512→1024 与 ISSUE_WIDTH 2→3 两个旋钮, 见 plan.md §2 T1a):
-//   geo IPC **0.7959** (官方 make perf, 19/19 门禁通过, 2026-10-15); 逐程序 median 0.7624 / multiply 1.1208 /
-//   qsort 0.6959 / rsort 0.8127 / towers 0.6105 / vvadd 0.8614
-//   面积/频率 **从未综合**: 本树比唯一有综合数的 cutAA (10395.630 µm² / 412.24 MHz, 新尺) 结构全面更大,
-//   且三把刀短路方向对 fmax 是**负**的 ⇒ 阶段归属未定, 须综合复核 (plan.md §2 T0)
-//   三把刀 = load 交付链上三级流水寄存器改组合直连: 刀 R (`mem_subsystem.v` 的 `dl_*_r`) /
-//   刀 D/Q (`cpu_top.v` 的 `ld_done_*_q`) / 刀 A (`cpu_top.v` 的 load CDB 组); 合计 +13.9% IPC
-//   短路后各级必须保持的不变式写在两处 RTL 头注释里 —— **再插同类寄存器前先读那里**
-// ★ ISSUE_WIDTH=3 与 IC_LINE_WORDS=8 **不整除**: 取指批 = W 个字, 批基址步长 3 mod 8 走遍 0..7,
-//   偏移 6/7 的批要跨 I-cache 行装配 (实测占新批 18.3%, W=2 时只有 0.2%) ⇒ 最吃取指的 vvadd 反被
-//   拖慢 3.1% (median 0.7624 等其余五例净赚, geo 仍 +2.84%)。详见 plan.md §3.50 §3。
+// 基准参数 = **trio_rb8** (2026-10-18 用户裁定方案 ii 落地; cutAA2 RTL + 5 个参数):
+//   geo IPC **0.6756** (六例 0.6265/1.1522/0.5622/0.6148/0.5224/0.7292, 19/19)
+//   面积/频率 **14,920.575 µm² / 380.104 MHz** (官方新尺, 2026-10-18 综合)
+//   ★ 三把刀 = 真寄存器 (与 HEAD 的基线 C 相反); 再动交付链前先读 mem_subsystem.v / cpu_top.v 头注释
 module student_top #(
-    parameter ISSUE_WIDTH = 3,
+    parameter ISSUE_WIDTH = 2,
     parameter ROB_SIZE    = 32,
     parameter RS_SIZE     = 8,
     parameter PRF_SIZE    = 64,
-    parameter LSQ_SIZE    = 16,
-    parameter BHT_SIZE    = 32,
-    parameter RAS_SIZE     = 8,
-    parameter ROLLBACK_WIDTH = 4,    // 回滚 walker 每拍撤销的条目数 (与 ISSUE_WIDTH 解耦)
-    parameter IC_SIZE       = 1024,  // I-cache 总容量 (字节)
+    parameter LSQ_SIZE    = 8,
+    parameter BHT_SIZE    = 8,
+    parameter RAS_SIZE     = 4,
+    parameter ROLLBACK_WIDTH = 8,    // 回滚 walker 每拍撤销的条目数 (与 ISSUE_WIDTH 解耦)
+    parameter IC_SIZE       = 512,   // I-cache 总容量 (字节)
     parameter IC_LINE_WORDS = 8,     // I-cache 行字数 (2 的幂; 须 ≥ ISSUE_WIDTH)
     parameter IC_BYPASS     = 0,     // 1 = 交付一次即失效 ⇒ 每次访问都 miss (缺陷归因对照)
     parameter IC_PREFETCH   = 1,     // 1 = 顺需求行预取下一行
-    parameter DC_SIZE       = 4096,  // D-cache 总容量 (字节; 0 = 旁路)
+    parameter DC_SIZE       = 2048,  // D-cache 总容量 (字节; 0 = 旁路)
     parameter DC_LINE_WORDS = 16,    // D-cache 行字数 (2 的幂)
     parameter DC_WAYS       = 2,     // D-cache 相联度 (2 路: SRAM 面积不变, geo IPC +2.2%, 见 plan.md §十六)
     parameter DC_PREFETCH   = 2,     // D-cache 下一行预取: 0=关 1=需求缺失起填那拍预取下一行 2=每次命中交付那拍预取 (现行基线)
     parameter LD_INFLIGHT = 4,       // 在飞 load 上限
     parameter SQ_DEPTH    = 8,       // 已提交 store 队列深度
-    parameter RD_DEPTH    = 32,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
+    parameter RD_DEPTH    = 16,      // 读事务 FIFO 深度 (须 ≥ 2*IC_LINE_WORDS 且为 2 的幂, 见 mem_subsystem)
     parameter WR_DEPTH    = 8        // 写事务在途上限 (须 < 从机 AW/W FIFO 深度 = 16)
 ) (
     input  wire        clock,
