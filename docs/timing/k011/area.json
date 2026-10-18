@@ -1,0 +1,119 @@
+{
+  "mode": "opt",
+  "logic_area_um2": 14044.432860007442,
+  "sequential_area_um2": 3893.23908,
+  "combinational_area_um2": 10151.193780007443,
+  "sram_area_um2": 924.4606490000003,
+  "area_um2": 14968.893509007443,
+  "module_tree": {
+    "instance": "student_top",
+    "module": "student_top",
+    "source_module": "student_top",
+    "direct_area_um2": 14968.893509007443,
+    "direct": {
+      "logic_area_um2": 14044.432860007442,
+      "sequential_area_um2": 3893.23908,
+      "combinational_area_um2": 10151.193780007443,
+      "sram_area_um2": 924.4606490000003,
+      "area_um2": 14968.893509007443
+    },
+    "logic_area_um2": 14044.432860007442,
+    "sequential_area_um2": 3893.23908,
+    "combinational_area_um2": 10151.193780007443,
+    "sram_area_um2": 924.4606490000003,
+    "area_um2": 14968.893509007443,
+    "children": [],
+    "percent_of_total": 100.0
+  },
+  "sram_instances": [
+    {
+      "instance": "student_top/u_mem.u_dc.u_arr.lane_0",
+      "module": "fakeram_asap7_16x544",
+      "depth": 16,
+      "width": 544,
+      "area_um2": 365.484442
+    },
+    {
+      "instance": "student_top/u_mem.u_dc.u_arr.lane_1",
+      "module": "fakeram_asap7_16x544",
+      "depth": 16,
+      "width": 544,
+      "area_um2": 365.484442
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_0",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_1",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_2",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_3",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_4",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_5",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_6",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_7",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    },
+    {
+      "instance": "student_top/u_mem.u_ic.u_arr.lane_8",
+      "module": "fakeram_asap7_16x32",
+      "depth": 16,
+      "width": 32,
+      "area_um2": 21.499085
+    }
+  ],
+  "sram_model": {
+    "name": "fakeram-asap7-v1",
+    "upstream": "ABKGroup/FakeRAM2.0",
+    "commit": "49dad15badc28a55363813e105c830c7776fc588",
+    "estimated": true,
+    "area_per_bit_um2": 0.0419904,
+    "clock_to_q_formula_ns": "0.071262 + 0.0000167155 * depth + 0.001243254 * width",
+    "setup_ns": 0.05,
+    "hold_ns": 0.05,
+    "min_period_ns": 0.157
+  },
+  "timing_analyzed": true
+}
