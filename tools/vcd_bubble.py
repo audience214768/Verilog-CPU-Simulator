@@ -15,7 +15,9 @@
 写死会在放大 ROB 的变体上把"在飞若干条"误判成空。跑非 c2 波形时**必须**显式给。
 口径与自校验见 docs/plan.md 的 [§30] 里程碑; 数据表在 [§30]/[§31], 变体侧在 [§31]。
 [S3] 的"等存储"再分六类 (head=load 且未在飞): 在飞等回包 / D-cache 闸门 / miss 队列满 /
-本拍发射 / **退休窗口** (条目正被提交失效, 提交侧晚一拍) / 更老 store 未执行 (结构上不可达, 哨兵)。
+本拍发射 / **退休窗口** (条目正被提交失效, 提交侧晚一拍) / **完成→ready 尾拍**
+(done_r=1 但 ROB ready 未置位; 旧标签"更老 store 未执行"已证伪 —— head 的 store_ok[0] 恒 1,
+结构上不可能被更老 store 挡; tools/vcd_stblk.py 实测 towers/qsort 该类 100% 是 done_r=1)。
 取位口径: cand 是距离索引 (位 gd ↔ 条目 head+gd), 头条目自己的位是 cand[0] —— 见 §38.3a。
 """
 import sys
@@ -49,7 +51,8 @@ WANT = {
     # ★ M1 的**直接**上界: 有一条 load 已就绪 (cand) 但 D-cache 拒收 (ld_busy)。
     #   这才是"M1 放开闸门能救回多少拍"; 单看 dc_busy 占比会高估 (忙 ≠ 挡住别人)。
     U + 'u_lsq.cand': 'lq_cand',
-    # §38.3a: cand[0]==0 的例外拍是"条目正在退休"(提交失效延迟一拍) 还是"被更老 store 挡"?
+    # §38.3a: cand[0]==0 的例外拍是"条目正在退休"(提交失效延迟一拍) 还是"完成→ready 交付尾拍"?
+    # (后者由 tools/vcd_stblk.py 用 done_r 判定; "被更老 store 挡"对 head 不可能)
     U + 'u_lsq.invalidate': 'lq_inv',
     M + 'ld_busy': 'ld_busy',
     M + 'u_ic.fill_busy': 'ic_fill',
@@ -278,8 +281,9 @@ with open(path, 'r', errors='replace') as f:
                                         # (史: 2026-10-08 §38.3a 之前此处误取 cand[lh], 实测 vvadd/rsort 上
                                         #  100% 的 lm_stblk 判定都是读到了别的条目; 订正见 plan.md §38.3a)
                                         if not ((v['lq_cand'] >> 0) & 1):
-                                            # 头条目不可发: 提交失效晚到一拍 ⇒ 条目正在退休 (实测占 100%);
-                                            # 真正"被更老 store 挡" (cand[0]=0 且未失效) 结构上不可达, 留作哨兵
+                                            # 头条目不可发: 提交失效晚到一拍 ⇒ 条目正在退休;
+                                            # 未失效那支不是"被更老 store 挡"(结构上不可达), 而是
+                                            # done_r=1 等 ROB ready 的交付链尾拍 —— 见 vcd_stblk.py
                                             C['lm_ret'] += 1 if (v['lq_inv'] >> lh) & 1 else 0
                                             C['lm_stblk'] += 1 if not ((v['lq_inv'] >> lh) & 1) else 0
                                         elif v['dc_busy']:
@@ -397,7 +401,7 @@ q5 = lambda x: f"{x}({x*100//lm}%)"
 print(f"  [S3] 等存储 {C['ld_mem']} 拍 = 在飞等回包 {q5(C['lm_flight'])}"
       f" + D-cache 闸门 {q5(C['lm_dc'])} + miss 队列满 {q5(C['lm_occ'])}"
       f" + 本拍发射 {q5(C['lm_go'])} + 退休窗口 {q5(C['lm_ret'])}"
-      f" + 更老 store 未执行 {q5(C['lm_stblk'])}")
+      f" + 完成→ready 尾拍 {q5(C['lm_stblk'])}")
 _n, _m, _p50, _p90, _mx = hstat(HF)
 print(f"  [S3] head 在飞段长: {_n} 段, 均 {_m:.1f} 拍, 中位 {_p50}, p90 {_p90}, 最长 {_mx}")
 _h = hstat(HFB['hit'])
