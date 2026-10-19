@@ -383,40 +383,28 @@ module cpu_top #(
         if (!rst_n) lsq_invalidate <= {LSQ_SIZE{1'b0}};
         else        lsq_invalidate <= lsq_invalidate_c;
     end
-    // ---- load 完成口: 存储边界寄存一级 (刀 D, plan §22: 拆流水级, 靶 = §21.6 墙 ①) ----
-    // 墙 ① 的 64 级里, 存储侧 (dcache 填充/写回引擎 → mem_subsystem 的字节合并) 与消费侧 (lsq 的
-    // SQ 字节前向 + 符号扩展 → load_cdb 寄存器) 各占约一半, 故在边界断一刀。三件套必须整组同拍寄存
-    // (valid/idx 与 data 错开 = idx 配错数据)。端口级契约不变: 仍是"接受一个 load 恰好回一个
-    // ld_done_valid", 只是这一拍晚到; ld_busy **保持组合不动** —— 它是"当场兑现"的承诺
-    // (mem_subsystem.v:20-22), 寄存即死锁。
-    // 陈旧完成安全: lsq 的 issued_r 是完成与请求之间唯一的身份标识, 在飞条目即使 valid 被清也
-    // 不算死、槽位不可复用 (lsq.v 头注释 ②) ⇒ 多等一拍不会打到已被 push 复用的新条目。
-    // 复位与 mem_subsystem 同步断言 ⇒ 在飞 load 不跨复位存活 (两侧 issued/计数一起清)。
-    // ★ 刀 Q (2026-10-11): 同一拍**另寄存一份 one-hot** (`ld_done_oh_q`) 给 lsq 的索引读用 ——
-    //   4 位索引在 lsq 里要展开成"取哪个条目的地址/宽度/prd/rob_tag"的 16 选 1 宽译码, 索引 bit0
-    //   单脚驱动 120 脚、级 0~2 共 1.01 ns (头名家族 (c) 的 21%)。译码挪到本寄存器的 **D 端**
-    //   (与 `cpu_top.v` 提交口的 `lsq_oh` 同一写法), 索引位就只剩 16 个 2 输入比较器, 而且**越过
-    //   寄存器之后 abc 无法反推**"它是那个索引的 one-hot"(对下游组合锥它只是主输入) ⇒ 结构必保。
-    //   索引本身仍要寄存 (`ddi` 的年龄减法用) ⇒ 两个寄存器**同一 always 块同拍更新**(错拍 = 索引配错数据)。
-    //   one-hot 生效后完成脉冲不再需要单独寄存 valid (lsq 的选通一律走 `mem_done_oh`) ⇒ 原
-    //   `ld_done_valid_q` 与 lsq 的 `mem_done_valid` 端口一并净删 (各 1 个触发器/端口)。
-    reg [LW - 1 : 0] ld_done_idx_q;
-    reg [31 : 0]     ld_done_data_q;
-    reg [LSQ_SIZE - 1 : 0] ld_done_oh_q;
-    integer ldoh;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            ld_done_idx_q   <= {LW{1'b0}};
-            ld_done_data_q  <= 32'd0;
-            ld_done_oh_q    <= {LSQ_SIZE{1'b0}};
-        end else begin
-            ld_done_idx_q   <= ld_done_idx;
-            ld_done_data_q  <= ld_done_data;
-            // valid 折进 one-hot (与 `lsq_oh` 同款): "无完成"时全 0 ⇒ 下游 AND-OR 天然为 0
-            for (ldoh = 0; ldoh < LSQ_SIZE; ldoh = ldoh + 1)
-                ld_done_oh_q[ldoh] <= ld_done_valid && (ld_done_idx == ldoh[LW - 1 : 0]);
+    // ---- load 完成口: 存储边界 (刀 D/Q 原为"寄存一级", 基线 C 已短路; plan §3.12/§3.13) ----
+    // ★ 基线 C (2026-10-15) 已把这一级**短路** (为抬 IPC)。原改法: 墙 ① 的 64 级里, 存储侧
+    // (dcache 填充/写回引擎 → mem_subsystem 的字节合并) 与消费侧 (lsq 的 SQ 字节前向 + 符号扩展
+    // → load_cdb 寄存器) 各占约一半, 故在边界断一刀; 三件套必须整组同拍寄存 (valid/idx 与 data
+    // 错开 = idx 配错数据); 刀 Q 另寄存一份 one-hot `ld_done_oh_q` 给 lsq 的索引读用 (索引 bit0
+    // 单脚驱动 120 脚, 译码挪到 D 端后结构必保), 并因此净删了 `ld_done_valid_q` 与 lsq 的
+    // `mem_done_valid` 端口。现在三件套都与 `ld_done_*` 同拍组合展开 (one-hot 用 generate 展成
+    // `valid && idx==k`, 与打拍版逐位同义), 完成脉冲**不再单独寄存 valid** 这一条也照旧成立。
+    // 插回去时的三条不变量 (照抄, 不是形式要求): ① 三件套整组同拍; ② `ld_busy` **必须保持组合
+    // 不动** —— 它是"当场兑现"的承诺 (mem_subsystem.v:20-22), 寄存即死锁; ③ 端口级契约仍是
+    // "接受一个 load 恰好回一个 ld_done_valid"。陈旧完成安全: lsq 的 issued_r 是完成与请求之间
+    // 唯一的身份标识, 在飞条目即使 valid 被清也不算死、槽位不可复用 (lsq.v 头注释 ②); 复位两侧
+    // 同步断言 ⇒ 在飞 load 不跨复位存活。
+    wire [LW - 1 : 0]        ld_done_idx_q  = ld_done_idx;
+    wire [31 : 0]            ld_done_data_q = ld_done_data;
+    wire [LSQ_SIZE - 1 : 0]  ld_done_oh_q;
+    genvar ldoh;
+    generate
+        for (ldoh = 0; ldoh < LSQ_SIZE; ldoh = ldoh + 1) begin : lddone_oh
+            assign ld_done_oh_q[ldoh] = ld_done_valid && (ld_done_idx == ldoh);
         end
-    end
+    endgenerate
     lsq #(.ISSUE_WIDTH(ISSUE_WIDTH), .LSQ_SIZE(LSQ_SIZE), .PRF_SIZE(PRF_SIZE), .ROB_SIZE(ROB_SIZE)) u_lsq (
         .clk(clk), .rst_n(rst_n),
         .head(lsq_head_w), .last(lsq_last_w), .full(lsq_full), .free_count(lsq_free_w),
