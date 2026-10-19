@@ -34,7 +34,11 @@ WANT = {
     D + 'wb_cap_w': 'wbcap',
     D + 'rmw_rd_w': 'rmwrd',
     D + 'rmw_v_r': 'rmwv',
+    D + 'st_addr': 'sta',
     D + 'probe_steal_w': 'psteal',
+    D + 'stp_go_w': 'stpgo',
+    D + 'fcp_go_w': 'fcpgo',
+    D + 'pfp_go_w': 'pfpgo',
     D + 'fill_wr_w': 'fwrw',
     D + 'fill_wr_r': 'fwrr',
     D + 'fill_start_w': 'fstart',
@@ -63,7 +67,9 @@ prev = dict(v)
 C = dict(cyc=0, lk=0, rmwrd=0, rmwv=0, fwrw=0, fwrr=0, wbcap=0, psteal=0,
          sv=0, rmw_start=0)
 steal = {}
+pu = {}
 addrs = []
+rmw_addrs = []
 started = False
 with open(path, errors='replace') as f:
     for line in f:
@@ -83,6 +89,7 @@ with open(path, errors='replace') as f:
                     C['lk'] += 1
                 if v['rmwrd'] and not prev['rmwrd']:
                     C['rmw_start'] += 1
+                    rmw_addrs.append(v['sta'])
                 if v['sv']:
                     addrs.append(v['sa'])
                 lkb = v['lkv'] and not (v['hraw'] and not v['rspb']) and not v['msf']
@@ -93,7 +100,11 @@ with open(path, errors='replace') as f:
                     if prev['we'] and not prev['rmwv']: src.append('填充写')
                     if prev['wbcap']: src.append('wb_cap')
                     if prev['rmwrd']: src.append('RMW读')
-                    if prev['psteal']: src.append('probe抢')
+                    if prev['psteal']:
+                        src.append('probe抢')
+                        u = '+'.join(n for n, k in (('stp', 'stpgo'), ('fcp', 'fcpgo'),
+                                                    ('pfp', 'pfpgo')) if prev[k]) or '?'
+                        pu[u] = pu.get(u, 0) + 1
                     if prev['fstart']: src.append('fill_start')
                     key = '+'.join(src) if src else '未归因'
                     steal[key] = steal.get(key, 0) + 1
@@ -120,6 +131,9 @@ tot = sum(steal.values())
 print(f"查表读被偷 {tot} 拍归因:")
 for k, x in sorted(steal.items(), key=lambda kv: -kv[1]):
     print(f"  {k}: {x}({x * 100 // max(tot, 1)}%)")
+if pu:
+    print("  probe 抢的来源: " + ", ".join(
+        f"{k}:{x}" for k, x in sorted(pu.items(), key=lambda kv: -kv[1])))
 
 N = len(addrs)
 if N > 1:
@@ -137,3 +151,19 @@ if N > 1:
                 buf.append((ln, i))
         print(f"  K={K} 行缓冲(窗口 {WINDOW} 笔): RMW {ins} 次, 相对提交数省"
               f" {100 - ins * 100 // N}%")
+
+M = len(rmw_addrs)
+if M > 1:
+    print(f"真实 RMW 地址 {M} 笔 (只含走吸收路径的 store):")
+    for K in (1, 2, 4):
+        buf, ins = [], 0
+        for i, a in enumerate(rmw_addrs):
+            ln = a >> 6
+            buf = [(l, j) for (l, j) in buf if i - j <= WINDOW]
+            if not any(l == ln for (l, j) in buf):
+                ins += 1
+                if len(buf) >= K:
+                    buf.pop(0)
+                buf.append((ln, i))
+        print(f"  K={K} 行缓冲(窗口 {WINDOW} 笔): RMW {ins} 次, 省"
+              f" {100 - ins * 100 // M}% (相对 {M})")
