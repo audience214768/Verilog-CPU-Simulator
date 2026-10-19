@@ -1048,7 +1048,15 @@ module dcache #(
     //     从 8 拍收到 1 拍, `fill_wr_w` 也随之只剩末字那拍 ⇒ 若不显式补回这一项, 窗口是被
     //     粒度改写**顺手放宽**的, 与本注释的上一条理由无关。
     //   · `fill_wr_r` (落盘拍): 本拍有安装写, 会偷走新读 ⇒ 无谓降级 (与旧口径同款)。
-    assign busy = (lk_v_r && !hit_valid && !ms_fire_w) || (fill_busy_r && fill_rsp_valid) || fill_wr_r;
+    //   · `rmw_rd_w` (store 读相): 本拍 `rd_addr_w` 选中 `st_addr` (load 的读根本没发) ⇒ 当拍
+    //     接受的 load 吃 `rd_ok_r=0`; 更糟的是它的重放读正好落在下一拍写相 (A+2), 宏把 `rdata`
+    //     置 x ⇒ 再吃一次 `rd_ok_r=0`, A+5 才判得上。挡接受只让这条 load 晚一拍发出 (A+1 接受、
+    //     A+2 判定), 抵掉两次白绕。
+    //     ★ 只由寄存器/`st_addr` 决定 (不看 `rdata`/`lk_valid`) ⇒ 不引入组合环。
+    //     ★ 写相 (`rmw_v_r`) **不挡**: 那拍被偷只多绕一次 (+2 拍), 而挡接受是每笔 RMW 都
+    //       多停一拍; towers 实测挡写相净亏 0.5% (RMW 占 31% 全周期, 密 store 段挡不起)。
+    assign busy = (lk_v_r && !hit_valid && !ms_fire_w) || (fill_busy_r && fill_rsp_valid)
+               || fill_wr_r || rmw_rd_w;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -1265,9 +1273,13 @@ module dcache #(
     //   地址没换 ⇒ 下一拍 `st_tm_lat_w`=1 ⇒ 读相照发 (队首原地多等一拍, 不丢条目)。
     //   ★ 为什么**不**顺手把"合成"也搬到回包那拍 (刀 U 的反例, plan §3.31): 那会让 `fill_buf_r`
     //   256+ 个 enable 由活判决驱动 —— 单网 FO=308 / 1.4705 ns, 官方 218.66 → 199.11 MHz。
+    // ★ 让开重放读 (`!lk_replay_r`): 重放支**不看** `rd_ok_r` (它假定读一定发出), 读相偷它
+    //   就是白偷 —— 下一拍判 `rd_ok_r=0` 又重放, 与"读相被偷 + 写相再偷"同款双绕。
+    //   `lk_replay_r` 是寄存器 ⇒ 与 `busy ← rmw_rd_w` 无同拍环; 重放拍 `busy` 已被
+    //   `lk_v_r` 挡住接受, 故这里让一拍不会放进新 load。probe 的 `probe_hold_w` 早已含此项。
     assign rmw_rd_w     = st_valid && st_hit_lat_w && st_cacheable_w && !st_tm_live_w
                        && !rmw_rd1_r && !rmw_v_r && !fill_wr_r && !wb_cap_w
-                       && !fill_busy_r && !st_fill_same_w;
+                       && !fill_busy_r && !st_fill_same_w && !lk_replay_r;
     // ★ 写相**不再让路** (刀 M): `rmw_v_r` 只会在"下一拍没有安装落盘"时置位, 故写相与安装
     //   **结构上不同拍**, 写口四组选择端可以整个交给这根 FF。
     //   ★ 刀 O 之后连"下一拍有没有安装"都不必现算了: 读相被 `!fill_busy_r && !fill_start_w` 挡住
